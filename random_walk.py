@@ -1,5 +1,5 @@
 import os
-
+import SimpleITK as sitk
 import imageio
 import numpy as np
 import torch
@@ -138,6 +138,9 @@ def regularize_fissure_segmentation(image: nib.Nifti1Image, fissure_seg: nib.Nif
 def regularize(case):
     data_path = '/home/kaftan/FissureSegmentation/data'
     sequence = 'fixed'
+
+    print(f'REGULARIZATION of case {case}, {sequence}')
+
     lobes = regularize_fissure_segmentation(
         nib.load(os.path.join(data_path, f'{case}_img_{sequence}.nii.gz')),
         nib.load(os.path.join(data_path, f'{case}_fissures_{sequence}.nii.gz')),
@@ -180,6 +183,37 @@ def toy_example():
     plt.show()
 
 
+def toy_example_3d():
+    # create image with one diagonal plane (incomplete)
+    img = torch.zeros(128, 128, 128)
+    for i in range(128):
+        if 50 < i < 80 or not i % 4:
+            img[i, :, i] = 0
+        else:
+            img[i, :, i] = 1
+
+    # seed points above and below plane
+    seeds = torch.zeros_like(img, dtype=torch.long)
+    seeds[50:60, 70:80, 30:40] = 1
+    seeds[50:60, 70:80, 100:110] = 2
+
+    # random walk
+    L = compute_laplace_matrix(img.contiguous(), 'binary')
+    prob = random_walk(L, seeds.contiguous())
+    seg = prob.argmax(-1) + 1
+
+    # output
+    sitk.WriteImage(sitk.GetImageFromArray(img.numpy()), '../3D_RandomWalk_toy_example_img.nii.gz')
+    sitk.WriteImage(sitk.GetImageFromArray(seg.numpy()), '../3D_RandomWalk_toy_example_seg.nii.gz')
+    sitk.WriteImage(sitk.GetImageFromArray(seeds.numpy()), '../3D_RandomWalk_toy_example_seed.nii.gz')
+
+    ### DEBUG NOTES ###
+    # plane along 2 dimensions works!
+    # hole works too
+    # very incomplete boundaries are insufficient with binary weights
+
+
 if __name__ == '__main__':
     # toy_example()
-    regularize('EMPIRE02')
+    # regularize('EMPIRE02')
+    toy_example_3d()
