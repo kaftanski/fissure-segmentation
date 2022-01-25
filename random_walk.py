@@ -1,10 +1,9 @@
 import os
+
 import SimpleITK as sitk
 import imageio
-import numpy as np
 import torch
 import torch.nn.functional as F
-import nibabel as nib
 from matplotlib import pyplot as plt
 
 from utils_rw_scribble import sparse_cols, sparse_rows, sparseMultiGrid, overlay_segment, display_colours
@@ -101,12 +100,12 @@ def random_walk(L: torch.sparse.Tensor, labels: torch.Tensor, graph_mask: torch.
     return probabilities.view(*labels.shape, -1)
 
 
-def regularize_fissure_segmentation(image: nib.Nifti1Image, fissure_seg: nib.Nifti1Image, lung_mask: nib.Nifti1Image, lobe_scribbles: nib.Nifti1Image) -> nib.Nifti1Image:
+def regularize_fissure_segmentation(image: sitk.Image, fissure_seg: sitk.Image, lung_mask: sitk.Image, lobe_scribbles: sitk.Image) -> sitk.Image:
     # convert SimpleITK images to tensors
-    img_tensor = torch.from_numpy(image.get_fdata()).float()
-    graph_mask = torch.from_numpy(lung_mask.get_fdata()).float().contiguous()
-    seeds = torch.from_numpy(lobe_scribbles.get_fdata()).float().contiguous()
-    fissure_tensor = torch.from_numpy(fissure_seg.get_fdata()).float().contiguous()
+    img_tensor = torch.from_numpy(sitk.GetArrayFromImage(image)).float()
+    graph_mask = torch.from_numpy(sitk.GetArrayFromImage(lung_mask)).float()
+    seeds = torch.from_numpy(sitk.GetArrayFromImage(lobe_scribbles).astype(int)).float()
+    fissure_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissure_seg).astype(int)).float()
 
     # downscale images for faster computation
     target_size = 128
@@ -131,7 +130,8 @@ def regularize_fissure_segmentation(image: nib.Nifti1Image, fissure_seg: nib.Nif
     lobes = torch.where(condition=graph_mask.bool(), input=probabilities.argmax(0) + 1, other=0)  # background is set to zero
     # assert torch.all(seeds[seeds != 0] == lobes[seeds != 0]), 'Seed scribbles have changed label'
 
-    lobe_segmentation = nib.Nifti1Image(lobes.numpy(), image.affine, header=image.header)
+    lobe_segmentation = sitk.GetImageFromArray(lobes.numpy())
+    lobe_segmentation.CopyInformation(fissure_seg)
     return lobe_segmentation
 
 
@@ -142,12 +142,12 @@ def regularize(case):
     print(f'REGULARIZATION of case {case}, {sequence}')
 
     lobes = regularize_fissure_segmentation(
-        nib.load(os.path.join(data_path, f'{case}_img_{sequence}.nii.gz')),
-        nib.load(os.path.join(data_path, f'{case}_fissures_{sequence}.nii.gz')),
-        nib.load(os.path.join(data_path, f'{case}_mask_{sequence}.nii.gz')),
-        nib.load(os.path.join(data_path, f'{case}_lobescribbles_{sequence}.nii.gz'))
+        sitk.ReadImage(os.path.join(data_path, f'{case}_img_{sequence}.nii.gz')),
+        sitk.ReadImage(os.path.join(data_path, f'{case}_fissures_{sequence}.nii.gz')),
+        sitk.ReadImage(os.path.join(data_path, f'{case}_mask_{sequence}.nii.gz')),
+        sitk.ReadImage(os.path.join(data_path, f'{case}_lobescribbles_{sequence}.nii.gz'))
     )
-    nib.save(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+    sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
 
 
 def toy_example():
@@ -215,5 +215,5 @@ def toy_example_3d():
 
 if __name__ == '__main__':
     # toy_example()
-    # regularize('EMPIRE02')
-    toy_example_3d()
+    regularize('EMPIRE02')
+    # toy_example_3d()
