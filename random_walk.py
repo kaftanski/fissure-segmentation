@@ -46,7 +46,8 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
             val = torch.exp(-(torch.take(im, ii[:, 0]) - torch.take(im, ii[:, 1])).pow(2) / (2 * sigma ** 2))
         elif edge_weights == 'binary':
             # 1 if values are the same, 0 if not
-            val = (torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])).float()
+            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 0.9, 0.1)
+            # val = (torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])).float()
         else:
             raise ValueError(f'No edge weights named "{edge_weights}" known.')
 
@@ -101,6 +102,15 @@ def random_walk(L: torch.sparse.Tensor, labels: torch.Tensor, graph_mask: torch.
 
 
 def regularize_fissure_segmentation(image: sitk.Image, fissure_seg: sitk.Image, lung_mask: sitk.Image, lobe_scribbles: sitk.Image) -> sitk.Image:
+    # make fissure segmentation binary (disregard the 3 different fissures)
+    fissure_seg = sitk.BinaryThreshold(fissure_seg, upperThreshold=0.5, insideValue=0, outsideValue=1)
+
+    # post-process fissure segmentation (make it continuous)
+    fissure_seg = sitk.BinaryMorphologicalClosing(fissure_seg, kernelRadius=(2, 2, 2), kernelType=sitk.sitkBall)
+    # fissure_seg = sitk.Cast(fissure_seg, sitk.sitkFloat32)
+    # fissure_seg = sitk.DiscreteGaussian(fissure_seg, variance=10, maximumKernelWidth=50, useImageSpacing=True)
+    sitk.WriteImage(fissure_seg, '../fissure_postprocess.nii.gz')
+
     # convert SimpleITK images to tensors
     img_tensor = torch.from_numpy(sitk.GetArrayFromImage(image)).float()
     graph_mask = torch.from_numpy(sitk.GetArrayFromImage(lung_mask)).float()
@@ -154,6 +164,10 @@ def toy_example():
     data_path = '/home/kaftan/FissureSegmentation'
     img = torch.from_numpy(imageio.imread(os.path.join(data_path, 'toy_example.png'))).float()[..., 0]
     img[img != 0] = 255
+    for i in range(len(img)):
+        if not i % 10:
+            img[i, i] = 255
+
     lungmask = torch.from_numpy(imageio.imread(os.path.join(data_path, 'toy_example_lungmask.png'))).float()[..., 0]
     # plt.imshow(img)
     # plt.show()
@@ -187,7 +201,7 @@ def toy_example_3d():
     # create image with one diagonal plane (incomplete)
     img = torch.zeros(128, 128, 128)
     for i in range(128):
-        if 50 < i < 80 or not i % 4:
+        if not i % 16:
             img[i, :, i] = 0
         else:
             img[i, :, i] = 1
@@ -197,14 +211,19 @@ def toy_example_3d():
     seeds[50:60, 70:80, 30:40] = 1
     seeds[50:60, 70:80, 100:110] = 2
 
+    # mask of foreground pixels
+    mask = torch.zeros_like(img, dtype=torch.bool)
+    mask[10:110, 10:110, 10:110] = 1
+
     # random walk
     L = compute_laplace_matrix(img.contiguous(), 'binary')
-    prob = random_walk(L, seeds.contiguous())
+    prob = random_walk(L, seeds.contiguous(), mask)
     seg = prob.argmax(-1) + 1
+    seg = torch.where(mask, seg, 0)
 
     # output
-    sitk.WriteImage(sitk.GetImageFromArray(img.numpy()), '../3D_RandomWalk_toy_example_img.nii.gz')
-    sitk.WriteImage(sitk.GetImageFromArray(seg.numpy()), '../3D_RandomWalk_toy_example_seg.nii.gz')
+    sitk.WriteImage(sitk.GetImageFromArray(img.numpy()), '../3D_RandomWalk_toy_example_img_incomplete.nii.gz')
+    sitk.WriteImage(sitk.GetImageFromArray(seg.numpy()), '../3D_RandomWalk_toy_example_seg_incomplete.nii.gz')
     sitk.WriteImage(sitk.GetImageFromArray(seeds.numpy()), '../3D_RandomWalk_toy_example_seed.nii.gz')
 
     ### DEBUG NOTES ###
@@ -215,5 +234,5 @@ def toy_example_3d():
 
 if __name__ == '__main__':
     # toy_example()
-    regularize('EMPIRE02')
-    # toy_example_3d()
+    # regularize('EMPIRE02')
+    toy_example_3d()
