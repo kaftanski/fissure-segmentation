@@ -2,11 +2,13 @@ import os
 
 import SimpleITK as sitk
 import imageio
+import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from utils_rw_scribble import sparse_cols, sparse_rows, sparseMultiGrid, overlay_segment, display_colours
+from visualization import visualize_with_overlay
 
 
 def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torch.Tensor = None) -> torch.sparse.Tensor:
@@ -46,7 +48,7 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
             val = torch.exp(-(torch.take(im, ii[:, 0]) - torch.take(im, ii[:, 1])).pow(2) / (2 * sigma ** 2))
         elif edge_weights == 'binary':
             # 1 if values are the same, 0 if not
-            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 0.9, 0.1)
+            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 100., 0.01)
             # val = (torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])).float()
         else:
             raise ValueError(f'No edge weights named "{edge_weights}" known.')
@@ -197,6 +199,38 @@ def toy_example():
     plt.show()
 
 
+def toy_example_2d():
+    # create image with one diagonal line
+    img = torch.zeros(128, 128)
+    for i in range(128):
+        img[i, i] = 1
+    img[60:68, 60:68] = 0
+    # img[63, 63] = 0
+
+    # seed points above and below plane
+    sp = np.array([[0, 63], [80, 63]])
+    seeds = torch.zeros_like(img, dtype=torch.long)
+    seeds[sp[0, 0], sp[0, 1]] = 1
+    seeds[sp[1, 0], sp[1, 1]] = 2
+
+    # # mask of foreground pixels
+    # mask = torch.zeros_like(img, dtype=torch.bool)
+    # mask[10:110, 10:110, 10:110] = 1
+
+    # random walk
+    L = compute_laplace_matrix(img.contiguous(), 'binary')
+    prob = random_walk(L, seeds.contiguous())
+    seg = prob.argmax(-1) + 1
+    # seg = torch.where(mask, seg, 0)
+
+    # visualize
+    fig = plt.figure(dpi=300)
+    ax = fig.gca()
+    ax.scatter(sp[:, 1], sp[:, 0])
+    visualize_with_overlay(img.numpy(), seg.numpy(), title=f'Seeds: {sp[0].tolist()}, {sp[1].tolist()}', ax=ax)
+    plt.show()
+
+
 def toy_example_3d():
     # create image with one diagonal plane (incomplete)
     img = torch.zeros(128, 128, 128)
@@ -235,4 +269,5 @@ def toy_example_3d():
 if __name__ == '__main__':
     # toy_example()
     # regularize('EMPIRE02')
-    toy_example_3d()
+    # toy_example_3d()
+    toy_example_2d()
