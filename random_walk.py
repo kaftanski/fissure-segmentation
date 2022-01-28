@@ -48,7 +48,7 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
             val = torch.exp(-(torch.take(im, ii[:, 0]) - torch.take(im, ii[:, 1])).pow(2) / (2 * sigma ** 2))
         elif edge_weights == 'binary':
             # 1 if values are the same, 0 if not
-            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 100., 0.01)
+            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 10., 0.)
             # val = (torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])).float()
         else:
             raise ValueError(f'No edge weights named "{edge_weights}" known.')
@@ -147,16 +147,55 @@ def regularize_fissure_segmentation(image: sitk.Image, fissure_seg: sitk.Image, 
     return lobe_segmentation
 
 
+def simple_regularization(image: sitk.Image, fissure_seg: sitk.Image, lung_mask: sitk.Image, lobe_scribbles: sitk.Image) -> sitk.Image:
+    # post-process fissures
+    # make fissure segmentation binary (disregard the 3 different fissures)
+    fissure_seg_binary = sitk.BinaryThreshold(fissure_seg, upperThreshold=0.5, insideValue=0, outsideValue=1)
+
+    # create inverted lobe mask by combining fissures and not-lung
+    not_lobes = sitk.Or(sitk.Not(lung_mask), fissure_seg_binary)
+
+    # close some gaps
+    # not_lobes = sitk.BinaryMorphologicalClosing(not_lobes, kernelRadius=(2, 2, 2), kernelType=sitk.sitkBall)
+    not_lobes = sitk.BinaryDilate(not_lobes, kernelRadius=(4, 4, 4), kernelType=sitk.sitkBall)
+
+    # find connected components in lobes mask
+    lobes_mask = sitk.Not(not_lobes)
+    connected_component_filter = sitk.ConnectedComponentImageFilter()
+    lobes_components = connected_component_filter.Execute(lobes_mask)
+    print(connected_component_filter.GetObjectCount())
+
+    # find the biggest components (= the 5 lobes)
+    # shape_stats = sitk.LabelShapeStatisticsImageFilter()
+    # shape_stats.Execute(lobes_components)
+    # labels = torch.tensor(shape_stats.GetLabels())
+    # object_sizes = torch.tensor([shape_stats.GetPhysicalSize(l.item()) for l in labels])
+    # values, indices = torch.topk(object_sizes, k=5)
+
+    # sort objects by size
+    relabel_filter = sitk.RelabelComponentImageFilter()
+    relabel_filter.SetSortByObjectSize(True)
+    lobes_components_sorted = relabel_filter.Execute(lobes_components)
+    print(f'The 5 largest objects have sizes {relabel_filter.GetSizeOfObjectsInPhysicalUnits()[:5]}')
+
+    # extract the 5 biggest objects (the 5 lobes)
+    change_label_filter = sitk.ChangeLabelImageFilter()
+    change_label_filter.SetChangeMap({l: 0 for l in range(6, relabel_filter.GetOriginalNumberOfObjects() + 1)})
+    lobes_components_top5 = change_label_filter.Execute(lobes_components_sorted)
+
+    return lobes_components_top5
+
+
 def regularize(case):
     data_path = '/home/kaftan/FissureSegmentation/data'
     sequence = 'fixed'
 
     print(f'REGULARIZATION of case {case}, {sequence}')
 
-    lobes = regularize_fissure_segmentation(
+    lobes = simple_regularization(
         sitk.ReadImage(os.path.join(data_path, f'{case}_img_{sequence}.nii.gz')),
         sitk.ReadImage(os.path.join(data_path, f'{case}_fissures_{sequence}.nii.gz')),
-        sitk.ReadImage(os.path.join(data_path, f'{case}_mask_{sequence}.nii.gz')),
+        sitk.ReadImage(os.path.join(data_path, f'{case}_mask_{sequence}.nii.gz'), outputPixelType=sitk.sitkUInt8),
         sitk.ReadImage(os.path.join(data_path, f'{case}_lobescribbles_{sequence}.nii.gz'))
     )
     sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
@@ -204,6 +243,7 @@ def toy_example_2d():
     img = torch.zeros(128, 128)
     for i in range(128):
         img[i, i] = 1
+        img[min(127, i+1), i] = 1
     img[60:68, 60:68] = 0
     # img[63, 63] = 0
 
@@ -268,6 +308,6 @@ def toy_example_3d():
 
 if __name__ == '__main__':
     # toy_example()
-    # regularize('EMPIRE02')
+    regularize('EMPIRE01')
     # toy_example_3d()
-    toy_example_2d()
+    # toy_example_2d()
