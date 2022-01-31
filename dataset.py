@@ -2,7 +2,7 @@ import csv
 import os.path
 from glob import glob
 
-import nibabel as nib
+import SimpleITK as sitk
 import torch
 from torch.utils.data import Dataset
 
@@ -39,28 +39,35 @@ class LungData(Dataset):
 
         imgs = []
         fissures = []
-        masks = []
-        lms = []
-        filenames = []
         for i in item:
-            # remember the filename
-            filenames.append(self.images[i])
-
             # load the i-th image
-            img = nib.load(self.images[i])
+            img = sitk.ReadImage(self.images[i])
             imgs.append(img)
 
             # load the ground truth fissure segmentation, if available
             if self.fissures[i] is not None:
-                fissure = nib.load(self.fissures[i])
+                fissure = sitk.ReadImage(self.fissures[i])
             else:
                 fissure = None
             fissures.append(fissure)
 
-            # load the lung mask
-            mask = nib.load(self.lung_masks[i])
-            masks.append(mask)
+        if len(item) == 1:
+            imgs = imgs[0]
+            fissures = fissures[0]
 
+        return imgs, fissures
+
+    def __len__(self):
+        return len(self.images)
+
+    def get_landmarks(self, item):
+        if isinstance(item, int):
+            item = [item]
+
+        item = torch.arange(len(self))[item]
+
+        lms = []
+        for i in item:
             # load the reference landmarks, if available
             if self.landmarks[i] is not None:
                 lm = load_landmarks(self.landmarks[i])
@@ -69,22 +76,42 @@ class LungData(Dataset):
             lms.append(lm)
 
         if len(item) == 1:
-            imgs = imgs[0]
-            fissures = fissures[0]
-            masks = masks[0]
             lms = lms[0]
+
+        return lms
+
+    def get_lung_mask(self, item):
+        if isinstance(item, int):
+            item = [item]
+
+        item = torch.arange(len(self))[item]
+
+        masks = []
+        for i in item:
+            # load the lung mask
+            mask = sitk.ReadImage(self.lung_masks[i])
+            masks.append(mask)
+
+        if len(item) == 1:
+            masks = masks[0]
+
+        return masks
+
+    def get_filename(self, item):
+        if isinstance(item, int):
+            item = [item]
+
+        item = torch.arange(len(self))[item]
+
+        filenames = []
+        for i in item:
+            # remember the filename
+            filenames.append(self.images[i])
+
+        if len(item) == 1:
             filenames = filenames[0]
 
-        result = {'img': imgs,
-                  'mask': masks,
-                  'fissures': fissures,
-                  'lms': lms,
-                  'filenames': filenames}
-
-        return result
-
-    def __len__(self):
-        return len(self.images)
+        return filenames
 
 
 def load_landmarks(filepath):
