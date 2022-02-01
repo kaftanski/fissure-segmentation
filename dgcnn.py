@@ -56,6 +56,9 @@ class DGCNNSeg(nn.Module):
             SharedFullyConnected(128, num_classes, dim=1)
         )
 
+        self.apply(init_weights)
+        self.spatial_transformer.init_weights()
+
     def forward(self, x):
         """
 
@@ -154,9 +157,6 @@ class SpatialTransformer(nn.Module):
         )
         self.transform = nn.Linear(256, in_features * in_features)
 
-        init.constant_(self.transform.weight, 0)
-        init.eye_(self.transform.bias.view(3, 3))
-
     def forward(self, x):
         transform_mat = self.ec(x)
         transform_mat = self.shared_fc(transform_mat)
@@ -165,6 +165,19 @@ class SpatialTransformer(nn.Module):
         transform_mat = self.transform(transform_mat)
         transform_mat = transform_mat.view(x.shape[0], self.in_features, self.in_features)
         return torch.bmm(x.transpose(2, 1), transform_mat).transpose(2, 1)
+
+    def init_weights(self):
+        self.apply(init_weights)
+        init.constant_(self.transform.weight, 0)
+        init.eye_(self.transform.bias.view(3, 3))
+
+
+def init_weights(m):
+    if isinstance(m, (nn.modules.conv._ConvNd, nn.Linear)):
+        print(type(m))
+        nn.init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
 
 
 if __name__ == '__main__':
