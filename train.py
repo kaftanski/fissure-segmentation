@@ -34,8 +34,17 @@ def train(args):
     dim = train_ds[0][0].shape[0]
 
     # network
-    feat_patch_radius = 0 if args.feat == 'coords' else 3
-    in_features = feat_patch_radius**dim + dim if args.feat in ['coords', 'both'] else 0
+    in_features = 0
+    if args.patch:
+        print('Using image patch around points as features')
+        print('NOT IMPLEMENTED YET')
+        radius = 3
+        in_features += radius ** dim
+
+    if args.coords:
+        print('Using point coordinates as features')
+        in_features += dim
+
     net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=args.classes)
     net.to(args.device)
 
@@ -124,7 +133,8 @@ if __name__ == '__main__':
     parser.add_argument('--data', default='/home/kaftan/FissureSegmentation/point_data/', help='data path')
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation')
     parser.add_argument('--pts', default=1024, help='number of points per forward pass')
-    parser.add_argument('--feat', default='coords', help='type of input features', choices=['coords', 'patch', 'both'])
+    parser.add_argument('--coords', const=True, default=False, help='use point coords as features')
+    parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features')
     parser.add_argument('--classes', default=4, help='number of classes (including background)')
     parser.add_argument('--batch', default=4, help='batch size')
     parser.add_argument('--output', default='./results', help='output data path')
