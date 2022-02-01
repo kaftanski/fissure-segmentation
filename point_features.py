@@ -1,13 +1,38 @@
+import glob
 import os.path
 import time
 
-import csv
+import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
-import SimpleITK as sitk
 from matplotlib import pyplot as plt
+from torch.utils.data import Dataset
 
 from data import LungData
+
+
+class PointDataset(Dataset):
+    def __init__(self, folder, sample_points):
+        files = sorted(glob.glob(os.path.join(folder, '*_points_*')))
+        self.sample_points = sample_points
+        self.points = []
+        self.labels = []
+        for file in files:
+            case, _, sequence = file.split('/')[-1].split('_')
+            sequence = sequence.split('.')[0]
+            pts, lbls = load_points(folder, case, sequence)
+            self.points.append(pts)
+            self.labels.append(lbls)
+
+    def __getitem__(self, item):
+        # randomly sample points
+        pts = self.points[item]
+        lbls = self.labels[item]
+        sample = torch.randperm(pts.shape[1])[:self.sample_points]
+        return pts[:, sample], lbls[sample]
+
+    def __len__(self):
+        return len(self.points)
 
 
 def filter_1d(img, weight, dim, padding_mode='replicate'):
@@ -81,7 +106,7 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor):
     # mask result to roi
     keypoints_masked = torch.nonzero(keypoints.view(D.shape) * roi, as_tuple=False)
 
-    print('Took {:.4f}s to compute keypoints'.format(time.time() - start))
+    print('took {:.4f}s to compute keypoints'.format(time.time() - start))
 
     # Choose slice to visualize:
     chosen_slice = 200
@@ -100,6 +125,10 @@ def preprocess_point_features(data_path, output_path):
     ds = LungData(data_path)
 
     for i in range(len(ds)):
+        case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
+        sequence = sequence.replace('.nii.gz', '')
+        print(f'Computing points for case {case}, {sequence}...')
+
         img, fissures = ds[i]
         if fissures is None:
             continue
@@ -118,35 +147,21 @@ def preprocess_point_features(data_path, output_path):
         spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0)
         kp = kp * spacing
 
-        case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
-        sequence = sequence.replace('.nii.gz', '')
-        save_points(kp, labels, output_path, case, sequence)
+        # save points
+        save_points(kp.transpose(0, 1), labels, output_path, case, sequence)
 
 
 def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
-    with open(os.path.join(path, f'{case}_points_{sequence}.csv'), 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        for point in points:
-            writer.writerow([p.item() for p in point])
-
-    with open(os.path.join(path, f'{case}_labels_{sequence}.csv'), 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(labels.tolist())
+    torch.save(points, os.path.join(path, f'{case}_points_{sequence}.pth'))
+    torch.save(labels, os.path.join(path, f'{case}_labels_{sequence}.pth'))
 
 
 def load_points(path: str, case: str, sequence: str = 'fixed'):
-    points = []
-    with open(os.path.join(path, f'{case}_points_{sequence}.csv'), 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        for row in reader:
-            points.append(torch.tensor([eval(p) for p in row]))
-
-    with open(os.path.join(path, f'{case}_labels_{sequence}.csv'), 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        labels = next(iter(reader))
-
-    return torch.stack(points, dim=0), torch.tensor(torch.tensor([eval(l) for l in labels]))
+    return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth')), \
+           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'))
 
 
 if __name__ == '__main__':
     preprocess_point_features('/home/kaftan/FissureSegmentation/data', '/home/kaftan/FissureSegmentation/point_data')
+    # ds = PointDataset('/home/kaftan/FissureSegmentation/point_data')
+    # print(ds[0])

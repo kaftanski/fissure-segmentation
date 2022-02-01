@@ -12,12 +12,11 @@ def create_neighbor_features(features: torch.Tensor, k: int) -> torch.Tensor:
     """
     # for each point cloud
     neighbor_features = []
-    for pc in features:
+    for pc in features:  # TODO: parallelize this!
         # pairwise differences of all points
         pairwise_differences = (pc.unsqueeze(1) - pc.unsqueeze(2))
 
         # k nearest neighbors on pairwise distances
-
         _, knn_indices = torch.topk(pairwise_differences.pow(2).sum(0), k+1, dim=1, largest=False)
         knn_indices = knn_indices[:, 1:]  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
 
