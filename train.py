@@ -4,6 +4,7 @@ from copy import deepcopy
 import os
 
 from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 from torch import nn
 import torch
 import argparse
@@ -25,6 +26,25 @@ def batch_dice(prediction, target, n_labels):
     return dice.mean(0).cpu()
 
 
+def visualize_point_cloud(points, labels):
+    """
+
+    :param points: point cloud with N points, shape: (3 x N)
+    :param labels: label for each point, shape (N)
+    :return:
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    points = points.cpu()
+    ax.scatter(points[0], points[1], points[2], c=labels.cpu(), cmap='tab20', marker='.')
+    ax.view_init(elev=100., azim=-60.)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    plt.show()
+
+
 def train(args):
     # load data
     if args.data == 'fissures':
@@ -38,7 +58,7 @@ def train(args):
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, drop_last=True)
-    valid_dl = DataLoader(valid_ds, batch_size=args.batch)
+    valid_dl = DataLoader(valid_ds, batch_size=args.batch, shuffle=False)
 
     dim = train_ds[0][0].shape[0]
 
@@ -67,6 +87,7 @@ def train(args):
     valid_dice = torch.zeros_like(train_dice)
     best_model = None
     best_epoch = 0
+    every_n_epochs = 10
     for epoch in range(args.epochs):
         # TRAINING
         net.train()
@@ -110,6 +131,10 @@ def train(args):
         if valid_dice[epoch, :].mean() >= valid_dice[best_epoch, :].mean():
             best_model = deepcopy(net.state_dict())
             best_epoch = epoch
+
+        # visualization
+        if not (epoch + 1) % every_n_epochs:
+            visualize_point_cloud(pts[0], out.argmax(1)[0])
 
     # training plot
     plt.figure()
@@ -200,5 +225,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
-    # train(args)
+    train(args)
     test(args)
