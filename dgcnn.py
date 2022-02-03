@@ -1,3 +1,5 @@
+import time
+
 import torch
 from torch import nn
 from torch.nn import init
@@ -10,24 +12,19 @@ def create_neighbor_features(features: torch.Tensor, k: int) -> torch.Tensor:
     :param k: k nearest neighbors that are considered as edges for the graph
     :return: edge features per point, shape: (point cloud batch x features x points x k)
     """
-    # for each point cloud
-    neighbor_features = []
-    for pc in features:  # TODO: parallelize this!
-        # pairwise differences of all points
-        pairwise_differences = (pc.unsqueeze(1) - pc.unsqueeze(2))
+    # pairwise differences of all points
+    pairwise_differences = (features.unsqueeze(2) - features.unsqueeze(3))
 
-        # k nearest neighbors on pairwise distances
-        _, knn_indices = torch.topk(pairwise_differences.pow(2).sum(0), k+1, dim=1, largest=False)
-        knn_indices = knn_indices[:, 1:]  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+    # k nearest neighbors on pairwise distances
+    _, knn_indices = torch.topk(pairwise_differences.pow(2).sum(1), k+1, dim=2, largest=False)
+    knn_indices = knn_indices[..., 1:]  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
 
-        # pick relative feature
-        edge_features = torch.gather(pairwise_differences, dim=-1,
-                                     index=knn_indices.unsqueeze(0).repeat(pairwise_differences.shape[0], 1, 1))
+    # pick relative feature
+    edge_features = torch.gather(pairwise_differences, dim=-1,
+                                 index=knn_indices.unsqueeze(1).repeat(1, pairwise_differences.shape[1], 1, 1))
 
-        # assemble edge features
-        neighbor_features.append(torch.cat([pc.unsqueeze(-1).repeat(1, 1, k), edge_features], dim=0))
-
-    return torch.stack(neighbor_features, dim=0)
+    # assemble edge features (local and relative features)
+    return torch.cat([features.unsqueeze(-1).repeat(1, 1, 1, k), edge_features], dim=1)
 
 
 class DGCNNSeg(nn.Module):
@@ -174,7 +171,6 @@ class SpatialTransformer(nn.Module):
 
 def init_weights(m):
     if isinstance(m, (nn.modules.conv._ConvNd, nn.Linear)):
-        print(type(m))
         nn.init.xavier_normal_(m.weight)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)
@@ -182,8 +178,12 @@ def init_weights(m):
 
 if __name__ == '__main__':
     # test network
-    test_points = torch.arange(32).view(1, 1, 32).repeat(2, 3, 1).float()
+    # test_points = torch.arange(32).view(1, 1, 32).repeat(2, 3, 1).float()
+    test_points = torch.randn(8, 3, 1024).to('cuda:2')
 
-    dgcnn = DGCNNSeg(k=5, in_features=3, num_classes=5)
-    print(dgcnn)
+    start = time.time()
+    par = create_neighbor_features(test_points, k=20)
+    print(time.time() - start)
+
+    dgcnn = DGCNNSeg(k=5, in_features=3, num_classes=5).to('cuda:2')
     result = dgcnn(test_points)
