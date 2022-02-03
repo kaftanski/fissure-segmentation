@@ -5,8 +5,25 @@ from torch import nn
 from torch.nn import init
 
 
-def create_neighbor_features(features: torch.Tensor, k: int) -> torch.Tensor:
+def create_neighbor_features(x: torch.Tensor, k: int) -> torch.Tensor:
+    """ Fast implementation of dynamic graph feature computation, needs a lot more VRAM though.
+
+    :param x: features per point, shape: (point cloud batch x features x points)
+    :param k: k nearest neighbors that are considered as edges for the graph
+    :return: edge features per point, shape: (point cloud batch x features x points x k)
     """
+    # k nearest neighbors in feature space
+    knn_indices = knn(x, k+1)[..., 1:]  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+    knn_indices = knn_indices.reshape(knn_indices.shape[0], -1)
+    neighbor_features = torch.take_along_dim(x, indices=knn_indices.unsqueeze(1), dim=-1).view(*x.shape, k)
+
+    # assemble edge features (local and relative features)
+    x = x.unsqueeze(-1).repeat(1, 1, 1, k)
+    return torch.cat([neighbor_features - x, x], dim=1)
+
+
+def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tensor:
+    """ Fast implementation of dynamic graph feature computation, needs a lot more VRAM though.
 
     :param features: features per point, shape: (point cloud batch x features x points)
     :param k: k nearest neighbors that are considered as edges for the graph
@@ -25,6 +42,15 @@ def create_neighbor_features(features: torch.Tensor, k: int) -> torch.Tensor:
 
     # assemble edge features (local and relative features)
     return torch.cat([features.unsqueeze(-1).repeat(1, 1, 1, k), edge_features], dim=1)
+
+
+def knn(x, k):
+    inner = -2 * torch.matmul(x.transpose(2, 1), x)
+    xx = torch.sum(x ** 2, dim=1, keepdim=True)
+    pairwise_distance = -xx - inner - xx.transpose(2, 1)
+
+    idx = pairwise_distance.topk(k=k, dim=-1)[1]  # (batch_size, num_points, k)
+    return idx
 
 
 class DGCNNSeg(nn.Module):
@@ -179,11 +205,11 @@ def init_weights(m):
 if __name__ == '__main__':
     # test network
     # test_points = torch.arange(32).view(1, 1, 32).repeat(2, 3, 1).float()
-    test_points = torch.randn(8, 3, 1024).to('cuda:2')
+    test_points = torch.randn(32, 3, 1024).to('cuda:2')
 
     start = time.time()
-    par = create_neighbor_features(test_points, k=20)
+    own = create_neighbor_features_fast(test_points, k=20)
     print(time.time() - start)
 
-    dgcnn = DGCNNSeg(k=5, in_features=3, num_classes=5).to('cuda:2')
+    dgcnn = DGCNNSeg(k=20, in_features=3, num_classes=5).to('cuda:2')
     result = dgcnn(test_points)
