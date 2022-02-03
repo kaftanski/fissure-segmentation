@@ -12,7 +12,7 @@ from data import LungData
 
 
 class PointDataset(Dataset):
-    def __init__(self, folder, sample_points):
+    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/'):
         files = sorted(glob.glob(os.path.join(folder, '*_points_*')))
         self.sample_points = sample_points
         self.points = []
@@ -124,6 +124,8 @@ def preprocess_point_features(data_path, output_path):
 
     ds = LungData(data_path)
 
+    # TODO: reduce number of points (~8k instead of 1-2 M)
+    #   transform points into unit sphere
     for i in range(len(ds)):
         case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
         sequence = sequence.replace('.nii.gz', '')

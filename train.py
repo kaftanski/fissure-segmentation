@@ -8,6 +8,8 @@ from torch import nn
 import torch
 import argparse
 from torch.utils.data import random_split, DataLoader
+
+from data import FaustDataset
 from point_features import PointDataset
 from dgcnn import DGCNNSeg
 
@@ -25,7 +27,14 @@ def batch_dice(prediction, target, n_labels):
 
 def train(args):
     # load data
-    ds = PointDataset(args.data, args.pts)
+    if args.data == 'fissures':
+        ds = PointDataset(args.pts)
+    elif args.data == 'faust':
+        ds = FaustDataset(args.pts)
+    else:
+        print(f'No data set named "{args.data}". Exiting.')
+        return
+
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, drop_last=True)
@@ -45,7 +54,7 @@ def train(args):
         print('Using point coordinates as features')
         in_features += dim
 
-    net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=args.classes)
+    net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes)
     net.to(args.device)
 
     # training setup
@@ -54,7 +63,7 @@ def train(args):
 
     train_loss = torch.zeros(args.epochs)
     valid_loss = torch.zeros_like(train_loss)
-    train_dice = torch.zeros(args.epochs, args.classes)
+    train_dice = torch.zeros(args.epochs, ds.num_classes)
     valid_dice = torch.zeros_like(train_dice)
     best_model = None
     best_epoch = 0
@@ -74,7 +83,7 @@ def train(args):
 
             # statistics
             train_loss[epoch] += loss.item() / len(train_dl)
-            train_dice[epoch] += batch_dice(out.argmax(1), lbls, args.classes) / len(train_dl)
+            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(train_dl)
 
         # VALIDATION
         net.eval()
@@ -91,14 +100,14 @@ def train(args):
 
             # statistics
             valid_loss[epoch] += loss.item() / len(valid_dl)
-            valid_dice[epoch] += batch_dice(out.argmax(1), lbls, args.classes) / len(valid_dl)
+            valid_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(valid_dl)
 
         # status output
-        print(f'[{epoch:3}] train: {train_loss[epoch]:.4f} loss, {train_dice[epoch]} dice\n'
-              f'      valid: {valid_loss[epoch]:.4f} loss, {valid_dice[epoch]} dice')
+        print(f'[{epoch:3}] TRAIN: {train_loss[epoch]:.4f} loss, dice {train_dice[epoch]}, mean {train_dice[epoch, :].mean()}\n'
+              f'      VALID: loss {valid_loss[epoch]:.4f}, dice {valid_dice[epoch]}, mean {valid_dice[epoch, :].mean()}')
 
         # save best snapshot
-        if valid_dice[epoch, 1:].mean() >= valid_dice[best_epoch, 1:].mean():
+        if valid_dice[epoch, :].mean() >= valid_dice[best_epoch, :].mean():
             best_model = deepcopy(net.state_dict())
             best_epoch = epoch
 
@@ -107,7 +116,7 @@ def train(args):
     plt.title(f'Training Progression. Best model from epoch {best_epoch}.')
     plt.plot(train_loss, c='b', label='train loss')
     plt.plot(valid_loss, c='r', label='validation loss')
-    plt.plot(valid_dice[:, 1:].mean(1), c='g', label='mean validation dice (w/o background)')
+    plt.plot(valid_dice[:, :].mean(1), c='g', label='mean validation dice')
     plt.legend()
     plt.savefig(os.path.join(args.output, f"training_progression.png"))
     plt.close()
@@ -125,20 +134,71 @@ def train(args):
         writer.writerow(setup_dict)
 
 
+def test(args):
+    # load data
+    # TODO: test-split
+    if args.data == 'fissures':
+        ds = PointDataset(args.pts)
+    elif args.data == 'faust':
+        ds = FaustDataset(args.pts)
+    else:
+        print(f'No data set named "{args.data}". Exiting.')
+        return
+
+    dim = ds[0][0].shape[0]
+
+    # load model
+    in_features = 0
+    if args.patch:
+        print('Using image patch around points as features')
+        print('NOT IMPLEMENTED YET')
+        radius = 3
+        in_features += radius ** dim
+
+    if args.coords:
+        print('Using point coordinates as features')
+        in_features += dim
+
+    net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes)
+    net.to(args.device)
+    net.load_state_dict(torch.load(os.path.join(args.output, 'model.pth')))
+    net.eval()
+
+    test_dice = torch.zeros(ds.num_classes)
+    for pts, lbls in ds:
+        pts = pts.unsqueeze(0).to(args.device)
+        lbls = lbls.unsqueeze(0).to(args.device)
+
+        with torch.no_grad():
+            out = net(pts)
+
+        test_dice += batch_dice(out.argmax(1), lbls, ds.num_classes)
+
+    test_dice /= len(ds)
+
+    print(f'Test dice per class: {test_dice}')
+
+    # output file
+    with open(os.path.join(args.output, 'test_results.csv'), 'w') as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
+        writer.writerow(['Test Dice'] + [d.item() for d in test_dice] + [test_dice.mean()])
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
-    parser.add_argument('--epochs', default=100, help='max. number of epochs')
-    parser.add_argument('--lr', default=1e-3, help='learning rate')
-    parser.add_argument('--device', default='cuda:2', help='device to train on')
-    parser.add_argument('--data', default='/home/kaftan/FissureSegmentation/point_data/', help='data path')
-    parser.add_argument('--k', default=20, help='number of neighbors for graph computation')
-    parser.add_argument('--pts', default=1024, help='number of points per forward pass')
-    parser.add_argument('--coords', const=True, default=False, help='use point coords as features')
-    parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features')
-    parser.add_argument('--classes', default=4, help='number of classes (including background)')
-    parser.add_argument('--batch', default=4, help='batch size')
-    parser.add_argument('--output', default='./results', help='output data path')
+    parser.add_argument('--epochs', default=100, help='max. number of epochs', type=int)
+    parser.add_argument('--lr', default=1e-3, help='learning rate', type=float)
+    parser.add_argument('--device', default='cuda:2', help='device to train on', type=str)
+    parser.add_argument('--data', help='data set', type=str, choices=['fissures', 'faust'])
+    parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
+    parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
+    parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
+    parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features', nargs='?')
+    parser.add_argument('--batch', default=4, help='batch size', type=int)
+    parser.add_argument('--output', default='./results', help='output data path', type=str)
     args = parser.parse_args()
     print(args)
 
-    train(args)
+    # train(args)
+    test(args)
