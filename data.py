@@ -3,8 +3,36 @@ import os.path
 from glob import glob
 
 import SimpleITK as sitk
+import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+
+class FaustDataset(Dataset):
+    def __init__(self, sample_points, points_folder='/share/data_sam1/bigalke/datasets/faust/training/registrations/',
+                 label_file='/share/data_sam1/bigalke/datasets/faust/training/body_part_labels.npy'):
+        self.sample_points = sample_points
+
+        # load point clouds
+        filenames = glob(os.path.join(points_folder, '*.npy'))
+        self.point_clouds = []
+        for file in filenames:
+            pts = torch.from_numpy(np.load(file)).T
+            self.point_clouds.append(pts.float())
+
+        # load label file (same for all point clouds, 1-to-1 correspondence)
+        self.labels = torch.from_numpy(np.load(label_file)).long() - 1  # labels in range 0..14
+
+        self.num_classes = len(torch.unique(self.labels))
+
+    def __getitem__(self, item):
+        # randomly sample points
+        pts = self.point_clouds[item]
+        sample = torch.randperm(pts.shape[1])[:self.sample_points]
+        return pts[:, sample], self.labels[sample]
+
+    def __len__(self):
+        return len(self.point_clouds)
 
 
 class LungData(Dataset):
@@ -30,6 +58,8 @@ class LungData(Dataset):
                     self.fissures.insert(i, None)
             except IndexError:
                 self.fissures.insert(i, None)
+
+        self.num_classes = 4
 
     def __getitem__(self, item):
         if isinstance(item, int):
