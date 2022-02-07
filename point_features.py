@@ -141,7 +141,7 @@ def preprocess_point_features(data_path, output_path):
     ds = LungData(data_path)
 
     # hyperparameters
-    sigma = 1.4
+    sigma = 0.5
     threshold = 1e-8
 
     for i in range(len(ds)):
@@ -162,13 +162,13 @@ def preprocess_point_features(data_path, output_path):
         img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
         mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device)
         kp = foerstner.foerstner_kpts(img_tensor, mask_tensor, sigma=sigma, thresh=threshold)
-        print(f'Found {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
+        print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
 
         fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures).astype(int)).to(device)
 
         # get label for each point
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
-        print(f'keypoints per label: {labels.unique(return_counts=True)[1]}')
+        print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
         # transform indices into physical points  # TODO: resample images to 1x1x1 spacing (before kp-detection)
         spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
