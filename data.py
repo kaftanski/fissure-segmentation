@@ -42,6 +42,7 @@ class LungData(Dataset):
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
         self.landmarks = sorted(glob(os.path.join(folder, '*_lms_*.csv')))
         self.fissures = sorted(glob(os.path.join(folder, '*_fissures_*.nii.gz')))
+        self.lobescribbles = sorted(glob(os.path.join(folder, '*_lobescribbles_*.nii.gz')))
 
         # fill missing landmarks and fissure segmentations with None
         for i, img in enumerate(self.images):
@@ -58,6 +59,13 @@ class LungData(Dataset):
                     self.fissures.insert(i, None)
             except IndexError:
                 self.fissures.insert(i, None)
+
+            lobes_file = img.replace('_img_', '_lobescribbles_')
+            try:
+                if lobes_file != self.lobescribbles[i]:
+                    self.lobescribbles.insert(i, None)
+            except IndexError:
+                self.lobescribbles.insert(i, None)
 
         self.num_classes = 4
 
@@ -142,6 +150,23 @@ class LungData(Dataset):
             filenames = filenames[0]
 
         return filenames
+
+    def get_lobescribbles(self, item):
+        if isinstance(item, int):
+            item = [item]
+
+        item = torch.arange(len(self))[item]
+
+        lobes = []
+        for i in item:
+            # load the lobe scribbles
+            mask = sitk.ReadImage(self.lobescribbles[i])
+            lobes.append(mask)
+
+        if len(item) == 1:
+            lobes = lobes[0]
+
+        return lobes
 
 
 def load_landmarks(filepath):

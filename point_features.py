@@ -136,7 +136,7 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5
 
 
 def preprocess_point_features(data_path, output_path):
-    device = 'cuda:1'
+    device = 'cuda:2'
 
     ds = LungData(data_path)
 
@@ -177,8 +177,6 @@ def preprocess_point_features(data_path, output_path):
 
         # save points
         save_points(kp.transpose(0, 1), labels, output_path, case, sequence)
-
-        torch.cuda.empty_cache()
 
 
 def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
