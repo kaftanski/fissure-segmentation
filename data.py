@@ -154,6 +154,19 @@ def load_landmarks(filepath):
     return torch.tensor(points)
 
 
+def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
+    array = sitk.GetArrayFromImage(img)
+    if dtype == torch.bool:
+        array = array.astype(bool)
+    if array.dtype == np.uint16:
+        array = array.astype(int)
+    tensor = torch.from_numpy(array)
+    if dtype is not None:
+        tensor = tensor.to(dtype)
+
+    return tensor
+
+
 if __name__ == '__main__':
     ds = LungData('/home/kaftan/FissureSegmentation/data/')
     res = ds[0]

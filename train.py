@@ -87,7 +87,7 @@ def train(args):
     valid_dice = torch.zeros_like(train_dice)
     best_model = None
     best_epoch = 0
-    every_n_epochs = 10
+    every_n_epochs = args.epochs
     for epoch in range(args.epochs):
         # TRAINING
         net.train()
@@ -212,7 +212,7 @@ def test(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
-    parser.add_argument('--epochs', default=100, help='max. number of epochs', type=int)
+    parser.add_argument('--epochs', default=200, help='max. number of epochs', type=int)
     parser.add_argument('--lr', default=1e-3, help='learning rate', type=float)
     parser.add_argument('--device', default='cuda:2', help='device to train on', type=str)
     parser.add_argument('--data', help='data set', type=str, choices=['fissures', 'faust'])

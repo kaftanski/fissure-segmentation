@@ -2,6 +2,7 @@ import glob
 import os.path
 import time
 
+import foerstner
 import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
@@ -60,16 +61,14 @@ def smooth(img, sigma):
     weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N).to(device), 2) / (2 * torch.pow(sigma, 2)))
     weight /= weight.sum()
 
-    img = filter_1d(filter_1d(filter_1d(img, weight, 0), weight, 1), weight, 2)
+    img = filter_1d(img, weight, 0)
+    img = filter_1d(img, weight, 1)
+    img = filter_1d(img, weight, 2)
+
     return img
 
 
-def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor):
-    start = time.time()
-
-    # hyperparameter
-    sigma = 1.5
-
+def distinctiveness(img, sigma):
     # init 9-stencil filter
     filter_weights = torch.linspace(-1., 1., steps=9).to(img.device)
     filter_weights /= torch.sum(torch.abs(filter_weights))
@@ -78,7 +77,7 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor):
     F_x = filter_1d(img, filter_weights, 0)
     F_y = filter_1d(img, filter_weights, 1)
     F_z = filter_1d(img, filter_weights, 2)
-
+    print('gradients done')
     # calculate structure tensor
     F_xy = F_x * F_y
     F_xz = F_x * F_z
@@ -89,68 +88,97 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor):
         torch.cat([F_xy, F_y ** 2, F_yz], dim=0),
         torch.cat([F_xz, F_yz, F_z ** 2], dim=0)
     ], dim=1)
+    print('structure tensor')
     A = smooth(structure, sigma)
+    print('smoothed structure tensor')
     # we had a huge trouble with the formula on the sheet, so we used the formula presented during the lecture
     det_A = torch.det(A.permute(2, 3, 4, 0, 1))
     trace_A = torch.sum(torch.diagonal(A, dim1=0, dim2=1), dim=-1)
     D = det_A / (trace_A + 1e-8)
+    return D.view(1, 1, *D.shape)  # torch image format (NxCxDxHxW)
+
+
+def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5, distinctiveness_threshold: float = 1e-8, show=False):
+    print('start')
+    start = time.time()
+
+    D = distinctiveness(img, sigma)
+    print('distinctiveness done')
 
     # non-maximum suppression
     kernel_size = tuple(int(0.025*d) for d in img.shape[2:])
+    print(f'NMS with kernel size {kernel_size}')
     padding = tuple(k//2 for k in kernel_size)
-    suppressed_D, indices = F.max_pool3d(D.unsqueeze(0).unsqueeze(0), kernel_size=kernel_size,
+    suppressed_D, indices = F.max_pool3d(D, kernel_size=kernel_size,
                                          stride=1, padding=padding, return_indices=True)
+    print('non maximum suppression done')
     # converting linear indices to bool tensor
-    keypoints = torch.zeros_like(D).view(-1)
+    keypoints = torch.zeros_like(D, dtype=torch.bool).view(-1)
     keypoints[indices] = 1
-    # mask result to roi
-    keypoints_masked = torch.nonzero(keypoints.view(D.shape) * roi, as_tuple=False)
+    keypoints = keypoints.view(D.shape)
 
+    # mask result to roi and threshold distinctiveness
+    keypoints_masked = torch.logical_and(keypoints, roi.bool())  # ROI
+    keypoints_masked = torch.logical_and(keypoints_masked, D >= distinctiveness_threshold)  # threshold
+    keypoints_masked = torch.nonzero(keypoints_masked, as_tuple=False)[:, 2:]  # convert tensor to points
+    print('keypoints done')
     print('took {:.4f}s to compute keypoints'.format(time.time() - start))
 
-    # Choose slice to visualize:
-    chosen_slice = 200
-    plt.imshow(torch.log(torch.clamp(D[:, chosen_slice].cpu(), 1e-3)), 'gray')
-    # plot some keypoints
-    keypoints_slice = torch.nonzero(keypoints.view(D.shape)[:, chosen_slice] * roi[:, chosen_slice], as_tuple=False)
-    plt.plot(keypoints_slice[:, 1], keypoints_slice[:, 0], '+')
-    plt.show()
+    if show:
+        # VISUALIZATION
+        chosen_slice = 200
+        plt.imshow(torch.log(torch.clamp(D.squeeze()[:, chosen_slice].cpu(), 1e-3)), 'gray')
+        keypoints_slice = torch.nonzero(keypoints.squeeze()[:, chosen_slice] * roi[:, chosen_slice], as_tuple=False)
+        plt.plot(keypoints_slice[:, 1], keypoints_slice[:, 0], '+')
+        plt.show()
 
     return keypoints_masked
 
 
 def preprocess_point_features(data_path, output_path):
-    device = 'cpu'  # 'cuda:1'
+    device = 'cuda:1'
 
     ds = LungData(data_path)
 
-    # TODO: reduce number of points (~8k instead of 1-2 M)
-    #   transform points into unit sphere
+    # hyperparameters
+    sigma = 0.5
+    threshold = 1e-8
+
     for i in range(len(ds)):
         case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
         sequence = sequence.replace('.nii.gz', '')
+        if 'COPD' not in case:
+            continue
         print(f'Computing points for case {case}, {sequence}...')
 
         img, fissures = ds[i]
         if fissures is None:
+            print('No fissure segmentation found.')
             continue
 
         mask = ds.get_lung_mask(i)
 
-        kp = foerstner_keypoints(torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device),
-                                 torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).to(device))
+        start = time.time()
+        img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
+        mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device)
+        kp = foerstner.foerstner_kpts(img_tensor, mask_tensor, sigma=sigma, thresh=threshold)
+        print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
 
         fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures).astype(int)).to(device)
 
         # get label for each point
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
+        print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
-        # transform indices into physical points
-        spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0)
+        # transform indices into physical points  # TODO: resample images to 1x1x1 spacing (before kp-detection)
+        spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
         kp = kp * spacing
+        kp = foerstner.kpts_pt(kp, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(), align_corners=True)
 
         # save points
         save_points(kp.transpose(0, 1), labels, output_path, case, sequence)
+
+        torch.cuda.empty_cache()
 
 
 def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
