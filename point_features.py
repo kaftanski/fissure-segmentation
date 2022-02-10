@@ -158,15 +158,21 @@ def preprocess_point_features(data_path, output_path):
 
         mask = ds.get_lung_mask(i)
 
+        # dilate fissures so that more keypoints get assigned foreground labels
+        fissures_dilate = fissures
+        for i in range(1, ds.num_classes):
+            fissures_dilate = sitk.DilateObjectMorphology(sitk.Cast(fissures_dilate, sitk.sitkUInt8), kernelRadius=(2, 2, 2), objectValue=i)
+        # sitk.WriteImage(fissures_dilate, f'./results/{case}_{sequence}_fisdil.nii.gz')
+
+        # compute förstner keypoints
         start = time.time()
         img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
         mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device)
         kp = foerstner.foerstner_kpts(img_tensor, mask_tensor, sigma=sigma, thresh=threshold)
         print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
 
-        fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures).astype(int)).to(device)
-
         # get label for each point
+        fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilate).astype(int)).to(device)
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
         print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
