@@ -22,6 +22,8 @@ from tqdm import tqdm
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import vtk
+
 
 mpl.rcParams['savefig.dpi'] = 80
 mpl.rcParams['figure.dpi'] = 80
@@ -171,7 +173,8 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
     fissure_meshes = []
 
     # fit plane to each separate fissure
-    for f in fissures_tensor.unique()[1:]:
+    labels = fissures_tensor.unique()[1:]
+    for f in labels:
         # construct the 3d object from label image
         # TODO: maybe just take voxels as points
         verts, faces, normals, values = marching_cubes(volume=(fissures_tensor == f).numpy(), level=0.5,
@@ -294,7 +297,17 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         fissure_meshes.append((final_verts, final_faces))
 
     # convert points into labelmap
-    # TODO
+    lung_points = torch.nonzero(mask_tensor) * torch.tensor(fissures.GetSpacing()[::-1])
+    dist_to_fissures = torch.zeros(len(labels), len(lung_points))
+    for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
+        dist_to_fissures[i] = dist_to_mesh(lung_points, fissure_verts, fissure_faces)
+
+    dist_threshold = 1.5  # mm
+    min_dist_label = torch.argmin(dist_to_fissures, dim=0) + 1
+    fissures_label = torch.where(dist_to_fissures[min_dist_label] <= dist_threshold, min_dist_label, 0)
+    fissures_label_image = sitk.GetImageFromArray(fissures_label.numpy())
+    fissures_label_image.CopyInformation(fissures)
+    return fissures_label_image
 
 
 def regularize_fissure_segmentations():
@@ -307,8 +320,64 @@ def regularize_fissure_segmentations():
         img, fissures = ds[i]
         mask = ds.get_lung_mask(i)
         lobescribbles = ds.get_lobescribbles(i)
-        fissures_reg = fit_surface_to_fissure(fissures, mask)
+        fissures_reg = fit_surface_to_fissure(fissures, mask, lobescribbles)
         output_file = file.replace('_img_', '_fissures_reg_')
+        sitk.WriteImage(fissures_reg, output_file)
+
+
+def dist_to_mesh(input_points, trg_verts, trg_tris):
+    """
+
+    :param input_points:
+    :param trg_verts:
+    :param trg_tris:
+    :return: tensor containing euclidean distance from every input point to the closest point on the target mesh
+    """
+    # construct vtk points object
+    vtk_target_points = vtk.vtkPoints()
+    for v in trg_verts:
+        targ_point = v.tolist()
+        vtk_target_points.InsertNextPoint(targ_point)
+
+    # construct corresponding triangles
+    vtk_triangles = vtk.vtkCellArray()
+    for f in trg_tris:
+        v1_index, v2_index, v3_index = f
+
+        triangle = vtk.vtkTriangle()
+        triangle.GetPointIds().SetId(0, v1_index)
+        triangle.GetPointIds().SetId(1, v2_index)
+        triangle.GetPointIds().SetId(2, v3_index)
+
+        vtk_triangles.InsertNextCell(triangle)
+
+    triangle_poly_data = vtk.vtkPolyData()
+    triangle_poly_data.SetPoints(vtk_target_points)
+    triangle_poly_data.SetPolys(vtk_triangles)
+
+    # # validate correct conversion of numpy matrix into vtk Polydata (with paraview)
+    # writer = vtk.vtkPolyDataWriter()
+    # writer.SetFileName("/share/data_hastig1/kaftan/projects/bachelor/Implementation/Temp/polydata.vtk")
+    # writer.SetInputData(triangle_poly_data)
+    # writer.Write()
+
+    locator = vtk.vtkCellLocator()
+    locator.SetDataSet(triangle_poly_data)
+    locator.BuildLocator()
+
+    # calculate distance from every point to mesh
+    squared_distances = []
+    for p in input_points:
+        pred_point = p.tolist()
+
+        closest_point = [0, 0, 0]
+        closest_cell_id = vtk.reference(0)
+        sub_ID = vtk.reference(0)  # unused
+        squared_dist = vtk.reference(0.0)
+        locator.FindClosestPoint(pred_point, closest_point, closest_cell_id, sub_ID, squared_dist)
+        squared_distances.append(float(squared_dist))
+
+    return torch.tensor(squared_distances).sqrt()
 
 
 if __name__ == '__main__':
