@@ -1,29 +1,26 @@
-import math
 import os
 
-import data
-from data import image2tensor
 import SimpleITK as sitk
+import math
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import torch
-from torch import nn
-from skimage.measure import marching_cubes
-from pytorch3d.io import load_obj, save_obj
-from pytorch3d.structures import Meshes
-from pytorch3d.utils import ico_sphere
-from pytorch3d.ops import sample_points_from_meshes
+import vtk
+from mpl_toolkits.mplot3d import Axes3D
 from pytorch3d.loss import (
     chamfer_distance,
     mesh_edge_loss,
     mesh_laplacian_smoothing,
     mesh_normal_consistency,
 )
-import numpy as np
+from pytorch3d.ops import sample_points_from_meshes
+from pytorch3d.structures import Meshes
+from skimage.measure import marching_cubes
+from torch import nn
 from tqdm import tqdm
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import vtk
 
+import data
+from data import image2tensor
 
 mpl.rcParams['savefig.dpi'] = 80
 mpl.rcParams['figure.dpi'] = 80
@@ -121,9 +118,9 @@ def plot_mesh(mesh, title=""):
 
 
 def fit_3d_plane(mesh):
-    Niter = 2000
-    plot_period = 500
-    loop = tqdm(range(Niter))
+    num_iter = 2000
+    plot_period = num_iter
+    loop = tqdm(range(num_iter))
 
     plane = Plane().to(mesh.device)
 
@@ -145,11 +142,11 @@ def fit_3d_plane(mesh):
         optimizer.step()
 
         # Print the loss
-        loop.set_description('total_loss = %.4f' % loss)
+        loop.set_description('Fitting plane ... Current loss = %.4f' % loss)
         losses.append(loss.item())
 
         # Plot plane
-        if i % plot_period == 0:
+        if False:#(i+1) % plot_period == 0:
             pts = plane.get_sample_points()
             plot_pointcloud(pts[:, 0], pts[:, 1], pts[:, 2], title="iter: %d" % i)
 
@@ -161,7 +158,7 @@ def fit_3d_plane(mesh):
     return plane
 
 
-def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble: sitk.Image):
+def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     # Set the device
     if torch.cuda.is_available():
         device = torch.device("cuda:1")
@@ -169,12 +166,13 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         device = torch.device("cpu")
 
     mask_tensor = image2tensor(mask, dtype=torch.bool)
-    fissures_tensor = image2tensor(fissures)
+    fissures_tensor = image2tensor(fissures).long()
     fissure_meshes = []
 
     # fit plane to each separate fissure
     labels = fissures_tensor.unique()[1:]
     for f in labels:
+        print(f'Fitting fissure {f} ...')
         # construct the 3d object from label image
         # TODO: maybe just take voxels as points
         verts, faces, normals, values = marching_cubes(volume=(fissures_tensor == f).numpy(), level=0.5,
@@ -200,6 +198,7 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         n_sample = 4900
         plane = fit_3d_plane(trg_mesh)
         plane_verts, plane_faces = plane.get_sample_points(n=n_sample, dim=0, range1=(verts[:, 1].min(), verts[:, 1].max()), range2=(verts[:, 2].min(), verts[:, 2].max()), return_faces=True)
+        # plane_verts = plane_verts  # limit z-coord as well
         src_mesh = Meshes(verts=[plane_verts], faces=[plane_faces])
 
         # visualize starting point
@@ -215,7 +214,7 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         optimizer = torch.optim.SGD([deform_verts], lr=1.0, momentum=0.9)
 
         # Number of optimization steps
-        Niter = 2000
+        num_iter = 2000
         # Weight for the chamfer loss
         w_chamfer = 1.0
         # Weight for mesh edge loss
@@ -225,8 +224,8 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         # Weight for mesh laplacian smoothing
         w_laplacian = 0.1
         # Plot period for the losses
-        plot_period = 500
-        loop = tqdm(range(Niter))
+        plot_period = num_iter
+        loop = tqdm(range(num_iter))
 
         chamfer_losses = []
         laplacian_losses = []
@@ -260,7 +259,7 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
             loss = loss_chamfer * w_chamfer + loss_edge * w_edge + loss_normal * w_normal + loss_laplacian * w_laplacian
 
             # Print the losses
-            loop.set_description('total_loss = %.6f' % loss)
+            loop.set_description('Fitting mesh ... Total loss = %.6f' % loss)
 
             # Save the losses for plotting
             chamfer_losses.append(float(loss_chamfer.detach().cpu()))
@@ -269,7 +268,7 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
             laplacian_losses.append(float(loss_laplacian.detach().cpu()))
 
             # Plot mesh
-            if i % plot_period == 0:
+            if (i+1) % plot_period == 0:
                 plot_mesh(new_src_mesh, title="iter: %d" % i)
 
             # Optimization step
@@ -297,15 +296,20 @@ def fit_surface_to_fissure(fissures: sitk.Image, mask: sitk.Image, lobescribble:
         fissure_meshes.append((final_verts, final_faces))
 
     # convert points into labelmap
+    print('Converting fissure meshes to labelmap ...')
     lung_points = torch.nonzero(mask_tensor) * torch.tensor(fissures.GetSpacing()[::-1])
-    dist_to_fissures = torch.zeros(len(labels), len(lung_points))
+    dist_to_fissures = torch.zeros(len(lung_points), len(labels))
     for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
-        dist_to_fissures[i] = dist_to_mesh(lung_points, fissure_verts, fissure_faces)
+        print(f'Fissure {i} ...')
+        dist_to_fissures[:, i] = dist_to_mesh(lung_points, fissure_verts, fissure_faces)
 
     dist_threshold = 1.5  # mm
-    min_dist_label = torch.argmin(dist_to_fissures, dim=0) + 1
-    fissures_label = torch.where(dist_to_fissures[min_dist_label] <= dist_threshold, min_dist_label, 0)
-    fissures_label_image = sitk.GetImageFromArray(fissures_label.numpy())
+    min_dist_label = torch.argmin(dist_to_fissures, dim=1, keepdim=True)
+    lung_points_label = torch.where(torch.take_along_dim(dist_to_fissures, indices=min_dist_label, dim=1) <= dist_threshold,
+                                 min_dist_label, -1) + 1
+    fissures_label_tensor = torch.zeros_like(fissures_tensor)
+    fissures_label_tensor[torch.nonzero(mask_tensor, as_tuple=True)] = lung_points_label.squeeze()
+    fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy())
     fissures_label_image.CopyInformation(fissures)
     return fissures_label_image
 
@@ -317,10 +321,14 @@ def regularize_fissure_segmentations():
 
     for i in range(len(ds)):
         file = ds.get_filename(i)
+        print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
         img, fissures = ds[i]
+        if fissures is None:
+            print('\tno fissure segmentation found, skipping.')
+            continue
+
         mask = ds.get_lung_mask(i)
-        lobescribbles = ds.get_lobescribbles(i)
-        fissures_reg = fit_surface_to_fissure(fissures, mask, lobescribbles)
+        fissures_reg = fit_plane_to_fissure(fissures, mask)
         output_file = file.replace('_img_', '_fissures_reg_')
         sitk.WriteImage(fissures_reg, output_file)
 
@@ -355,19 +363,13 @@ def dist_to_mesh(input_points, trg_verts, trg_tris):
     triangle_poly_data.SetPoints(vtk_target_points)
     triangle_poly_data.SetPolys(vtk_triangles)
 
-    # # validate correct conversion of numpy matrix into vtk Polydata (with paraview)
-    # writer = vtk.vtkPolyDataWriter()
-    # writer.SetFileName("/share/data_hastig1/kaftan/projects/bachelor/Implementation/Temp/polydata.vtk")
-    # writer.SetInputData(triangle_poly_data)
-    # writer.Write()
-
     locator = vtk.vtkCellLocator()
     locator.SetDataSet(triangle_poly_data)
     locator.BuildLocator()
 
     # calculate distance from every point to mesh
     squared_distances = []
-    for p in input_points:
+    for p in tqdm(input_points, desc='Closest point on mesh'):
         pred_point = p.tolist()
 
         closest_point = [0, 0, 0]
