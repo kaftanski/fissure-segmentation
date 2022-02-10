@@ -160,8 +160,11 @@ class LungData(Dataset):
         lobes = []
         for i in item:
             # load the lobe scribbles
-            mask = sitk.ReadImage(self.lobescribbles[i])
-            lobes.append(mask)
+            if self.lobescribbles[i] is not None:
+                lobe = sitk.ReadImage(self.lobescribbles[i])
+            else:
+                lobe = None
+            lobes.append(lobe)
 
         if len(item) == 1:
             lobes = lobes[0]
