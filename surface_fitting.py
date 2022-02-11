@@ -26,6 +26,8 @@ from data import image2tensor
 mpl.rcParams['savefig.dpi'] = 80
 mpl.rcParams['figure.dpi'] = 80
 
+SHOW_3D_PLOTS = False
+
 
 class Plane(nn.Module):
     def __init__(self):
@@ -147,7 +149,7 @@ def fit_3d_plane(mesh):
         losses.append(loss.item())
 
         # Plot plane
-        if False:#(i+1) % plot_period == 0:
+        if SHOW_3D_PLOTS and (i + 1) % plot_period == 0:
             pts = plane.get_sample_points()
             plot_pointcloud(pts[:, 0], pts[:, 1], pts[:, 2], title="iter: %d" % i)
 
@@ -203,9 +205,10 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         src_mesh = Meshes(verts=[plane_verts], faces=[plane_faces])
 
         # visualize starting point
-        plot_pointclouds(plane_verts[:, 0], plane_verts[:, 1], plane_verts[:, 2], verts[:, 0], verts[:, 1], verts[:, 2], "Plane over target point cloud")
-        plot_mesh(trg_mesh, "Target mesh")
-        plot_mesh(src_mesh, "Source mesh")
+        if SHOW_3D_PLOTS:
+            plot_pointclouds(plane_verts[:, 0], plane_verts[:, 1], plane_verts[:, 2], verts[:, 0], verts[:, 1], verts[:, 2], "Plane over target point cloud")
+            plot_mesh(trg_mesh, "Target mesh")
+            plot_mesh(src_mesh, "Source mesh")
 
         # We will learn to deform the source mesh by offsetting its vertices
         # The shape of the deform parameters is equal to the total number of vertices in src_mesh
@@ -269,7 +272,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
             laplacian_losses.append(float(loss_laplacian.detach().cpu()))
 
             # Plot mesh
-            if (i+1) % plot_period == 0:
+            if SHOW_3D_PLOTS and (i+1) % plot_period == 0:
                 plot_mesh(new_src_mesh, title="iter: %d" % i)
 
             # Optimization step
