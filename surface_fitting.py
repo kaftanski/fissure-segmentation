@@ -4,6 +4,7 @@ import SimpleITK as sitk
 import math
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import vtk
 from mpl_toolkits.mplot3d import Axes3D
@@ -306,10 +307,10 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     dist_threshold = 1.5  # mm
     min_dist_label = torch.argmin(dist_to_fissures, dim=1, keepdim=True)
     lung_points_label = torch.where(torch.take_along_dim(dist_to_fissures, indices=min_dist_label, dim=1) <= dist_threshold,
-                                 min_dist_label, -1) + 1
+                                    min_dist_label, -1) + 1
     fissures_label_tensor = torch.zeros_like(fissures_tensor)
     fissures_label_tensor[torch.nonzero(mask_tensor, as_tuple=True)] = lung_points_label.squeeze()
-    fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy())
+    fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy().astype(np.uint8))
     fissures_label_image.CopyInformation(fissures)
     return fissures_label_image
 
