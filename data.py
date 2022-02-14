@@ -40,32 +40,29 @@ class LungData(Dataset):
         super(LungData, self).__init__()
         self.images = sorted(glob(os.path.join(folder, '*_img_*.nii.gz')))
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
-        self.landmarks = sorted(glob(os.path.join(folder, '*_lms_*.csv')))
-        self.fissures = sorted(glob(os.path.join(folder, '*_fissures_*.nii.gz')))
-        self.lobescribbles = sorted(glob(os.path.join(folder, '*_lobescribbles_*.nii.gz')))
+        self.landmarks = []
+        self.fissures = []
+        self.lobescribbles = []
 
         # fill missing landmarks and fissure segmentations with None
-        for i, img in enumerate(self.images):
+        for img in self.images:
             lm_file = img.replace('_img_', '_lms_').replace('.nii.gz', '.csv')
-            try:
-                if lm_file != self.landmarks[i]:
-                    self.landmarks.insert(i, None)
-            except IndexError:
-                self.landmarks.insert(i, None)
+            if os.path.exists(lm_file):
+                self.landmarks.append(lm_file)
+            else:
+                self.landmarks.append(None)
 
             fissure_file = img.replace('_img_', '_fissures_')
-            try:
-                if fissure_file != self.fissures[i]:
-                    self.fissures.insert(i, None)
-            except IndexError:
-                self.fissures.insert(i, None)
+            if os.path.exists(fissure_file):
+                self.fissures.append(fissure_file)
+            else:
+                self.fissures.append(None)
 
             lobes_file = img.replace('_img_', '_lobescribbles_')
-            try:
-                if lobes_file != self.lobescribbles[i]:
-                    self.lobescribbles.insert(i, None)
-            except IndexError:
-                self.lobescribbles.insert(i, None)
+            if os.path.exists(lobes_file):
+                self.lobescribbles.append(lobes_file)
+            else:
+                self.lobescribbles.append(None)
 
         self.num_classes = 4
 
