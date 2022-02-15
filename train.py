@@ -79,7 +79,11 @@ def train(args):
 
     # training setup
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
-    criterion = nn.CrossEntropyLoss()  # TODO: weight classes
+    class_frequency = ds.get_label_frequency()
+    class_weights = 1 - class_frequency
+    class_weights *= ds.num_classes
+    print(f'Class weights: {class_weights.tolist()}')
+    criterion = nn.CrossEntropyLoss(weight=class_weights.to(args.device))
 
     train_loss = torch.zeros(args.epochs)
     valid_loss = torch.zeros_like(train_loss)
@@ -138,13 +142,16 @@ def train(args):
 
     # training plot
     plt.figure()
-    plt.title(f'Training Progression. Best model from epoch {best_epoch}.')
+    plt.title(f'Training Progression. Best model from epoch {best_epoch} ({valid_dice[:, :].mean(1)[best_epoch]:.4f} val. dice).')
     plt.plot(train_loss, c='b', label='train loss')
     plt.plot(valid_loss, c='r', label='validation loss')
     plt.plot(valid_dice[:, :].mean(1), c='g', label='mean validation dice')
     plt.legend()
     plt.savefig(os.path.join(args.output, f"training_progression.png"))
-    plt.close()
+    if args.show:
+        plt.show()
+    else:
+        plt.close()
 
     # save best model
     model_path = os.path.join(args.output, 'model.pth')
@@ -212,7 +219,7 @@ def test(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
-    parser.add_argument('--epochs', default=200, help='max. number of epochs', type=int)
+    parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
     parser.add_argument('--lr', default=1e-3, help='learning rate', type=float)
     parser.add_argument('--device', default='cuda:2', help='device to train on', type=str)
     parser.add_argument('--data', help='data set', type=str, choices=['fissures', 'faust'])
@@ -220,8 +227,9 @@ if __name__ == '__main__':
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
     parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
     parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features', nargs='?')
-    parser.add_argument('--batch', default=4, help='batch size', type=int)
+    parser.add_argument('--batch', default=32, help='batch size', type=int)
     parser.add_argument('--output', default='./results', help='output data path', type=str)
+    parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)', nargs='?')
     args = parser.parse_args()
     print(args)
 

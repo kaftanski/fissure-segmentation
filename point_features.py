@@ -25,6 +25,8 @@ class PointDataset(Dataset):
             self.points.append(pts)
             self.labels.append(lbls)
 
+        self.num_classes = max(len(torch.unique(lbl)) for lbl in self.labels)
+
     def __getitem__(self, item):
         # randomly sample points
         pts = self.points[item]
@@ -34,6 +36,15 @@ class PointDataset(Dataset):
 
     def __len__(self):
         return len(self.points)
+
+    def get_label_frequency(self):
+        frequency = torch.zeros(self.num_classes)
+        for lbl in self.labels:
+            for c in range(self.num_classes):
+                frequency[c] += torch.sum(lbl == c)
+        frequency /= frequency.sum()
+        print(f'Label frequency in point data set: {frequency.tolist()}')
+        return frequency
 
 
 def filter_1d(img, weight, dim, padding_mode='replicate'):
