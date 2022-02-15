@@ -293,6 +293,8 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
 
         # Fetch the verts and faces of the final predicted mesh
         final_verts, final_faces = new_src_mesh.get_mesh_verts_faces(0)
+        final_verts = final_verts.detach()
+        final_verts.requires_grad_(False)
 
         # Scale normalize back to the original target size
         final_verts = final_verts * scale + center
