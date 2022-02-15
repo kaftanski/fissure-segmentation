@@ -1,7 +1,7 @@
 import glob
 import os.path
 import time
-
+from image_ops import resample_equal_spacing
 import foerstner
 import SimpleITK as sitk
 import torch
@@ -158,8 +158,6 @@ def preprocess_point_features(data_path, output_path):
     for i in range(len(ds)):
         case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
         sequence = sequence.replace('.nii.gz', '')
-        if 'COPD' not in case:
-            continue
         print(f'Computing points for case {case}, {sequence}...')
 
         img, fissures = ds[i]
@@ -168,6 +166,11 @@ def preprocess_point_features(data_path, output_path):
             continue
 
         mask = ds.get_lung_mask(i)
+
+        # resample all images to unit spacing
+        img = resample_equal_spacing(img, target_spacing=1)
+        mask = resample_equal_spacing(mask, target_spacing=1)
+        fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
 
         # dilate fissures so that more keypoints get assigned foreground labels
         fissures_dilate = fissures
@@ -187,7 +190,7 @@ def preprocess_point_features(data_path, output_path):
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
         print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
-        # transform indices into physical points  # TODO: resample images to 1x1x1 spacing (before kp-detection)
+        # transform indices into physical points
         spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
         kp = kp * spacing
         kp = foerstner.kpts_pt(kp, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(), align_corners=True)
@@ -197,13 +200,13 @@ def preprocess_point_features(data_path, output_path):
 
 
 def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
-    torch.save(points, os.path.join(path, f'{case}_points_{sequence}.pth'))
-    torch.save(labels, os.path.join(path, f'{case}_labels_{sequence}.pth'))
+    torch.save(points.cpu(), os.path.join(path, f'{case}_points_{sequence}.pth'))
+    torch.save(labels.cpu(), os.path.join(path, f'{case}_labels_{sequence}.pth'))
 
 
 def load_points(path: str, case: str, sequence: str = 'fixed'):
-    return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth')), \
-           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'))
+    return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth'), map_location='cpu'), \
+           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'), map_location='cpu')
 
 
 if __name__ == '__main__':
