@@ -3,11 +3,12 @@ import os
 import SimpleITK as sitk
 import imageio
 import numpy as np
+import pyamg
 import torch
-import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from scipy.sparse import csr_matrix
+from torch.nn import functional as F
 
-from utils_rw_scribble import sparse_cols, sparse_rows, sparseMultiGrid, overlay_segment, display_colours
 from visualization import visualize_with_overlay
 
 
@@ -147,52 +148,13 @@ def regularize_fissure_segmentation(image: sitk.Image, fissure_seg: sitk.Image, 
     return lobe_segmentation
 
 
-def simple_regularization(image: sitk.Image, fissure_seg: sitk.Image, lung_mask: sitk.Image, lobe_scribbles: sitk.Image) -> sitk.Image:
-    # post-process fissures
-    # make fissure segmentation binary (disregard the 3 different fissures)
-    fissure_seg_binary = sitk.BinaryThreshold(fissure_seg, upperThreshold=0.5, insideValue=0, outsideValue=1)
-
-    # create inverted lobe mask by combining fissures and not-lung
-    not_lobes = sitk.Or(sitk.Not(lung_mask), fissure_seg_binary)
-
-    # close some gaps
-    # not_lobes = sitk.BinaryMorphologicalClosing(not_lobes, kernelRadius=(2, 2, 2), kernelType=sitk.sitkBall)
-    not_lobes = sitk.BinaryDilate(not_lobes, kernelRadius=(4, 4, 4), kernelType=sitk.sitkBall)
-
-    # find connected components in lobes mask
-    lobes_mask = sitk.Not(not_lobes)
-    connected_component_filter = sitk.ConnectedComponentImageFilter()
-    lobes_components = connected_component_filter.Execute(lobes_mask)
-    print(connected_component_filter.GetObjectCount())
-
-    # find the biggest components (= the 5 lobes)
-    # shape_stats = sitk.LabelShapeStatisticsImageFilter()
-    # shape_stats.Execute(lobes_components)
-    # labels = torch.tensor(shape_stats.GetLabels())
-    # object_sizes = torch.tensor([shape_stats.GetPhysicalSize(l.item()) for l in labels])
-    # values, indices = torch.topk(object_sizes, k=5)
-
-    # sort objects by size
-    relabel_filter = sitk.RelabelComponentImageFilter()
-    relabel_filter.SetSortByObjectSize(True)
-    lobes_components_sorted = relabel_filter.Execute(lobes_components)
-    print(f'The 5 largest objects have sizes {relabel_filter.GetSizeOfObjectsInPhysicalUnits()[:5]}')
-
-    # extract the 5 biggest objects (the 5 lobes)
-    change_label_filter = sitk.ChangeLabelImageFilter()
-    change_label_filter.SetChangeMap({l: 0 for l in range(6, relabel_filter.GetOriginalNumberOfObjects() + 1)})
-    lobes_components_top5 = change_label_filter.Execute(lobes_components_sorted)
-
-    return lobes_components_top5
-
-
 def regularize(case):
     data_path = '/home/kaftan/FissureSegmentation/data'
     sequence = 'fixed'
 
     print(f'REGULARIZATION of case {case}, {sequence}')
 
-    lobes = simple_regularization(
+    lobes = regularize_fissure_segmentation(
         sitk.ReadImage(os.path.join(data_path, f'{case}_img_{sequence}.nii.gz')),
         sitk.ReadImage(os.path.join(data_path, f'{case}_fissures_{sequence}.nii.gz')),
         sitk.ReadImage(os.path.join(data_path, f'{case}_mask_{sequence}.nii.gz'), outputPixelType=sitk.sitkUInt8),
@@ -304,6 +266,83 @@ def toy_example_3d():
     # plane along 2 dimensions works!
     # hole works too
     # very incomplete boundaries are insufficient with binary weights
+
+
+def display_colours(unique_rgb):
+    unique_blue, unique_green, unique_red = torch.split(unique_rgb, 1, 1)
+    # show the user defined colours
+    img_unique_colour = torch.stack((unique_blue.view(-1, 1).repeat(1, 10).view(-1, 1).repeat(1, 10),
+                                     unique_green.view(-1, 1).repeat(1, 10).view(-1, 1).repeat(1, 10),
+                                     unique_red.view(-1, 1).repeat(1, 10).view(-1, 1).repeat(1, 10)), 2)
+    plt.imshow(img_unique_colour.transpose(1, 0))
+    plt.show()
+
+
+def overlay_segment(img, seg, unique_rgb):
+    """ semi-transparent colour overlay"""
+    img = img.float() / 255
+    if (seg.min() == 0):
+        seg += 1
+    colors = torch.cat((torch.zeros(1, 3), unique_rgb.float()), 0).view(-1, 3) / 255.0
+    H, W = seg.squeeze().shape
+    device = img.device
+    max_label = seg.long().max().item()
+    seg_one_hot = F.one_hot(seg.long(), max_label + 1).float()
+    seg_color = torch.mm(seg_one_hot.view(-1, max_label + 1), colors[:max_label + 1, :]).view(H, W, 3)
+    alpha = torch.clamp(1.0 - 0.5 * (seg > 0).float(), 0, 1.0)
+    overlay = (img * alpha).unsqueeze(2) + seg_color * (1.0 - alpha).unsqueeze(2)
+    return overlay
+
+
+def sparseMultiGrid(A, b, iterations):  # A sparse torch matrix, b dense vector
+    """ provided function that calls the sparse LSE solver using multi-grid """
+    A_ind = A._indices().cpu().data.numpy()
+    A_val = A._values().cpu().data.numpy()
+    n1, n2 = A.size()
+    SC = csr_matrix((A_val, (A_ind[0, :], A_ind[1, :])), shape=(n1, n2))
+    ml = pyamg.ruge_stuben_solver(SC, max_levels=6)  # construct the multigrid hierarchy
+    # print(ml)                                           # print hierarchy information
+    b_ = b.cpu().data.numpy()
+    x = b_ * 0
+    for i in range(x.shape[1]):
+        x[:, i] = ml.solve(b_[:, i], tol=1e-3)
+    return torch.from_numpy(x)  # .view(-1,1)
+
+
+def sparse_rows(S, slice):
+    """ provided functions that removes/selects rows from sparse matrices """
+    # sparse slicing
+    S_ind = S._indices()
+    S_val = S._values()
+    # create auxiliary index vector
+    slice_ind = -torch.ones(S.size(0)).long()
+    slice_ind[slice] = torch.arange(slice.size(0))
+    # def sparse_rows(matrix,indices):
+    # redefine row indices of new sparse matrix
+    inv_ind = slice_ind[S_ind[0, :]]
+    mask = (inv_ind > -1)
+    N_ind = torch.stack((inv_ind[mask], S_ind[1, mask]), 0)
+    N_val = S_val[mask]
+    S = torch.sparse.FloatTensor(N_ind, N_val, (slice.size(0), S.size(1)))
+    return S
+
+
+def sparse_cols(S, slice):
+    """ provided functions that removes/selects cols from sparse matrices """
+    # sparse slicing
+    S_ind = S._indices()
+    S_val = S._values()
+    # create auxiliary index vector
+    slice_ind = -torch.ones(S.size(1)).long()
+    slice_ind[slice] = torch.arange(slice.size(0))
+    # def sparse_rows(matrix,indices):
+    # redefine row indices of new sparse matrix
+    inv_ind = slice_ind[S_ind[1, :]]
+    mask = (inv_ind > -1)
+    N_ind = torch.stack((S_ind[0, mask], inv_ind[mask]), 0)
+    N_val = S_val[mask]
+    S = torch.sparse.FloatTensor(N_ind, N_val, (S.size(0), slice.size(0)))
+    return S
 
 
 if __name__ == '__main__':
