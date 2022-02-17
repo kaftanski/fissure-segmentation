@@ -1,4 +1,5 @@
 import os
+from typing import Sequence, Tuple
 
 import SimpleITK as sitk
 import math
@@ -164,13 +165,14 @@ def fit_3d_plane(mesh):
 def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     # Set the device
     if torch.cuda.is_available():
-        device = torch.device("cuda:1")
+        device = torch.device("cuda:3")
     else:
         device = torch.device("cpu")
 
     mask_tensor = image2tensor(mask, dtype=torch.bool)
     fissures_tensor = image2tensor(fissures).long()
     fissure_meshes = []
+    spacing = fissures.GetSpacing()[::-1]  # spacing in zyx format
 
     # fit plane to each separate fissure
     labels = fissures_tensor.unique()[1:]
@@ -179,7 +181,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         # construct the 3d object from label image
         # TODO: maybe just take voxels as points
         verts, faces, normals, values = marching_cubes(volume=(fissures_tensor == f).numpy(), level=0.5,
-                                                       spacing=fissures.GetSpacing()[::-1], allow_degenerate=False,
+                                                       spacing=spacing, allow_degenerate=False,
                                                        mask=mask_tensor.numpy())
 
         # results to torch tensors
@@ -303,20 +305,44 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
 
     # convert points into labelmap
     print('Converting fissure meshes to labelmap ...')
-    lung_points = torch.nonzero(mask_tensor) * torch.tensor(fissures.GetSpacing()[::-1])
-    dist_to_fissures = torch.zeros(len(lung_points), len(labels))
+    # fissures_label_image = mesh2labelmap_dist(fissure_meshes, mask)
+    fissures_label_image = mesh2labelmap_sampling(fissure_meshes, fissures_tensor.shape,
+                                                  torch.tensor(spacing), num_samples=10**7)
+    fissures_label_image.CopyInformation(fissures)
+    print('DONE\n')
+    return fissures_label_image
+
+
+def mesh2labelmap_dist(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], lung_mask: sitk.Image,
+                       dist_threshold: float = 1.0):  # dist_threshold in mm
+    mask_tensor = image2tensor(lung_mask, dtype=torch.bool)
+    lung_points = torch.nonzero(mask_tensor) * torch.tensor(lung_mask.GetSpacing()[::-1])
+
+    dist_to_fissures = torch.zeros(len(lung_points), len(fissure_meshes))
     for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
         print(f'Fissure {i} ...')
         dist_to_fissures[:, i] = dist_to_mesh(lung_points, fissure_verts, fissure_faces)
 
-    dist_threshold = 1.5  # mm
     min_dist_label = torch.argmin(dist_to_fissures, dim=1, keepdim=True)
     lung_points_label = torch.where(torch.take_along_dim(dist_to_fissures, indices=min_dist_label, dim=1) <= dist_threshold,
                                     min_dist_label, -1) + 1
-    fissures_label_tensor = torch.zeros_like(fissures_tensor)
+    fissures_label_tensor = torch.zeros_like(mask_tensor)
     fissures_label_tensor[torch.nonzero(mask_tensor, as_tuple=True)] = lung_points_label.squeeze()
     fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy().astype(np.uint8))
-    fissures_label_image.CopyInformation(fissures)
+    return fissures_label_image
+
+
+def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], shape: torch.Size,
+                           spacing: torch.Tensor, num_samples: int = 10000):
+    label_tensor = torch.zeros(shape, dtype=torch.long)
+    for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
+        meshes = Meshes(verts=[fissure_verts], faces=[fissure_faces])
+        samples = sample_points_from_meshes(meshes, num_samples=num_samples)
+        samples /= spacing.to(samples.device)
+        fissure_ind = samples.squeeze().round().long()
+        label_tensor[fissure_ind[:, 0], fissure_ind[:, 1], fissure_ind[:, 2]] = i+1
+
+    fissures_label_image = sitk.GetImageFromArray(label_tensor.numpy().astype(np.uint8))
     return fissures_label_image
 
 
@@ -327,6 +353,10 @@ def regularize_fissure_segmentations():
 
     for i in range(len(ds)):
         file = ds.get_filename(i)
+        if 'COPD' in file:
+            print('skipping COPD image')
+            continue
+
         print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
         img, fissures = ds[i]
         if fissures is None:
@@ -335,7 +365,7 @@ def regularize_fissure_segmentations():
 
         mask = ds.get_lung_mask(i)
         fissures_reg = fit_plane_to_fissure(fissures, mask)
-        output_file = file.replace('_img_', '_fissures_reg_')
+        output_file = file.replace('_img_', '_fissures_reg_sampled_')
         sitk.WriteImage(fissures_reg, output_file)
 
 
