@@ -490,7 +490,7 @@ def regularize_fissure_segmentations(mode):
     for i in range(len(ds)):
         file = ds.get_filename(i)
 
-        if 'COPD' in file or 'EMPIRE02' in file:
+        if 'COPD' in file:
             print('skipping COPD image')
             continue
 
