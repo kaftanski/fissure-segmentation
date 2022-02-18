@@ -74,24 +74,20 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
 
 
 if __name__ == '__main__':
-    # data_path = '/home/kaftan/FissureSegmentation/data/'
-    # ds = LungData(data_path)
-    #
-    # for i in range(len(ds)):
-    #     file = ds.get_filename(i)
-    #     case, _, sequence = file.split('/')[-1].split('_')
-    #     sequence = sequence.split('.')[0]
-    #     if 'EMPIRE' not in case:
-    #         continue
-    #     print(f'Computing lobes for {case} {sequence}')
-    #     img, fissures = ds[i]
-    #     if fissures is None:
-    #         print('\tNo fissures available ... Skipping.')
-    #         continue
-    #     lobes = find_lobes(fissures, ds.get_lung_mask(i))
-    #
-    #     sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
-    mask = sitk.ReadImage('../data/EMPIRE02_mask_fixed.nii.gz')
-    fissures = sitk.ReadImage('../data/EMPIRE02_fissures_poisson_fixed.nii.gz')
-    lobes = find_lobes(fissures, mask)
-    sitk.WriteImage(lobes, os.path.join('results', f'EMPIRE02_lobes_fixed.nii.gz'))
+    data_path = '/home/kaftan/FissureSegmentation/data/'
+    ds = LungData(data_path)
+
+    for i in range(len(ds)):
+        file = ds.get_filename(i)
+        case, _, sequence = file.split(os.sep)[-1].split('_')
+        sequence = sequence.split('.')[0]
+        if 'EMPIRE' not in case:
+            continue
+        print(f'Computing lobes for {case} {sequence}')
+        fissure_file = os.path.join(data_path, f'{case}_fissures_poisson_{sequence}.nii.gz')
+        if not os.path.exists(fissure_file):
+            print('\tNo fissures available ... Skipping.')
+            continue
+        lobes = find_lobes(sitk.ReadImage(fissure_file), ds.get_lung_mask(i))
+
+        sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
