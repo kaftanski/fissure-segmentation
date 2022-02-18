@@ -22,6 +22,8 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
 
     # find connected components in lobes mask
     lobes_mask = sitk.Not(not_lobes)
+    lobes_mask = sitk.BinaryMorphologicalOpening(lobes_mask, kernelRadius=(4, 4, 4), kernelType=sitk.sitkBall)
+
     connected_component_filter = sitk.ConnectedComponentImageFilter()
     lobes_components = connected_component_filter.Execute(lobes_mask)
     obj_cnt = connected_component_filter.GetObjectCount()
@@ -72,20 +74,24 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
 
 
 if __name__ == '__main__':
-    data_path = '/home/kaftan/FissureSegmentation/data/'
-    ds = LungData(data_path)
-
-    for i in range(len(ds)):
-        file = ds.get_filename(i)
-        case, _, sequence = file.split('/')[-1].split('_')
-        sequence = sequence.split('.')[0]
-        if 'EMPIRE' not in case:
-            continue
-        print(f'Computing lobes for {case} {sequence}')
-        img, fissures = ds[i]
-        if fissures is None:
-            print('\tNo fissures available ... Skipping.')
-            continue
-        lobes = find_lobes(fissures, ds.get_lung_mask(i))
-
-        sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+    # data_path = '/home/kaftan/FissureSegmentation/data/'
+    # ds = LungData(data_path)
+    #
+    # for i in range(len(ds)):
+    #     file = ds.get_filename(i)
+    #     case, _, sequence = file.split('/')[-1].split('_')
+    #     sequence = sequence.split('.')[0]
+    #     if 'EMPIRE' not in case:
+    #         continue
+    #     print(f'Computing lobes for {case} {sequence}')
+    #     img, fissures = ds[i]
+    #     if fissures is None:
+    #         print('\tNo fissures available ... Skipping.')
+    #         continue
+    #     lobes = find_lobes(fissures, ds.get_lung_mask(i))
+    #
+    #     sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+    mask = sitk.ReadImage('../data/EMPIRE02_mask_fixed.nii.gz')
+    fissures = sitk.ReadImage('../data/EMPIRE02_fissures_poisson_fixed.nii.gz')
+    lobes = find_lobes(fissures, mask)
+    sitk.WriteImage(lobes, os.path.join('results', f'EMPIRE02_lobes_fixed.nii.gz'))

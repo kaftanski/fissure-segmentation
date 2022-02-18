@@ -13,16 +13,19 @@ from pytorch3d.loss import (
     chamfer_distance,
     mesh_edge_loss,
     mesh_laplacian_smoothing,
-    mesh_normal_consistency,
+    mesh_normal_consistency, point_mesh_face_distance,
 )
 from pytorch3d.ops import sample_points_from_meshes
-from pytorch3d.structures import Meshes
+from pytorch3d.structures import Meshes, Pointclouds
 from skimage.measure import marching_cubes
 from torch import nn
 from tqdm import tqdm
 
 import data
+import image_ops
 from data import image2tensor
+import open3d as o3d
+
 
 mpl.rcParams['savefig.dpi'] = 80
 mpl.rcParams['figure.dpi'] = 80
@@ -185,6 +188,11 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         print(f'Fitting fissure {f} ...')
         # construct the 3d object from label image
         # TODO: maybe just take voxels as points
+        #   - sitk.BinaryThinning
+        #   - voxels 2 points
+        #   - ball-pivoting algorithm
+
+        # TODO Different idea: no fitting, just use poisson reconstruction?
         verts, faces, normals, values = marching_cubes(volume=(fissures_tensor == f).numpy(), level=0.5,
                                                        spacing=spacing, allow_degenerate=False,
                                                        mask=mask_tensor.numpy())
@@ -231,16 +239,19 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         # The optimizer
         optimizer = torch.optim.SGD([deform_verts], lr=1.0, momentum=0.9)
 
+        # TODO: experiment with hyper parameters
         # Number of optimization steps
         num_iter = 2000
         # Weight for the chamfer loss
-        w_chamfer = 1.0
+        w_chamfer = 1
         # Weight for mesh edge loss
         w_edge = 1.0
         # Weight for mesh normal consistency
         w_normal = 0.01
         # Weight for mesh laplacian smoothing
         w_laplacian = 0.1
+        # Weight for point to mesh distance
+        w_point_mesh = 0
         # Plot period for the losses
         plot_period = num_iter
         loop = tqdm(range(num_iter))
@@ -250,6 +261,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         laplacian_losses = []
         edge_losses = []
         normal_losses = []
+        point_mesh_losses = []
 
         for i in loop:
             # Initialize optimizer
@@ -274,8 +286,15 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
             # mesh laplacian smoothing
             loss_laplacian = mesh_laplacian_smoothing(new_src_mesh, method="uniform")
 
+            # point to mesh loss
+            # loss_point_mesh = point_mesh_face_distance(trg_mesh, Pointclouds([sample_src.squeeze()]))
+            # loss_point_mesh = 0
             # Weighted sum of the losses
-            loss = loss_chamfer * w_chamfer + loss_edge * w_edge + loss_normal * w_normal + loss_laplacian * w_laplacian
+            loss = loss_chamfer * w_chamfer + \
+                   loss_edge * w_edge + \
+                   loss_normal * w_normal + \
+                   loss_laplacian * w_laplacian #+ \
+                   # loss_point_mesh * w_point_mesh
 
             # Print the losses
             loop.set_description('Fitting mesh ... Total loss = %.6f' % loss)
@@ -285,6 +304,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
             edge_losses.append(float(loss_edge.detach().cpu()))
             normal_losses.append(float(loss_normal.detach().cpu()))
             laplacian_losses.append(float(loss_laplacian.detach().cpu()))
+            # point_mesh_losses.append(float(loss_point_mesh.detach().cpu()))
 
             # Plot mesh
             if SHOW_3D_PLOTS and (i+1) % plot_period == 0:
@@ -300,6 +320,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         ax.plot(edge_losses, label="edge loss")
         ax.plot(normal_losses, label="normal loss")
         ax.plot(laplacian_losses, label="laplacian loss")
+        # ax.plot(point_mesh_losses, label='point to mesh loss')
         ax.legend(fontsize="16")
         ax.set_xlabel("Iteration", fontsize="16")
         ax.set_ylabel("Loss", fontsize="16")
@@ -360,29 +381,6 @@ def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Te
     return fissures_label_image
 
 
-def regularize_fissure_segmentations():
-    # load data
-    base_dir = '/home/kaftan/FissureSegmentation/data'
-    ds = data.LungData(base_dir)
-    for i in range(len(ds)):
-        file = ds.get_filename(i)
-
-        if 'COPD' in file:
-            print('skipping COPD image')
-            continue
-
-        print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
-        img, fissures = ds[i]
-        if fissures is None:
-            print('\tno fissure segmentation found, skipping.')
-            continue
-
-        mask = ds.get_lung_mask(i)
-        fissures_reg = fit_plane_to_fissure(fissures, mask)
-        output_file = file.replace('_img_', '_fissures_reg_sampled_')
-        sitk.WriteImage(fissures_reg, output_file)
-
-
 def dist_to_mesh(input_points, trg_verts, trg_tris):
     """
 
@@ -432,5 +430,89 @@ def dist_to_mesh(input_points, trg_verts, trg_tris):
     return torch.tensor(squared_distances).sqrt()
 
 
+def poisson_reconstruction(fissures):
+    # transforming labelmap to unit spacing
+    # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
+
+    fissures_tensor = image2tensor(fissures).long()
+    regularized_fissure_tensor = torch.zeros_like(fissures_tensor)
+    spacing = fissures.GetSpacing()[::-1]  # spacing in zyx format
+
+    # fit plane to each separate fissure
+    labels = fissures_tensor.unique()[1:]
+    for f in labels:
+        print(f'Fitting fissure {f} ...')
+        # extract the current fissure and construct independent image
+        label_tensor = (fissures_tensor == f)
+        label_image = sitk.GetImageFromArray(label_tensor.numpy().astype(int))
+        label_image.CopyInformation(fissures)
+
+        # thin the fissures
+        print('\tThinning labelmap and extracting points ...')
+        label_image = sitk.BinaryThinning(label_image)
+        label_tensor = image2tensor(label_image, dtype=torch.bool)
+
+        # extract point cloud from thinned fissures
+        fissure_points = torch.nonzero(label_tensor) * torch.tensor(spacing)
+
+        # convert to open3d point cloud object
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(fissure_points)
+        pcd.estimate_normals()
+
+        # compute the mesh
+        print('\tPerforming Poisson reconstruction ...')
+        poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=6, width=0, scale=1.1, linear_fit=False)[0]
+
+        # cropping
+        print('\tPost-processing ...')
+        bbox = pcd.get_axis_aligned_bounding_box()
+        poisson_mesh_crop = poisson_mesh.crop(bbox)
+
+        # convert mesh to labelmap by sampling points
+        print('\tConverting mesh to labelmap ...')
+        samples = poisson_mesh_crop.sample_points_uniformly(number_of_points=10**7)
+        fissure_samples = torch.from_numpy(np.asarray(samples.points))
+        fissure_samples /= torch.tensor(spacing)
+        fissure_samples = fissure_samples.long()
+        regularized_fissure_tensor[fissure_samples[:, 0], fissure_samples[:, 1], fissure_samples[:, 2]] = f
+
+    regularized_fissures = sitk.GetImageFromArray(regularized_fissure_tensor.numpy().astype(np.uint8))
+    regularized_fissures.CopyInformation(fissures)
+    print('DONE\n')
+    return regularized_fissures
+
+
+def regularize_fissure_segmentations(mode):
+    # load data
+    base_dir = '/home/kaftan/FissureSegmentation/data'
+    ds = data.LungData(base_dir)
+    for i in range(len(ds)):
+        file = ds.get_filename(i)
+
+        if 'COPD' in file or 'EMPIRE02' in file:
+            print('skipping COPD image')
+            continue
+
+        print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
+        img, fissures = ds[i]
+        if fissures is None:
+            print('\tno fissure segmentation found, skipping.')
+            continue
+
+        if mode == 'plane':
+            mask = ds.get_lung_mask(i)
+            fissures_reg = fit_plane_to_fissure(fissures, mask)
+        elif mode == 'poisson':
+            fissures_reg = poisson_reconstruction(fissures)
+        else:
+            raise ValueError(f'No regularization mode named "{mode}".')
+
+        output_file = file.replace('_img_', f'_fissures_{mode}_')
+        sitk.WriteImage(fissures_reg, output_file)
+
+
 if __name__ == '__main__':
-    regularize_fissure_segmentations()
+    regularize_fissure_segmentations(mode='poisson')
+    # result = poisson_reconstruction(sitk.ReadImage('../data/EMPIRE16_fissures_fixed.nii.gz'))
+    # sitk.WriteImage(result, 'results/EMPIRE16_fissures_reg_fixed.nii.gz')
