@@ -1,6 +1,6 @@
 import os
 from typing import Sequence, Tuple
-
+from pytorch3d.vis import plotly_vis
 import SimpleITK as sitk
 import math
 import matplotlib as mpl
@@ -151,8 +151,10 @@ def fit_3d_plane(mesh):
 
         # Plot plane
         if SHOW_3D_PLOTS and (i + 1) % plot_period == 0:
-            pts = plane.get_sample_points()
+            pts, faces = plane.get_sample_points(2500, return_faces=True)
             plot_pointcloud(pts[:, 0], pts[:, 1], pts[:, 2], title="iter: %d" % i)
+            # fig = plotly_vis.plot_scene({"Initial Plane": {"plane mesh": Meshes([pts], [faces])}})
+            # fig.show()
 
     plt.figure()
     plt.plot(losses)
@@ -165,7 +167,10 @@ def fit_3d_plane(mesh):
 def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     # Set the device
     if torch.cuda.is_available():
-        device = torch.device("cuda:3")
+        if torch.cuda.device_count() > 1:
+            device = torch.device("cuda:3")
+        else:
+            device = torch.device("cuda:0")
     else:
         device = torch.device("cpu")
 
@@ -199,11 +204,18 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         # We construct a Meshes structure for the target mesh
         trg_mesh = Meshes(verts=[verts], faces=[faces_idx])
 
-        # We initialize the source shape to be a sphere of radius 1
-        n_sample = 4900
+        # construct the source shape: simple plane that is fitted to target point cloud
         plane = fit_3d_plane(trg_mesh)
-        plane_verts, plane_faces = plane.get_sample_points(n=n_sample, dim=0, range1=(verts[:, 1].min(), verts[:, 1].max()), range2=(verts[:, 2].min(), verts[:, 2].max()), return_faces=True)
-        # plane_verts = plane_verts  # limit z-coord as well
+
+        # get a mesh from the plane
+        n_plane_points = 2500
+        plane_verts, plane_faces = plane.get_sample_points(
+            n=n_plane_points, dim=0,
+            range1=(verts[:, 1].min(), verts[:, 1].max()),  # x is in range of the target vertices
+            range2=(verts[:, 2].min(), verts[:, 2].max()),  # y as well
+            return_faces=True)
+        # # transform z-coord into same range as the target as well
+        # plane_verts[:, 0] = (plane_verts[:, 0] - plane_verts[:, 0].min()) / (plane_verts[:, 0].max() - plane_verts[:, 0].min()) * (verts[:, 0].max() - verts[:, 0].min()) + verts[:, 0].min()
         src_mesh = Meshes(verts=[plane_verts], faces=[plane_faces])
 
         # visualize starting point
@@ -233,6 +245,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         plot_period = num_iter
         loop = tqdm(range(num_iter))
 
+        n_sample = 5000
         chamfer_losses = []
         laplacian_losses = []
         edge_losses = []
@@ -306,8 +319,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     # convert points into labelmap
     print('Converting fissure meshes to labelmap ...')
     # fissures_label_image = mesh2labelmap_dist(fissure_meshes, mask)
-    fissures_label_image = mesh2labelmap_sampling(fissure_meshes, fissures_tensor.shape,
-                                                  torch.tensor(spacing), num_samples=10**7)
+    fissures_label_image = mesh2labelmap_sampling(fissure_meshes, mask, num_samples=10**7)
     fissures_label_image.CopyInformation(fissures)
     print('DONE\n')
     return fissures_label_image
@@ -332,15 +344,17 @@ def mesh2labelmap_dist(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor
     return fissures_label_image
 
 
-def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], shape: torch.Size,
-                           spacing: torch.Tensor, num_samples: int = 10000):
-    label_tensor = torch.zeros(shape, dtype=torch.long)
+def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], lung_mask: sitk.Image,
+                           num_samples: int = 10000):
+    spacing = torch.tensor(lung_mask.GetSpacing()[::-1])
+    mask_tensor = image2tensor(lung_mask, dtype=torch.bool)
+    label_tensor = torch.zeros(mask_tensor.shape, dtype=torch.long)
     for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
         meshes = Meshes(verts=[fissure_verts], faces=[fissure_faces])
         samples = sample_points_from_meshes(meshes, num_samples=num_samples)
         samples /= spacing.to(samples.device)
-        fissure_ind = samples.squeeze().round().long()
-        label_tensor[fissure_ind[:, 0], fissure_ind[:, 1], fissure_ind[:, 2]] = i+1
+        fissure_ind = samples.squeeze().floor().long()
+        label_tensor[fissure_ind[:, 0], fissure_ind[:, 1], fissure_ind[:, 2]] = i+1  # TODO: why index out of bounds?
 
     fissures_label_image = sitk.GetImageFromArray(label_tensor.numpy().astype(np.uint8))
     return fissures_label_image
@@ -350,9 +364,9 @@ def regularize_fissure_segmentations():
     # load data
     base_dir = '/home/kaftan/FissureSegmentation/data'
     ds = data.LungData(base_dir)
-
     for i in range(len(ds)):
         file = ds.get_filename(i)
+
         if 'COPD' in file:
             print('skipping COPD image')
             continue
