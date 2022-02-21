@@ -6,9 +6,22 @@ import numpy as np
 from data import LungData
 
 
-def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
+def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) -> sitk.Image:
+    """
+
+    :param fissure_seg: fissure segmentation label image
+    :param lung_mask: lung mask (binary image)
+    :param exclude_rhf: exclude the right horizontal fissure, results in 4 instead of 5 lobes
+    :return: the lobe segmentation label image
+    """
+    # change the right horizontal fissure to background, if it is to be excluded
+    change_label_filter = sitk.ChangeLabelImageFilter()
+    if exclude_rhf:
+        change_label_filter.SetChangeMap({3: 0})
+        fissure_seg = change_label_filter.Execute(fissure_seg)
+
     # post-process fissures
-    # make fissure segmentation binary (disregard the 3 different fissures)
+    # make fissure segmentation binary (disregard the different fissures)
     fissure_seg_binary = sitk.BinaryThreshold(fissure_seg, upperThreshold=0.5, insideValue=0, outsideValue=1)
 
     # create inverted lobe mask by combining fissures and not-lung
@@ -21,6 +34,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
     not_lobes = sitk.BinaryDilate(not_lobes, kernelRadius=(2, 2, 2), kernelType=sitk.sitkBall)
 
     # find connected components in lobes mask
+    num_lobes_target = 4 if exclude_rhf else 5
     lobes_mask = sitk.Not(not_lobes)
     lobes_mask = sitk.BinaryMorphologicalOpening(lobes_mask, kernelRadius=(4, 4, 4), kernelType=sitk.sitkBall)
 
@@ -28,7 +42,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
     lobes_components = connected_component_filter.Execute(lobes_mask)
     obj_cnt = connected_component_filter.GetObjectCount()
     print(f'\tFound {obj_cnt} connected components ...')
-    if obj_cnt < 5:
+    if obj_cnt < num_lobes_target:
         print(f'\tThis is not enough, skipping relabelling.')
         return lobes_components
 
@@ -36,12 +50,11 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
     relabel_filter = sitk.RelabelComponentImageFilter()
     relabel_filter.SetSortByObjectSize(True)
     lobes_components_sorted = relabel_filter.Execute(lobes_components)
-    print(f'\tThe 5 largest objects have sizes {relabel_filter.GetSizeOfObjectsInPhysicalUnits()[:5]}')
+    print(f'\tThe {num_lobes_target} largest objects have sizes {relabel_filter.GetSizeOfObjectsInPhysicalUnits()[:num_lobes_target]}')
 
     # extract the 5 biggest objects (the 5 lobes)
-    change_label_filter = sitk.ChangeLabelImageFilter()
-    change_label_filter.SetChangeMap({l: 0 for l in range(6, relabel_filter.GetOriginalNumberOfObjects() + 1)})
-    lobes_components_top5 = change_label_filter.Execute(lobes_components_sorted)
+    change_label_filter.SetChangeMap({l: 0 for l in range(num_lobes_target+1, relabel_filter.GetOriginalNumberOfObjects()+1)})
+    biggest_n_components = change_label_filter.Execute(lobes_components_sorted)
 
     # relabel lobes (same as in Mattias' dir-lab COPD lobes)
     # right lower lobe: 1
@@ -50,12 +63,13 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
     # left upper lobe: 4
     # right middle lobe: 5 (contained in label 2 if right horizontal fissure is not segmented)
     shape_stats = sitk.LabelShapeStatisticsImageFilter()
-    shape_stats.Execute(lobes_components_top5)
+    shape_stats.Execute(biggest_n_components)
     centroids = np.array([shape_stats.GetCentroid(l) for l in shape_stats.GetLabels()])
     sort_by_x = np.argsort(centroids[:, 0])
 
-    right_lobes = sort_by_x[:3]  # smaller x is right
-    left_lobes = sort_by_x[3:]  # higher x is left
+    num_right = 2 if exclude_rhf else 3
+    right_lobes = sort_by_x[:num_right]  # smaller x is right
+    left_lobes = sort_by_x[num_right:]  # higher x is left
     change_map = {}
 
     sort_left_by_z = np.argsort(centroids[left_lobes, 2])
@@ -64,13 +78,14 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image) -> sitk.Image:
 
     sort_right_by_z = np.argsort(centroids[right_lobes, 2])
     change_map[right_lobes[sort_right_by_z[0]] + 1.] = 1.  # lowest in z
-    change_map[right_lobes[sort_right_by_z[1]] + 1.] = 5.  # middle in z
-    change_map[right_lobes[sort_right_by_z[2]] + 1.] = 2.  # highest in z
+    change_map[right_lobes[sort_right_by_z[-1]] + 1.] = 2.  # highest in z
+    if not exclude_rhf:
+        change_map[right_lobes[sort_right_by_z[1]] + 1.] = 5.  # middle in z
 
     change_label_filter.SetChangeMap(change_map)
-    lobes_components_top5_relabel = change_label_filter.Execute(lobes_components_top5)
+    lobes_components_relabel = change_label_filter.Execute(biggest_n_components)
 
-    return lobes_components_top5_relabel
+    return lobes_components_relabel
 
 
 if __name__ == '__main__':
@@ -83,11 +98,11 @@ if __name__ == '__main__':
         sequence = sequence.split('.')[0]
         if 'EMPIRE' not in case:
             continue
-        print(f'Computing lobes for {case} {sequence}')
+        print(f'\nComputing lobes for {case} {sequence}')
         fissure_file = os.path.join(data_path, f'{case}_fissures_poisson_{sequence}.nii.gz')
         if not os.path.exists(fissure_file):
             print('\tNo fissures available ... Skipping.')
             continue
-        lobes = find_lobes(sitk.ReadImage(fissure_file), ds.get_lung_mask(i))
+        lobes = find_lobes(sitk.ReadImage(fissure_file), ds.get_lung_mask(i), exclude_rhf=True)
 
         sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
