@@ -497,8 +497,11 @@ def regularize_fissure_segmentations(mode):
         print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
         img, fissures = ds[i]
         if fissures is None:
-            print('\tno fissure segmentation found, skipping.')
-            continue
+            try:
+                fissures = sitk.ReadImage(file.replace('_img_fixed', '_fissures_fixed_WIP'))
+            except IOError as e:
+                print('\tno fissure segmentation found, skipping.\n')
+                continue
 
         if mode == 'plane':
             mask = ds.get_lung_mask(i)
