@@ -98,14 +98,21 @@ def foerstner_kpts(img, mask, sigma=1.4, d=9, thresh=1e-8):
 
     dist = distinctiveness(img, sigma)
 
-    kernel_size = tuple(int(0.025 * d) for d in img.shape[2:])
-    pad1 = tuple(k // 2 for k in kernel_size)
-    pad2 = tuple(k - p - 1 for k, p in zip(kernel_size, pad1))
-    pad = (pad2[2], pad1[2], pad2[1], pad1[1], pad2[0], pad1[0])
+    # # dynamic kernel size computation for NMS (depending on image dimensions)
+    # kernel_size = tuple(int(0.025 * d) for d in img.shape[2:])
+    # pad1 = tuple(k // 2 for k in kernel_size)
+    # pad2 = tuple(k - p - 1 for k, p in zip(kernel_size, pad1))
+    # pad = (pad2[2], pad1[2], pad2[1], pad1[1], pad2[0], pad1[0])
     # print(f'NMS with kernel size {kernel_size} and padding {pad}')
 
+    # non-maximum suppression
+    pad1 = d // 2
+    pad2 = d - pad1 - 1
+    pad = (pad2, pad1, pad2, pad1, pad2, pad1)
+    kernel_size = d
     maxfeat = F.max_pool3d(F.pad(dist, pad), kernel_size, stride=1)
 
+    # erode the keypoint mask (-> no kps at the edges)
     structure_element = torch.tensor([[[0., 0, 0],
                                        [0, 1, 0],
                                        [0, 0, 0]],
@@ -119,6 +126,6 @@ def foerstner_kpts(img, mask, sigma=1.4, d=9, thresh=1e-8):
     mask_eroded = (1 - F.conv3d(1 - mask.float(),
                                 structure_element.unsqueeze(0).unsqueeze(0), padding=1).clamp_(0, 1)).bool()
 
+    # mask distinctiveness and extract non-suppressed keypoints
     kpts = torch.nonzero(mask_eroded & (maxfeat == dist) & (dist >= thresh))[:, 2:]
-
     return kpts
