@@ -3,6 +3,7 @@ import time
 import torch
 from torch import nn
 from torch.nn import init
+from utils import pairwise_dist
 
 
 def create_neighbor_features(x: torch.Tensor, k: int) -> torch.Tensor:
@@ -45,11 +46,8 @@ def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tenso
 
 
 def knn(x, k):
-    inner = -2 * torch.matmul(x.transpose(2, 1), x)
-    xx = torch.sum(x ** 2, dim=1, keepdim=True)
-    pairwise_distance = -xx - inner - xx.transpose(2, 1)
-
-    idx = pairwise_distance.topk(k=k, dim=-1)[1]  # (batch_size, num_points, k)
+    dist = pairwise_dist(x.transpose(2, 1))
+    idx = dist.topk(k=k, dim=-1, largest=False)[1]  # (batch_size, num_points, k)
     return idx
 
 
