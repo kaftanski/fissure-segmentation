@@ -190,7 +190,8 @@ class SpatialTransformer(nn.Module):
     def init_weights(self):
         self.apply(init_weights)
         init.constant_(self.transform.weight, 0)
-        init.eye_(self.transform.bias.view(3, 3))
+        # TODO: if this is MIND features with coords, only transform the coords?
+        init.eye_(self.transform.bias.view(self.in_features, self.in_features))
 
 
 def init_weights(m):
