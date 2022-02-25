@@ -1,11 +1,18 @@
+import collections
 import csv
+import glob
 import os.path
+import pickle
+from copy import deepcopy
 from glob import glob
+from typing import OrderedDict
 
 import SimpleITK as sitk
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+from utils import load_points
 
 
 class FaustDataset(Dataset):
@@ -192,7 +199,109 @@ def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
     return tensor
 
 
+class PointDataset(Dataset):
+    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/'):
+        files = sorted(glob.glob(os.path.join(folder, '*_points_*')))
+        self.folder = folder
+        self.sample_points = sample_points
+        self.ids = []
+        self.points = []
+        self.labels = []
+        for file in files:
+            case, _, sequence = file.split('/')[-1].split('_')
+            sequence = sequence.split('.')[0]
+            pts, lbls = load_points(folder, case, sequence)
+            self.points.append(pts)
+            self.labels.append(lbls)
+            self.ids.append((case, sequence))
+
+        self.num_classes = max(len(torch.unique(lbl)) for lbl in self.labels)
+
+    def __getitem__(self, item):
+        # randomly sample points
+        pts = self.points[item]
+        lbls = self.labels[item]
+        sample = torch.randperm(pts.shape[1])[:self.sample_points]
+        return pts[:, sample], lbls[sample]
+
+    def __len__(self):
+        return len(self.points)
+
+    def get_label_frequency(self):
+        frequency = torch.zeros(self.num_classes)
+        for lbl in self.labels:
+            for c in range(self.num_classes):
+                frequency[c] += torch.sum(lbl == c)
+        frequency /= frequency.sum()
+        print(f'Label frequency in point data set: {frequency.tolist()}')
+        return frequency
+
+    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+        train_ds = deepcopy(self)
+        val_ds = deepcopy(self)
+
+        for i in range(len(self) - 1, -1, -1):
+            case, sequence = self.ids[i]
+            id = case + '_img_' + sequence
+            if id in split['val']:
+                train_ds.points.pop(i)
+                train_ds.labels.pop(i)
+                train_ds.ids.pop(i)
+            else:
+                assert id in split['train'], f'Train/Validation split incomplete: instance {id} is contained in neither.'
+                val_ds.points.pop(i)
+                val_ds.labels.pop(i)
+                val_ds.ids.pop(i)
+
+        return train_ds, val_ds
+
+
+def create_split(k: int, dataset: LungData, filepath: str, seed=42):
+    # get the names of images that have fissures segmented
+    names = np.asarray([img.split(os.sep)[-1].split('.')[0] for i, img in enumerate(dataset.images) if dataset.fissures[i] is not None])
+
+    instances_per_test_set = len(names) // k
+    val_set_sizes = (k) * [instances_per_test_set]
+
+    # increment the test set sizes by one for the remainders
+    remainder = len(names) - k * instances_per_test_set
+    for i in range(remainder):
+        val_set_sizes[i % k] += 1
+
+    # random permutation
+    np.random.seed(seed)
+    permutation = np.random.permutation(len(names))
+
+    # assemble test and val sets
+    split = []
+    test_start = 0
+    for fold in range(k):
+        # test dataset bounds
+        test_end = test_start + val_set_sizes[fold]
+
+        # index based on permutation
+        train_names = np.concatenate([names[permutation[0:test_start]], names[permutation[test_end:]]])
+        val_names = names[permutation[test_start:test_end]]
+
+        split.append(collections.OrderedDict(
+            {'train': np.sort(train_names),
+             'val': np.sort(val_names)}
+        ))
+
+        test_start += val_set_sizes[fold]
+
+    with open(filepath, 'wb') as file:
+        pickle.dump(split, file)
+
+    return split
+
+
+def load_split(filename):
+    return np.load(filename, allow_pickle=True)
+
+
 if __name__ == '__main__':
     ds = LungData('/home/kaftan/FissureSegmentation/data/')
-    res = ds[0]
-    pass
+    # res = ds[0]
+    split = create_split(5, ds, '../data/split.np.pkl')
+    split_ld = load_split('../data/split.np.pkl')

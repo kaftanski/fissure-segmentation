@@ -1,4 +1,3 @@
-import glob
 import os.path
 import time
 
@@ -10,45 +9,9 @@ import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
-from torch.utils.data import Dataset
 
 from data import LungData
-from utils import pairwise_dist
-
-
-class PointDataset(Dataset):
-    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/'):
-        files = sorted(glob.glob(os.path.join(folder, '*_points_*')))
-        self.sample_points = sample_points
-        self.points = []
-        self.labels = []
-        for file in files:
-            case, _, sequence = file.split('/')[-1].split('_')
-            sequence = sequence.split('.')[0]
-            pts, lbls = load_points(folder, case, sequence)
-            self.points.append(pts)
-            self.labels.append(lbls)
-
-        self.num_classes = max(len(torch.unique(lbl)) for lbl in self.labels)
-
-    def __getitem__(self, item):
-        # randomly sample points
-        pts = self.points[item]
-        lbls = self.labels[item]
-        sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        return pts[:, sample], lbls[sample]
-
-    def __len__(self):
-        return len(self.points)
-
-    def get_label_frequency(self):
-        frequency = torch.zeros(self.num_classes)
-        for lbl in self.labels:
-            for c in range(self.num_classes):
-                frequency[c] += torch.sum(lbl == c)
-        frequency /= frequency.sum()
-        print(f'Label frequency in point data set: {frequency.tolist()}')
-        return frequency
+from utils import pairwise_dist, save_points
 
 
 def filter_1d(img, weight, dim, padding_mode='replicate'):
@@ -302,16 +265,6 @@ def mind_ssc(img: torch.Tensor, delta: int = 1, sigma: float = 0.8):
     mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
 
     return mind
-
-
-def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
-    torch.save(points.cpu(), os.path.join(path, f'{case}_points_{sequence}.pth'))
-    torch.save(labels.cpu(), os.path.join(path, f'{case}_labels_{sequence}.pth'))
-
-
-def load_points(path: str, case: str, sequence: str = 'fixed'):
-    return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth'), map_location='cpu'), \
-           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'), map_location='cpu')
 
 
 if __name__ == '__main__':

@@ -1,3 +1,5 @@
+import os
+
 import torch
 
 
@@ -26,3 +28,13 @@ def pairwise_dist2(x, y):
     xTy = torch.bmm(x, y.transpose(2, 1))
     dist = xx - 2.0 * xTy + yy.transpose(2, 1)
     return dist
+
+
+def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
+    torch.save(points.cpu(), os.path.join(path, f'{case}_points_{sequence}.pth'))
+    torch.save(labels.cpu(), os.path.join(path, f'{case}_labels_{sequence}.pth'))
+
+
+def load_points(path: str, case: str, sequence: str = 'fixed'):
+    return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth'), map_location='cpu'), \
+           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'), map_location='cpu')
