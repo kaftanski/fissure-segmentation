@@ -1,6 +1,9 @@
 import glob
 import os.path
 import time
+
+from torch import nn
+
 from image_ops import resample_equal_spacing
 import foerstner
 import SimpleITK as sitk
@@ -10,6 +13,7 @@ from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 
 from data import LungData
+from utils import pairwise_dist
 
 
 class PointDataset(Dataset):
@@ -59,8 +63,8 @@ def filter_1d(img, weight, dim, padding_mode='replicate'):
     view[dim + 2] = -1
     view = view.long().tolist()
 
-    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode), weight.view(view)).view(B, C, D, H,
-                                                                                                            W)
+    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode),
+                    weight.view(view)).view(B, C, D, H, W)
 
 
 def smooth(img, sigma):
@@ -146,23 +150,45 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5
     return keypoints_masked
 
 
-def preprocess_point_features(data_path, output_path):
+def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mind=True):
+    assert use_coords or use_mind, 'At least one kind of feature should be computed (MIND and/or coords).'
+
     device = 'cuda:2'
 
     ds = LungData(data_path)
 
-    # hyperparameters
-    sigma = 0.5
+    # hyperparameters keypoints
+    kp_sigma = 0.5
     threshold = 1e-8
+    nms_kernel = 7
+
+    # hyperparameters for MIND
+    mind_sigma = 0.8
+    delta = 1
+
+    # prepare directory
+    folder = 'feat_'
+    if use_coords:
+        folder += 'coords_'
+    if use_mind:
+        folder += 'mind_'
+    folder = folder[:-1]
+    out_dir = os.path.join(point_data_dir, folder)
+    os.makedirs(out_dir, exist_ok=True)
 
     for i in range(len(ds)):
+        torch.cuda.empty_cache()
+
         case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
         sequence = sequence.replace('.nii.gz', '')
+        # if case != 'COPD10':#'COPD' not in case and 'EMPIRE' not in case:
+        #     print(f'skipping {case}, {sequence}')
+        #     continue
         print(f'Computing points for case {case}, {sequence}...')
 
         img, fissures = ds[i]
         if fissures is None:
-            print('No fissure segmentation found.')
+            print('\tNo fissure segmentation found.')
             continue
 
         mask = ds.get_lung_mask(i)
@@ -176,13 +202,13 @@ def preprocess_point_features(data_path, output_path):
         fissures_dilate = fissures
         for i in range(1, ds.num_classes):
             fissures_dilate = sitk.DilateObjectMorphology(sitk.Cast(fissures_dilate, sitk.sitkUInt8), kernelRadius=(2, 2, 2), objectValue=i)
-        # sitk.WriteImage(fissures_dilate, f'./results/{case}_{sequence}_fisdil.nii.gz')
 
         # compute förstner keypoints
         start = time.time()
         img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
-        mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device)
-        kp = foerstner.foerstner_kpts(img_tensor, mask_tensor, sigma=sigma, thresh=threshold)
+        kp = foerstner.foerstner_kpts(img_tensor,
+                                      mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device),
+                                      sigma=kp_sigma, thresh=threshold, d=nms_kernel)
         print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
 
         # get label for each point
@@ -190,13 +216,92 @@ def preprocess_point_features(data_path, output_path):
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
         print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
-        # transform indices into physical points
-        spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-        kp = kp * spacing
-        kp = foerstner.kpts_pt(kp, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(), align_corners=True)
+        # assemble features for each point
+        point_feat = []
 
-        # save points
-        save_points(kp.transpose(0, 1), labels, output_path, case, sequence)
+        # coordinate features
+        if use_coords:
+            # transform indices into physical points
+            spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
+            point_feat.append(foerstner.kpts_pt(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+                                                align_corners=True).transpose(0, 1))
+
+        # image patch features
+        if use_mind:
+            torch.cuda.empty_cache()
+            print('\tComputing MIND-SSC features')
+            # compute mind features for image
+            mind = mind_ssc(img_tensor, sigma=mind_sigma, delta=delta)
+
+            # extract features for keypoints
+            point_feat.append(mind[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze())
+
+        # save point features
+        save_points(torch.cat(point_feat, dim=0), labels, out_dir, case, sequence)
+
+
+def mind_features(img: torch.Tensor):
+    """ https://pubmed.ncbi.nlm.nih.gov/21995071/
+
+    :param img:
+    :return:
+    """
+    device = img.device
+    dtype = img.dtype
+
+
+def mind_ssc(img: torch.Tensor, delta: int = 1, sigma: float = 0.8):
+    """ Modality independent neighborhood descriptors (MIND) with self-similarity context (SSC)
+        From: http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf, implementation by Lasse Hansen
+        Using 6-neighborhood
+
+    :param img: image (-batch) to compute features for. Shape (B x 1 x D x H x W)
+    :param delta: neighborhood kernel dilation
+    :param sigma: noise estimate, used for gaussian filter
+    :return: image with MIND features. Shape (B x 12 x D x H x W)
+    """
+    device = img.device
+    dtype = img.dtype
+
+    # define start and end locations for self-similarity pattern
+    six_neighbourhood = torch.Tensor([[0, 1, 1],
+                                      [1, 1, 0],
+                                      [1, 0, 1],
+                                      [1, 1, 2],
+                                      [2, 1, 1],
+                                      [1, 2, 1]]).long()
+
+    # squared distances
+    dist = pairwise_dist(six_neighbourhood.unsqueeze(0)).squeeze(0)
+
+    # define comparison mask
+    x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
+    mask = ((x > y).view(-1) & (dist == 2).view(-1))
+
+    # build kernel
+    idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
+    idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
+    mshift1 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+    mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
+    mshift2 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+    mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
+    rpad = nn.ReplicationPad3d(delta)
+
+    # compute patch-ssd
+    mind = smooth(((F.conv3d(rpad(img), mshift1, dilation=delta) - F.conv3d(rpad(img), mshift2, dilation=delta)) ** 2),
+                  sigma)
+
+    # MIND equation
+    mind = mind - torch.min(mind, 1, keepdim=True)[0]
+    mind_var = torch.mean(mind, 1, keepdim=True)
+    mind_var = torch.clamp(mind_var, mind_var.mean() * 0.001, mind_var.mean() * 1000)
+    mind /= mind_var
+    mind = torch.exp(-mind).to(dtype)
+
+    # permute to have same ordering as C++ code
+    mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
+
+    return mind
 
 
 def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
