@@ -258,6 +258,9 @@ class PointDataset(Dataset):
 
         return train_ds, val_ds
 
+    def get_full_pointcloud(self, i):
+        return self.points[i], self.labels[i]
+
 
 def create_split(k: int, dataset: LungData, filepath: str, seed=42):
     # get the names of images that have fissures segmented

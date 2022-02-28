@@ -174,7 +174,8 @@ def test(ds, graph_k, device, out_dir):
     net.eval()
 
     test_dice = torch.zeros(ds.num_classes)
-    for pts, lbls in ds:
+    for i in range(len(ds)):
+        pts, lbls = ds.get_full_pointcloud(i)
         pts = pts.unsqueeze(0).to(device)
         lbls = lbls.unsqueeze(0).to(device)
 
