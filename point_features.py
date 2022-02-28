@@ -116,7 +116,7 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5
 def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mind=True):
     assert use_coords or use_mind, 'At least one kind of feature should be computed (MIND and/or coords).'
 
-    device = 'cuda:2'
+    device = 'cuda:3'
 
     ds = LungData(data_path)
 
@@ -128,6 +128,7 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
     # hyperparameters for MIND
     mind_sigma = 0.8
     delta = 1
+    ssc = False
 
     # prepare directory
     folder = 'feat_'
@@ -135,6 +136,8 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
         folder += 'coords_'
     if use_mind:
         folder += 'mind_'
+        if ssc:
+            folder += 'ssc_'
     folder = folder[:-1]
     out_dir = os.path.join(point_data_dir, folder)
     os.makedirs(out_dir, exist_ok=True)
@@ -148,11 +151,11 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
         #     print(f'skipping {case}, {sequence}')
         #     continue
         print(f'Computing points for case {case}, {sequence}...')
-
-        img, fissures = ds[i]
-        if fissures is None:
+        if ds.fissures[i] is None:
             print('\tNo fissure segmentation found.')
             continue
+
+        img, fissures = ds[i]
 
         mask = ds.get_lung_mask(i)
 
@@ -192,9 +195,9 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
         # image patch features
         if use_mind:
             torch.cuda.empty_cache()
-            print('\tComputing MIND-SSC features')
+            print('\tComputing MIND features')
             # compute mind features for image
-            mind = mind_ssc(img_tensor, sigma=mind_sigma, delta=delta)
+            mind = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
 
             # extract features for keypoints
             point_feat.append(mind[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze())
@@ -203,24 +206,16 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
         save_points(torch.cat(point_feat, dim=0), labels, out_dir, case, sequence)
 
 
-def mind_features(img: torch.Tensor):
-    """ https://pubmed.ncbi.nlm.nih.gov/21995071/
-
-    :param img:
-    :return:
-    """
-    device = img.device
-    dtype = img.dtype
-
-
-def mind_ssc(img: torch.Tensor, delta: int = 1, sigma: float = 0.8):
-    """ Modality independent neighborhood descriptors (MIND) with self-similarity context (SSC)
-        From: http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf, implementation by Lasse Hansen
-        Using 6-neighborhood
+def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True):
+    """ Modality independent neighborhood descriptors (MIND) with 6-neighborhood.
+        Source: https://pubmed.ncbi.nlm.nih.gov/21995071/
+        Optionally using self-similarity context (SSC, http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf)
+        From: , implementation by Lasse Hansen.
 
     :param img: image (-batch) to compute features for. Shape (B x 1 x D x H x W)
     :param delta: neighborhood kernel dilation
     :param sigma: noise estimate, used for gaussian filter
+    :param ssc: compute features from self-similarity context (SSD between pairs in 6-NH with distance sqrt(2))
     :return: image with MIND features. Shape (B x 12 x D x H x W)
     """
     device = img.device
@@ -234,20 +229,32 @@ def mind_ssc(img: torch.Tensor, delta: int = 1, sigma: float = 0.8):
                                       [2, 1, 1],
                                       [1, 2, 1]]).long()
 
-    # squared distances
-    dist = pairwise_dist(six_neighbourhood.unsqueeze(0)).squeeze(0)
 
-    # define comparison mask
-    x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
-    mask = ((x > y).view(-1) & (dist == 2).view(-1))
+    if ssc:
+        # compute self-similarity edges
 
-    # build kernel
-    idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
-    idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
-    mshift1 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
-    mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
-    mshift2 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
-    mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
+        # squared distances
+        dist = pairwise_dist(six_neighbourhood.unsqueeze(0)).squeeze(0)
+
+        # define comparison mask
+        x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
+        mask = ((x > y).view(-1) & (dist == 2).view(-1))
+
+        # build kernel
+        idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
+        idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
+        mshift1 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+        mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
+        mshift2 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+        mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
+
+    else:
+        # normal 6-neighborhood mind (comparison with center voxel)
+        mshift1 = torch.ones(6, 1, 3, 3, 3).to(dtype).to(device)
+        mshift2 = torch.zeros(6, 3, 3, 3, dtype=dtype)
+        mshift2[six_neighbourhood[:, 0], six_neighbourhood[:, 1], six_neighbourhood[:, 2]] = 1
+        mshift2 = mshift2.unsqueeze(1).to(device)
+
     rpad = nn.ReplicationPad3d(delta)
 
     # compute patch-ssd
@@ -261,8 +268,9 @@ def mind_ssc(img: torch.Tensor, delta: int = 1, sigma: float = 0.8):
     mind /= mind_var
     mind = torch.exp(-mind).to(dtype)
 
-    # permute to have same ordering as C++ code
-    mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
+    if ssc:
+        # permute to have same ordering as C++ code
+        mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
 
     return mind
 
