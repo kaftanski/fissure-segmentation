@@ -48,7 +48,7 @@ def visualize_point_cloud(points, labels):
 def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=False)
 
     in_features = train_ds[0][0].shape[0]
@@ -108,7 +108,7 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
             valid_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(valid_dl)
 
         # status output
-        print(f'[{epoch:3}] TRAIN: {train_loss[epoch]:.4f} loss, dice {train_dice[epoch]}, mean {train_dice[epoch, :].mean()}\n'
+        print(f'[{epoch:4}] TRAIN: {train_loss[epoch]:.4f} loss, dice {train_dice[epoch]}, mean {train_dice[epoch, :].mean()}\n'
               f'      VALID: loss {valid_loss[epoch]:.4f}, dice {valid_dice[epoch]}, mean {valid_dice[epoch, :].mean()}')
 
         # save best snapshot
@@ -180,7 +180,7 @@ def test(ds, graph_k, device, out_dir):
     with open(os.path.join(out_dir, 'test_results.csv'), 'w') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
-        writer.writerow(['Test Dice'] + [d.item() for d in test_dice] + [test_dice.mean()])
+        writer.writerow(['Test Dice'] + [d.item() for d in test_dice] + [test_dice.mean().item()])
 
 
 def cross_val(ds, split_file, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
@@ -188,7 +188,7 @@ def cross_val(ds, split_file, batch_size, graph_k, device, learn_rate, epochs, s
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
     for fold, tr_val_fold in enumerate(split):
-        print(f"-------------- FOLD {fold} ---------------")
+        print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
 
         fold_dir = os.path.join(out_dir, f'fold{fold}')
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
     parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
     parser.add_argument('--lr', default=1e-3, help='learning rate', type=float)
-    parser.add_argument('--gpu', default=2, help='gpu index to train on', type=str)
+    parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
     parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust'])
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
