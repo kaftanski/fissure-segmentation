@@ -200,9 +200,10 @@ def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
 
 
 class PointDataset(Dataset):
-    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/'):
-        files = sorted(glob.glob(os.path.join(folder, '*_points_*')))
+    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', exclude_rhf=False):
+        files = sorted(glob(os.path.join(folder, '*_points_*')))
         self.folder = folder
+        self.exclude_rhf = exclude_rhf
         self.sample_points = sample_points
         self.ids = []
         self.points = []
@@ -211,6 +212,8 @@ class PointDataset(Dataset):
             case, _, sequence = file.split('/')[-1].split('_')
             sequence = sequence.split('.')[0]
             pts, lbls = load_points(folder, case, sequence)
+            if exclude_rhf:
+                lbls[lbls == 3] = 0
             self.points.append(pts)
             self.labels.append(lbls)
             self.ids.append((case, sequence))
@@ -293,11 +296,6 @@ def create_split(k: int, dataset: LungData, filepath: str, seed=42):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
 
-    return split
-
-
-def load_split(filename):
-    return np.load(filename, allow_pickle=True)
 
 
 if __name__ == '__main__':

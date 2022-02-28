@@ -219,7 +219,7 @@ if __name__ == '__main__':
     if args.data == 'fissures':
         point_dir = f'../point_data/feat_{"coords" if args.coords else ""}{"_mind" if args.coords else ""}'
         print(f'Using point data from {point_dir}')
-        ds = PointDataset(args.pts, point_dir)
+        ds = PointDataset(args.pts, point_dir, exclude_rhf=args.exclude_rhf)
     elif args.data == 'faust':
         print(f'Using FAUST data set')
         ds = FaustDataset(args.pts)
