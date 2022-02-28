@@ -11,7 +11,7 @@ import torch
 import argparse
 from torch.utils.data import random_split, DataLoader
 
-from data import FaustDataset, PointDataset, load_split
+from data import FaustDataset, PointDataset, load_split_file, save_split_file
 from dgcnn import DGCNNSeg
 
 
@@ -185,7 +185,8 @@ def test(ds, graph_k, device, out_dir):
 
 def cross_val(ds, split_file, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     print('============ CROSS-VALIDATION ============')
-    split = load_split(split_file)
+    split = load_split_file(split_file)
+    save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
     for fold, tr_val_fold in enumerate(split):
         print(f"-------------- FOLD {fold} ---------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)

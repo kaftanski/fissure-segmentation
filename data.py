@@ -293,6 +293,16 @@ def create_split(k: int, dataset: LungData, filepath: str, seed=42):
 
         test_start += val_set_sizes[fold]
 
+    save_split_file(split, filepath)
+
+    return split
+
+
+def load_split_file(filepath):
+    return np.load(filepath, allow_pickle=True)
+
+
+def save_split_file(split, filepath):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
 
@@ -302,4 +312,4 @@ if __name__ == '__main__':
     ds = LungData('/home/kaftan/FissureSegmentation/data/')
     # res = ds[0]
     split = create_split(5, ds, '../data/split.np.pkl')
-    split_ld = load_split('../data/split.np.pkl')
+    split_ld = load_split_file('../data/split.np.pkl')
