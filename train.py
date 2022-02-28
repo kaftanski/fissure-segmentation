@@ -54,10 +54,12 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     in_features = train_ds[0][0].shape[0]
 
     # network
-    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes)
+    dgcnn_input_transformer = False
+    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
+                   input_transformer=dgcnn_input_transformer)
     net.to(device)
 
-    # training setup
+    # optimizer and loss
     optimizer = torch.optim.Adam(net.parameters(), lr=learn_rate)
     class_frequency = ds.get_label_frequency()
     class_weights = 1 - class_frequency
@@ -65,6 +67,11 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     print(f'Class weights: {class_weights.tolist()}')
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
+    # learnrate scheduling
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=50,
+                                                           threshold=1e-4, cooldown=50, verbose=True)
+
+    # statistic logging
     train_loss = torch.zeros(epochs)
     valid_loss = torch.zeros_like(train_loss)
     train_dice = torch.zeros(epochs, ds.num_classes)
@@ -87,13 +94,12 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
             optimizer.step()
 
             # statistics
-            train_loss[epoch] += loss.item() / len(train_dl)
-            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(train_dl)
+            train_loss[epoch] += loss.item() * len(pts) / len(train_ds)
+            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) * len(pts) / len(train_ds)
 
         # VALIDATION
         net.eval()
         for pts, lbls in valid_dl:
-            # TODO: classify all points?
             pts = pts.to(device)
             lbls = lbls.to(device)
 
@@ -106,6 +112,9 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
             # statistics
             valid_loss[epoch] += loss.item() / len(valid_dl)
             valid_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(valid_dl)
+
+        # update learnrate
+        scheduler.step(valid_loss[epoch])
 
         # status output
         print(f'[{epoch:4}] TRAIN: {train_loss[epoch]:.4f} loss, dice {train_dice[epoch]}, mean {train_dice[epoch, :].mean()}\n'
@@ -145,7 +154,9 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
         'batch_size': batch_size,
         'graph_k': graph_k,
         'learn_rate': learn_rate,
-        'epochs': epochs
+        'epochs': epochs,
+        'exclude_rhf': ds.exclude_rhf,
+        'dgcnn_input_transformer': dgcnn_input_transformer
     }
     with open(os.path.join(out_dir, 'setup.csv'), 'w') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))

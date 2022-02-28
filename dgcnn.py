@@ -52,12 +52,15 @@ def knn(x, k):
 
 
 class DGCNNSeg(nn.Module):
-    def __init__(self, k, in_features, num_classes):
+    def __init__(self, k, in_features, num_classes, input_transformer=False):
         super(DGCNNSeg, self).__init__()
         self.k = k
         self.num_classes = num_classes
 
-        self.spatial_transformer = SpatialTransformer(in_features, k)
+        if input_transformer:
+            self.spatial_transformer = SpatialTransformer(in_features, k)
+        else:
+            self.spatial_transformer = None
 
         self.ec1 = EdgeConv(in_features, [64, 64], self.k)
         self.ec2 = EdgeConv(64, [64], self.k)
@@ -78,7 +81,8 @@ class DGCNNSeg(nn.Module):
         )
 
         self.apply(init_weights)
-        self.spatial_transformer.init_weights()
+        if input_transformer:
+            self.spatial_transformer.init_weights()
 
     def forward(self, x):
         """
@@ -87,7 +91,8 @@ class DGCNNSeg(nn.Module):
         :return: point segmentation of shape (point cloud batch x num_classes)
         """
         # transform point cloud into canonical space
-        x = self.spatial_transformer(x)
+        if self.spatial_transformer is not None:
+            x = self.spatial_transformer(x)
 
         # edge convolutions
         x1 = self.ec1(x)
