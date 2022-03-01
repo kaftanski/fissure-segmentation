@@ -11,39 +11,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from data import LungData
-from utils import pairwise_dist, save_points
-
-
-def filter_1d(img, weight, dim, padding_mode='replicate'):
-    B, C, D, H, W = img.shape
-    N = weight.shape[0]
-
-    padding = torch.zeros(6, )
-    padding[[4 - 2 * dim, 5 - 2 * dim]] = N // 2
-    padding = padding.long().tolist()
-
-    view = torch.ones(5, )
-    view[dim + 2] = -1
-    view = view.long().tolist()
-
-    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode),
-                    weight.view(view)).view(B, C, D, H, W)
-
-
-def smooth(img, sigma):
-    device = img.device
-
-    sigma = torch.tensor([sigma]).to(device)
-    N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
-
-    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N).to(device), 2) / (2 * torch.pow(sigma, 2)))
-    weight /= weight.sum()
-
-    img = filter_1d(img, weight, 0)
-    img = filter_1d(img, weight, 1)
-    img = filter_1d(img, weight, 2)
-
-    return img
+from utils import pairwise_dist, save_points, filter_1d, smooth
 
 
 def distinctiveness(img, sigma):
@@ -111,6 +79,75 @@ def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5
         plt.show()
 
     return keypoints_masked
+
+
+def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True):
+    """ Modality independent neighborhood descriptors (MIND) with 6-neighborhood.
+        Source: https://pubmed.ncbi.nlm.nih.gov/21995071/
+        Optionally using self-similarity context (SSC, http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf)
+        From: , implementation by Lasse Hansen.
+
+    :param img: image (-batch) to compute features for. Shape (B x 1 x D x H x W)
+    :param delta: neighborhood kernel dilation
+    :param sigma: noise estimate, used for gaussian filter
+    :param ssc: compute features from self-similarity context (SSD between pairs in 6-NH with distance sqrt(2))
+    :return: image with MIND features. Shape (B x 12 x D x H x W)
+    """
+    device = img.device
+    dtype = img.dtype
+
+    # define start and end locations for self-similarity pattern
+    six_neighbourhood = torch.Tensor([[0, 1, 1],
+                                      [1, 1, 0],
+                                      [1, 0, 1],
+                                      [1, 1, 2],
+                                      [2, 1, 1],
+                                      [1, 2, 1]]).long()
+
+
+    if ssc:
+        # compute self-similarity edges
+
+        # squared distances
+        dist = pairwise_dist(six_neighbourhood.unsqueeze(0)).squeeze(0)
+
+        # define comparison mask
+        x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
+        mask = ((x > y).view(-1) & (dist == 2).view(-1))
+
+        # build kernel
+        idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
+        idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
+        mshift1 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+        mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
+        mshift2 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
+        mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
+
+    else:
+        # normal 6-neighborhood mind (comparison with center voxel)
+        mshift1 = torch.ones(6, 1, 3, 3, 3).to(dtype).to(device)
+        mshift2 = torch.zeros(6, 3, 3, 3, dtype=dtype)
+        mshift2[six_neighbourhood[:, 0], six_neighbourhood[:, 1], six_neighbourhood[:, 2]] = 1
+        mshift2 = mshift2.unsqueeze(1).to(device)
+
+    rpad = nn.ReplicationPad3d(delta)
+
+    # compute patch-ssd
+    mind = smooth(((F.conv3d(rpad(img), mshift1, dilation=delta) - F.conv3d(rpad(img), mshift2, dilation=delta)) ** 2),
+                  sigma)
+
+    # MIND equation
+    mind = mind - torch.min(mind, 1, keepdim=True)[0]
+    mind_var = torch.mean(mind, 1, keepdim=True)
+    mind_var = torch.clamp(mind_var, mind_var.mean() * 0.001, mind_var.mean() * 1000)
+    mind /= mind_var
+    mind = torch.exp(-mind).to(dtype)
+
+    if ssc:
+        # permute to have same ordering as C++ code
+        mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
+
+    return mind
 
 
 def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mind=True):
@@ -204,75 +241,6 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
 
         # save point features
         save_points(torch.cat(point_feat, dim=0), labels, out_dir, case, sequence)
-
-
-def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True):
-    """ Modality independent neighborhood descriptors (MIND) with 6-neighborhood.
-        Source: https://pubmed.ncbi.nlm.nih.gov/21995071/
-        Optionally using self-similarity context (SSC, http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf)
-        From: , implementation by Lasse Hansen.
-
-    :param img: image (-batch) to compute features for. Shape (B x 1 x D x H x W)
-    :param delta: neighborhood kernel dilation
-    :param sigma: noise estimate, used for gaussian filter
-    :param ssc: compute features from self-similarity context (SSD between pairs in 6-NH with distance sqrt(2))
-    :return: image with MIND features. Shape (B x 12 x D x H x W)
-    """
-    device = img.device
-    dtype = img.dtype
-
-    # define start and end locations for self-similarity pattern
-    six_neighbourhood = torch.Tensor([[0, 1, 1],
-                                      [1, 1, 0],
-                                      [1, 0, 1],
-                                      [1, 1, 2],
-                                      [2, 1, 1],
-                                      [1, 2, 1]]).long()
-
-
-    if ssc:
-        # compute self-similarity edges
-
-        # squared distances
-        dist = pairwise_dist(six_neighbourhood.unsqueeze(0)).squeeze(0)
-
-        # define comparison mask
-        x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
-        mask = ((x > y).view(-1) & (dist == 2).view(-1))
-
-        # build kernel
-        idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
-        idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
-        mshift1 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
-        mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
-        mshift2 = torch.zeros(12, 1, 3, 3, 3).to(dtype).to(device)
-        mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
-
-    else:
-        # normal 6-neighborhood mind (comparison with center voxel)
-        mshift1 = torch.ones(6, 1, 3, 3, 3).to(dtype).to(device)
-        mshift2 = torch.zeros(6, 3, 3, 3, dtype=dtype)
-        mshift2[six_neighbourhood[:, 0], six_neighbourhood[:, 1], six_neighbourhood[:, 2]] = 1
-        mshift2 = mshift2.unsqueeze(1).to(device)
-
-    rpad = nn.ReplicationPad3d(delta)
-
-    # compute patch-ssd
-    mind = smooth(((F.conv3d(rpad(img), mshift1, dilation=delta) - F.conv3d(rpad(img), mshift2, dilation=delta)) ** 2),
-                  sigma)
-
-    # MIND equation
-    mind = mind - torch.min(mind, 1, keepdim=True)[0]
-    mind_var = torch.mean(mind, 1, keepdim=True)
-    mind_var = torch.clamp(mind_var, mind_var.mean() * 0.001, mind_var.mean() * 1000)
-    mind /= mind_var
-    mind = torch.exp(-mind).to(dtype)
-
-    if ssc:
-        # permute to have same ordering as C++ code
-        mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
-
-    return mind
 
 
 if __name__ == '__main__':

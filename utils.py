@@ -1,6 +1,7 @@
 import os
 
 import torch
+from torch.nn import functional as F
 
 
 def pairwise_dist(x):
@@ -38,3 +39,35 @@ def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str
 def load_points(path: str, case: str, sequence: str = 'fixed'):
     return torch.load(os.path.join(path, f'{case}_points_{sequence}.pth'), map_location='cpu'), \
            torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'), map_location='cpu')
+
+
+def filter_1d(img, weight, dim, padding_mode='replicate'):
+    B, C, D, H, W = img.shape
+    N = weight.shape[0]
+
+    padding = torch.zeros(6, )
+    padding[[4 - 2 * dim, 5 - 2 * dim]] = N // 2
+    padding = padding.long().tolist()
+
+    view = torch.ones(5, )
+    view[dim + 2] = -1
+    view = view.long().tolist()
+
+    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode),
+                    weight.view(view)).view(B, C, D, H, W)
+
+
+def smooth(img, sigma):
+    device = img.device
+
+    sigma = torch.tensor([sigma]).to(device)
+    N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
+
+    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N).to(device), 2) / (2 * torch.pow(sigma, 2)))
+    weight /= weight.sum()
+
+    img = filter_1d(img, weight, 0)
+    img = filter_1d(img, weight, 1)
+    img = filter_1d(img, weight, 2)
+
+    return img

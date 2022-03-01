@@ -1,5 +1,8 @@
 import os
 from typing import Sequence, Tuple
+
+import pytorch3d.structures
+from numpy.typing import ArrayLike
 from pytorch3d.vis import plotly_vis
 import SimpleITK as sitk
 import math
@@ -124,7 +127,7 @@ def plot_mesh(mesh, title=""):
     plot_pointcloud(x, y, z, title)
 
 
-def fit_3d_plane(mesh):
+def rigid_fit_3d_plane(mesh: pytorch3d.structures.Meshes):
     num_iter = 2000
     plot_period = num_iter
     loop = tqdm(range(num_iter))
@@ -187,12 +190,6 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
     for f in labels:
         print(f'Fitting fissure {f} ...')
         # construct the 3d object from label image
-        # TODO: maybe just take voxels as points
-        #   - sitk.BinaryThinning
-        #   - voxels 2 points
-        #   - ball-pivoting algorithm
-
-        # TODO Different idea: no fitting, just use poisson reconstruction?
         verts, faces, normals, values = marching_cubes(volume=(fissures_tensor == f).numpy(), level=0.5,
                                                        spacing=spacing, allow_degenerate=False,
                                                        mask=mask_tensor.numpy())
@@ -213,7 +210,7 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         trg_mesh = Meshes(verts=[verts], faces=[faces_idx])
 
         # construct the source shape: simple plane that is fitted to target point cloud
-        plane = fit_3d_plane(trg_mesh)
+        plane = rigid_fit_3d_plane(trg_mesh)
 
         # get a mesh from the plane
         n_plane_points = 2500
