@@ -381,53 +381,21 @@ def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Te
     return fissures_label_image
 
 
-def dist_to_mesh(input_points, trg_verts, trg_tris):
+def dist_to_mesh(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> np.ndarray:
+    """ Parallel unsigned distance computation from N query points to a target triangle mesh using Open3d.
+
+    :param query_points: query points for distance computation. ArrayLike of shape (Nx3)
+    :param trg_points: vertices of the target mesh. ArrayLike of shape (Vx3)
+    :param trg_tris: shared edge triangle index list of the target mesh. ArrayLike of shape (Tx3)
+    :return: euclidean distance from every input point to the closest point on the target mesh. Array of shape (N)
     """
+    # construct ray casting scene with target mesh in it
+    scene = o3d.t.geometry.RaycastingScene()
+    _ = scene.add_triangles(vertex_positions=np.array(trg_points, dtype=np.uint32), triangle_indices=np.array(trg_tris, dtype=np.uint32))  # we do not need the geometry ID for mesh
 
-    :param input_points:
-    :param trg_verts:
-    :param trg_tris:
-    :return: tensor containing euclidean distance from every input point to the closest point on the target mesh
-    """
-    # construct vtk points object
-    vtk_target_points = vtk.vtkPoints()
-    for v in trg_verts:
-        targ_point = v.tolist()
-        vtk_target_points.InsertNextPoint(targ_point)
-
-    # construct corresponding triangles
-    vtk_triangles = vtk.vtkCellArray()
-    for f in trg_tris:
-        v1_index, v2_index, v3_index = f
-
-        triangle = vtk.vtkTriangle()
-        triangle.GetPointIds().SetId(0, v1_index)
-        triangle.GetPointIds().SetId(1, v2_index)
-        triangle.GetPointIds().SetId(2, v3_index)
-
-        vtk_triangles.InsertNextCell(triangle)
-
-    triangle_poly_data = vtk.vtkPolyData()
-    triangle_poly_data.SetPoints(vtk_target_points)
-    triangle_poly_data.SetPolys(vtk_triangles)
-
-    locator = vtk.vtkCellLocator()
-    locator.SetDataSet(triangle_poly_data)
-    locator.BuildLocator()
-
-    # calculate distance from every point to mesh
-    squared_distances = []
-    for p in tqdm(input_points, desc='Closest point on mesh'):
-        pred_point = p.tolist()
-
-        closest_point = [0, 0, 0]
-        closest_cell_id = vtk.reference(0)
-        sub_ID = vtk.reference(0)  # unused
-        squared_dist = vtk.reference(0.0)
-        locator.FindClosestPoint(pred_point, closest_point, closest_cell_id, sub_ID, squared_dist)
-        squared_distances.append(float(squared_dist))
-
-    return torch.tensor(squared_distances).sqrt()
+    # distance computation
+    dist = scene.compute_distance(query_points)
+    return dist
 
 
 def poisson_reconstruction(fissures):
