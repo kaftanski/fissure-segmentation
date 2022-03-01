@@ -336,46 +336,66 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
 
     # convert points into labelmap
     print('Converting fissure meshes to labelmap ...')
-    # fissures_label_image = mesh2labelmap_dist(fissure_meshes, mask)
-    fissures_label_image = mesh2labelmap_sampling(fissure_meshes, mask, num_samples=10**7)
+    fissures_label_tensor = mesh2labelmap_dist(fissure_meshes, output_shape=fissures_tensor.shape,
+                                               img_spacing=fissures.GetSpacing(), mask=mask_tensor, dist_threshold=1.0)
+    # fissures_label_tensor = mesh2labelmap_sampling(fissure_meshes, output_shape=fissures_tensor.shape,
+    #                                                img_spacing=fissures.GetSpacing(), num_samples=10**7)
+    fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy().astype(np.uint8))
     fissures_label_image.CopyInformation(fissures)
     print('DONE\n')
     return fissures_label_image
 
 
-def mesh2labelmap_dist(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], lung_mask: sitk.Image,
-                       dist_threshold: float = 1.0):  # dist_threshold in mm
-    mask_tensor = image2tensor(lung_mask, dtype=torch.bool)
-    lung_points = torch.nonzero(mask_tensor) * torch.tensor(lung_mask.GetSpacing()[::-1])
+def mesh2labelmap_dist(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],
+                       img_spacing: Sequence[float], dist_threshold: float = 1.0, mask: torch.Tensor = None) -> torch.Tensor:
+    """ Constructs a label map from meshes based on a pixel's distance.
+        Output labels will be in {1, 2, ..., len(meshes)}.
 
-    dist_to_fissures = torch.zeros(len(lung_points), len(fissure_meshes))
-    for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
-        print(f'Fissure {i} ...')
-        dist_to_fissures[:, i] = dist_to_mesh(lung_points, fissure_verts, fissure_faces)
+    :param meshes: multiple meshes consisting of vertices and triangle indices, each getting its own label
+    :param output_shape: shape D,H,W of the output labelmap
+    :param img_spacing: the image spacing in x,y and z dimension
+    :param dist_threshold: minimum distance to mesh (in mm) where a point will be assigned the corresponding label
+    :param mask: optional mask to specify query points (distance will be computed from every nonzero element). Shape (DxHxW)
+    :return: labelmap
+    """
+    if mask is not None:
+        query_indices = torch.nonzero(mask)
+    else:
+        query_indices = torch.nonzero(torch.ones(*output_shape))
 
-    min_dist_label = torch.argmin(dist_to_fissures, dim=1, keepdim=True)
-    lung_points_label = torch.where(torch.take_along_dim(dist_to_fissures, indices=min_dist_label, dim=1) <= dist_threshold,
-                                    min_dist_label, -1) + 1
-    fissures_label_tensor = torch.zeros_like(mask_tensor)
-    fissures_label_tensor[torch.nonzero(mask_tensor, as_tuple=True)] = lung_points_label.squeeze()
-    fissures_label_image = sitk.GetImageFromArray(fissures_label_tensor.numpy().astype(np.uint8))
-    return fissures_label_image
+    dist_to_meshes = torch.zeros(len(query_indices), len(meshes))
+    for i, (verts, faces) in enumerate(meshes):
+        dist_to_meshes[:, i] = dist_to_mesh(query_indices.cpu() * torch.tensor(img_spacing[::-1]), verts.cpu(), faces.cpu())
+
+    min_dist_label = torch.argmin(dist_to_meshes, dim=1, keepdim=True)
+    labelled_points = torch.where(torch.take_along_dim(dist_to_meshes, indices=min_dist_label, dim=1) <= dist_threshold,
+                                  min_dist_label, -1) + 1
+    label_tensor = torch.zeros(*output_shape, dtype=torch.long)
+    label_tensor[query_indices[:, 0], query_indices[:, 1], query_indices[:, 2]] = labelled_points.squeeze()
+    return label_tensor
 
 
-def mesh2labelmap_sampling(fissure_meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], lung_mask: sitk.Image,
-                           num_samples: int = 10000):
-    spacing = torch.tensor(lung_mask.GetSpacing()[::-1])
-    mask_tensor = image2tensor(lung_mask, dtype=torch.bool)
-    label_tensor = torch.zeros(mask_tensor.shape, dtype=torch.long)
-    for i, (fissure_verts, fissure_faces) in enumerate(fissure_meshes):
-        meshes = Meshes(verts=[fissure_verts], faces=[fissure_faces])
+def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],
+                           img_spacing: Sequence[float], num_samples: int = 10000) -> torch.Tensor:
+    """ Constructs a label map from meshes by sampling points and placing them into the image grid.
+        Output labels will be in {1, 2, ..., len(meshes)}.
+
+    :param meshes: multiple meshes consisting of vertices and triangle indices, each getting its own label
+    :param output_shape: shape D,H,W of the output labelmap
+    :param img_spacing: the image spacing in x,y and z dimension
+    :param num_samples: number of samples to generate per mesh
+    :return: labelmap
+    """
+    spacing = torch.tensor(img_spacing[::-1])
+    label_tensor = torch.zeros(*output_shape, dtype=torch.long)
+    for i, (verts, faces) in enumerate(meshes):
+        meshes = Meshes(verts=[verts], faces=[faces])
         samples = sample_points_from_meshes(meshes, num_samples=num_samples)
         samples /= spacing.to(samples.device)
-        fissure_ind = samples.squeeze().floor().long()
-        label_tensor[fissure_ind[:, 0], fissure_ind[:, 1], fissure_ind[:, 2]] = i+1  # TODO: why index out of bounds?
+        indices = samples.squeeze().floor().long()
+        label_tensor[indices[:, 0], indices[:, 1], indices[:, 2]] = i+1  # TODO: why index out of bounds?
 
-    fissures_label_image = sitk.GetImageFromArray(label_tensor.numpy().astype(np.uint8))
-    return fissures_label_image
+    return label_tensor
 
 
 def dist_to_mesh(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> np.ndarray:
@@ -388,11 +408,11 @@ def dist_to_mesh(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: Array
     """
     # construct ray casting scene with target mesh in it
     scene = o3d.t.geometry.RaycastingScene()
-    _ = scene.add_triangles(vertex_positions=np.array(trg_points, dtype=np.uint32), triangle_indices=np.array(trg_tris, dtype=np.uint32))  # we do not need the geometry ID for mesh
+    _ = scene.add_triangles(vertex_positions=np.array(trg_points, dtype=np.float32), triangle_indices=np.array(trg_tris, dtype=np.uint32))  # we do not need the geometry ID for mesh
 
     # distance computation
-    dist = scene.compute_distance(query_points)
-    return dist
+    dist = scene.compute_distance(np.array(query_points, dtype=np.float32))
+    return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
 
 
 def poisson_reconstruction(fissures):
@@ -460,13 +480,11 @@ def regularize_fissure_segmentations(mode):
             continue
 
         print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
+        if ds.fissures[i] is None:
+            print('\tno fissure segmentation found, skipping.\n')
+            continue
+
         img, fissures = ds[i]
-        if fissures is None:
-            try:
-                fissures = sitk.ReadImage(file.replace('_img_fixed', '_fissures_fixed_WIP'))
-            except IOError as e:
-                print('\tno fissure segmentation found, skipping.\n')
-                continue
 
         if mode == 'plane':
             mask = ds.get_lung_mask(i)
@@ -481,6 +499,6 @@ def regularize_fissure_segmentations(mode):
 
 
 if __name__ == '__main__':
-    regularize_fissure_segmentations(mode='poisson')
+    regularize_fissure_segmentations(mode='plane')
     # result = poisson_reconstruction(sitk.ReadImage('../data/EMPIRE16_fissures_fixed.nii.gz'))
     # sitk.WriteImage(result, 'results/EMPIRE16_fissures_reg_fixed.nii.gz')
