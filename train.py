@@ -45,7 +45,7 @@ def visualize_point_cloud(points, labels):
     plt.show()
 
 
-def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
+def train(ds, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
@@ -56,7 +56,7 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     # network
     dgcnn_input_transformer = False
     net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-                   input_transformer=dgcnn_input_transformer)
+                   spatial_transformer=dgcnn_input_transformer)
     net.to(device)
 
     # optimizer and loss
@@ -82,30 +82,42 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
     for epoch in range(epochs):
         # TRAINING
         net.train()
-        for pts, lbls in train_dl:
-            pts = pts.to(device)
+        for pts, feat, lbls in train_dl:
+            inputs = []
+            if use_coords:
+                inputs.append(pts)
+            elif use_features:
+                inputs.append(feat)
+
+            inputs = torch.cat(inputs, dim=1).to(device)
             lbls = lbls.to(device)
 
             # forward & backward pass
             optimizer.zero_grad()
-            out = net(pts)
+            out = net(inputs)
             loss = criterion(out, lbls)
             loss.backward()
             optimizer.step()
 
             # statistics
-            train_loss[epoch] += loss.item() * len(pts) / len(train_ds)
-            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) * len(pts) / len(train_ds)
+            train_loss[epoch] += loss.item() * len(inputs) / len(train_ds)
+            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) * len(inputs) / len(train_ds)
 
         # VALIDATION
         net.eval()
-        for pts, lbls in valid_dl:
-            pts = pts.to(device)
+        for pts, feat, lbls in valid_dl:
+            inputs = []
+            if use_coords:
+                inputs.append(pts)
+            elif use_features:
+                inputs.append(feat)
+
+            inputs = torch.cat(inputs, dim=1).to(device)
             lbls = lbls.to(device)
 
             # forward pass
             with torch.no_grad():
-                out = net(pts)
+                out = net(inputs)
 
             loss = criterion(out, lbls)
 
@@ -153,6 +165,8 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
         'n_points': ds.sample_points,
         'batch_size': batch_size,
         'graph_k': graph_k,
+        'use_coords': use_coords,
+        'use_features': use_features,
         'learn_rate': learn_rate,
         'epochs': epochs,
         'exclude_rhf': ds.exclude_rhf,
@@ -164,7 +178,7 @@ def train(ds, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
         writer.writerow(setup_dict)
 
 
-def test(ds, graph_k, device, out_dir):
+def test(ds, graph_k, use_coords, use_features, device, out_dir):
     in_features = ds[0][0].shape[0]
 
     # load model
@@ -175,12 +189,18 @@ def test(ds, graph_k, device, out_dir):
 
     test_dice = torch.zeros(ds.num_classes)
     for i in range(len(ds)):
-        pts, lbls = ds.get_full_pointcloud(i)
-        pts = pts.unsqueeze(0).to(device)
+        pts, feat, lbls = ds.get_full_pointcloud(i)
+        inputs = []
+        if use_coords:
+            inputs.append(pts)
+        elif use_features:
+            inputs.append(feat)
+
+        inputs = torch.cat(inputs, dim=0).unsqueeze(0).to(device)
         lbls = lbls.unsqueeze(0).to(device)
 
         with torch.no_grad():
-            out = net(pts)
+            out = net(inputs)
 
         test_dice += batch_dice(out.argmax(1), lbls, ds.num_classes)
 
@@ -194,32 +214,49 @@ def test(ds, graph_k, device, out_dir):
         writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
         writer.writerow(['Test Dice'] + [d.item() for d in test_dice] + [test_dice.mean().item()])
 
+    return test_dice
 
-def cross_val(ds, split_file, batch_size, graph_k, device, learn_rate, epochs, show, out_dir):
+
+def cross_val(ds, split_file, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
+    test_dice = torch.zeros(len(split), ds.num_classes)
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
 
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         os.makedirs(fold_dir, exist_ok=True)
-        train(train_ds, batch_size, graph_k, device, learn_rate, epochs, show, fold_dir)
+        train(train_ds, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        test(val_ds, graph_k, device, fold_dir)
+        test_dice[fold] += test(val_ds, graph_k, use_coords, use_features, device, fold_dir)
+
+    mean_dice = test_dice.mean(0)
+    std_dice = test_dice.std(0)
+
+    # print out results
+    print('============ RESULTS ============')
+    print(f'Mean dice per class: {mean_dice} +- {std_dice}')
+
+    # output file
+    with open(os.path.join(out_dir, 'cv_results.csv'), 'w') as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
+        writer.writerow(['Mean Test Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
+        writer.writerow(['Test Dice Std.Dev.'] + [d.item() for d in std_dice] + [std_dice.mean().item()])
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
     parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
-    parser.add_argument('--lr', default=1e-3, help='learning rate', type=float)
+    parser.add_argument('--lr', default=0.001, help='learning rate', type=float)
     parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
-    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust'])
+    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust'])  # TODO: add lobes as possibility
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
-    parser.add_argument('--coords', const=True, default=True, help='use point coords as features', nargs='?')
-    parser.add_argument('--patch', const=True, default=True, help='use image patch around points as features', nargs='?')
+    parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
+    parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features', nargs='?')
     parser.add_argument('--batch', default=32, help='batch size', type=int)
     parser.add_argument('--output', default='./results', help='output data path', type=str)
     parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)', nargs='?')
@@ -230,9 +267,13 @@ if __name__ == '__main__':
 
     # load data
     if args.data == 'fissures':
-        point_dir = f'../point_data/feat_{"coords" if args.coords else ""}{"_mind" if args.patch else ""}'
+        if not args.coords and not args.patch:
+            print('No features specified, defaulting to coords as features. '
+                  'To specify, provide arguments --coords and/or --patch.')
+        point_dir = '../point_data/'
         print(f'Using point data from {point_dir}')
-        ds = PointDataset(args.pts, point_dir, exclude_rhf=args.exclude_rhf)
+        features = 'mind' if args.patch else None
+        ds = PointDataset(args.pts, folder=point_dir, patch_feat=features, exclude_rhf=args.exclude_rhf)
     elif args.data == 'faust':
         print(f'Using FAUST data set')
         ds = FaustDataset(args.pts)
@@ -251,7 +292,7 @@ if __name__ == '__main__':
     os.makedirs(args.output, exist_ok=True)
 
     if args.split is None:
-        train(ds, args.batch, args.k, device, args.lr, args.epochs, args.show, args.output)
-        test(ds, args.k, device, args.output)
+        train(ds, args.batch, args.k, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        test(ds, args.k, args.coords, args.patch, device, args.output)
     else:
-        cross_val(ds, args.split, args.batch, args.k, device, args.lr, args.epochs, args.show, args.output)
+        cross_val(ds, args.split, args.batch, args.k, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)

@@ -36,7 +36,9 @@ class FaustDataset(Dataset):
         # randomly sample points
         pts = self.point_clouds[item]
         sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        return pts[:, sample], self.labels[sample]
+        pts = pts[:, sample]
+        lbl = self.labels[sample]
+        return pts, torch.empty(0, pts.shape[1]), lbl
 
     def __len__(self):
         return len(self.point_clouds)
@@ -200,22 +202,29 @@ def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
 
 
 class PointDataset(Dataset):
-    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', exclude_rhf=False):
-        files = sorted(glob(os.path.join(folder, '*_points_*')))
+    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', patch_feat=None, exclude_rhf=False):
+        assert patch_feat in [None, 'mind', 'mind_ssc']
+
+        files = sorted(glob(os.path.join(folder, '*_coords_*')))
         self.folder = folder
         self.exclude_rhf = exclude_rhf
         self.sample_points = sample_points
         self.ids = []
         self.points = []
+        self.features = []
         self.labels = []
         for file in files:
             case, _, sequence = file.split('/')[-1].split('_')
             sequence = sequence.split('.')[0]
-            pts, lbls = load_points(folder, case, sequence)
+            pts, lbls, feat = load_points(folder, case, sequence, patch_feat)
             if exclude_rhf:
                 lbls[lbls == 3] = 0
             self.points.append(pts)
             self.labels.append(lbls)
+            if feat is not None:
+                self.features.append(feat)
+            else:
+                self.features.append(torch.empty(0, pts.shape[1]))
             self.ids.append((case, sequence))
 
         self.num_classes = max(len(torch.unique(lbl)) for lbl in self.labels)
@@ -224,8 +233,9 @@ class PointDataset(Dataset):
         # randomly sample points
         pts = self.points[item]
         lbls = self.labels[item]
+        feat = self.features[item]
         sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        return pts[:, sample], lbls[sample]
+        return pts[:, sample], feat[:, sample], lbls[sample]
 
     def __len__(self):
         return len(self.points)
@@ -249,17 +259,19 @@ class PointDataset(Dataset):
             if id in split['val']:
                 train_ds.points.pop(i)
                 train_ds.labels.pop(i)
+                train_ds.features.pop(i)
                 train_ds.ids.pop(i)
             else:
                 assert id in split['train'], f'Train/Validation split incomplete: instance {id} is contained in neither.'
                 val_ds.points.pop(i)
                 val_ds.labels.pop(i)
+                val_ds.features.pop(i)
                 val_ds.ids.pop(i)
 
         return train_ds, val_ds
 
     def get_full_pointcloud(self, i):
-        return self.points[i], self.labels[i]
+        return self.points[i], self.features[i], self.labels[i]
 
 
 def create_split(k: int, dataset: LungData, filepath: str, seed=42):

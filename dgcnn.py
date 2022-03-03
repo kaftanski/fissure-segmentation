@@ -52,13 +52,13 @@ def knn(x, k):
 
 
 class DGCNNSeg(nn.Module):
-    def __init__(self, k, in_features, num_classes, input_transformer=False):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False):
         super(DGCNNSeg, self).__init__()
         self.k = k
         self.num_classes = num_classes
 
-        if input_transformer:
-            self.spatial_transformer = SpatialTransformer(in_features, k)
+        if spatial_transformer:
+            self.spatial_transformer = SpatialTransformer(k)
         else:
             self.spatial_transformer = None
 
@@ -81,7 +81,7 @@ class DGCNNSeg(nn.Module):
         )
 
         self.apply(init_weights)
-        if input_transformer:
+        if spatial_transformer:
             self.spatial_transformer.init_weights()
 
     def forward(self, x):
@@ -167,11 +167,11 @@ class SharedFullyConnected(nn.Module):
 
 
 class SpatialTransformer(nn.Module):
-    def __init__(self, in_features, k):
+    def __init__(self, k):
         super(SpatialTransformer, self).__init__()
-        self.in_features = in_features
+        self.in_features = 3  # only use coords
 
-        self.ec = EdgeConv(in_features, [64, 128], k)
+        self.ec = EdgeConv(self.in_features, [64, 128], k)
         self.shared_fc = SharedFullyConnected(128, 1024, dim=1)
         self.mlp = nn.Sequential(
             nn.Linear(1024, 512),
@@ -181,16 +181,18 @@ class SpatialTransformer(nn.Module):
             nn.BatchNorm1d(256),
             nn.LeakyReLU(negative_slope=0.2),
         )
-        self.transform = nn.Linear(256, in_features * in_features)
+        self.transform = nn.Linear(256, self.in_features * self.in_features)
 
     def forward(self, x):
-        transform_mat = self.ec(x)
+        coords = x[:, :self.in_features]  # convention: coords are always the first 3 channels!
+        transform_mat = self.ec(coords)
         transform_mat = self.shared_fc(transform_mat)
         transform_mat = torch.max(transform_mat, dim=-1, keepdim=False)[0]
         transform_mat = self.mlp(transform_mat)
         transform_mat = self.transform(transform_mat)
         transform_mat = transform_mat.view(x.shape[0], self.in_features, self.in_features)
-        return torch.bmm(x.transpose(2, 1), transform_mat).transpose(2, 1)
+        x[:, :self.in_features] = torch.bmm(coords.transpose(2, 1), transform_mat).transpose(2, 1)  # transform coords
+        return x
 
     def init_weights(self):
         self.apply(init_weights)

@@ -150,9 +150,7 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
     return mind
 
 
-def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mind=True):
-    assert use_coords or use_mind, 'At least one kind of feature should be computed (MIND and/or coords).'
-
+def preprocess_point_features(data_path, point_data_dir, use_mind=True):
     device = 'cuda:3'
 
     ds = LungData(data_path)
@@ -165,19 +163,7 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
     # hyperparameters for MIND
     mind_sigma = 0.8
     delta = 1
-    ssc = False
-
-    # prepare directory
-    folder = 'feat_'
-    if use_coords:
-        folder += 'coords_'
-    if use_mind:
-        folder += 'mind_'
-        if ssc:
-            folder += 'ssc_'
-    folder = folder[:-1]
-    out_dir = os.path.join(point_data_dir, folder)
-    os.makedirs(out_dir, exist_ok=True)
+    ssc = True
 
     for i in range(len(ds)):
         torch.cuda.empty_cache()
@@ -217,30 +203,26 @@ def preprocess_point_features(data_path, point_data_dir, use_coords=True, use_mi
         # get label for each point
         fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilate).astype(int)).to(device)
         labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
+        torch.save(labels.cpu(), os.path.join(point_data_dir, f'{case}_labels_{sequence}.pth'))
         print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
 
-        # assemble features for each point
-        point_feat = []
-
-        # coordinate features
-        if use_coords:
-            # transform indices into physical points
-            spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-            point_feat.append(foerstner.kpts_pt(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
-                                                align_corners=True).transpose(0, 1))
+        # coordinate features: transform indices into physical points
+        spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
+        points = foerstner.kpts_pt(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+                                   align_corners=True).transpose(0, 1)
+        torch.save(points.cpu(), os.path.join(point_data_dir, f'{case}_coords_{sequence}.pth'))
 
         # image patch features
         if use_mind:
             torch.cuda.empty_cache()
             print('\tComputing MIND features')
             # compute mind features for image
-            mind = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
+            mind_features = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
 
             # extract features for keypoints
-            point_feat.append(mind[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze())
-
-        # save point features
-        save_points(torch.cat(point_feat, dim=0), labels, out_dir, case, sequence)
+            mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
+            torch.save(mind_features.cpu(), os.path.join(point_data_dir,
+                                                         f'{case}_mind{"_ssc" if ssc else ""}_{sequence}.pth'))
 
 
 if __name__ == '__main__':
