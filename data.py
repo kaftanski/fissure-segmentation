@@ -12,37 +12,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from utils import load_points
-
-
-class FaustDataset(Dataset):
-    def __init__(self, sample_points, points_folder='/share/data_sam1/bigalke/datasets/faust/training/registrations/',
-                 label_file='/share/data_sam1/bigalke/datasets/faust/training/body_part_labels.npy'):
-        self.sample_points = sample_points
-
-        # load point clouds
-        filenames = glob(os.path.join(points_folder, '*.npy'))
-        self.point_clouds = []
-        for file in filenames:
-            pts = torch.from_numpy(np.load(file)).T
-            self.point_clouds.append(pts.float())
-
-        # load label file (same for all point clouds, 1-to-1 correspondence)
-        self.labels = torch.from_numpy(np.load(label_file)).long() - 1  # labels in range 0..14
-
-        self.num_classes = len(torch.unique(self.labels))
-
-    def __getitem__(self, item):
-        # randomly sample points
-        pts = self.point_clouds[item]
-        sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        pts = pts[:, sample]
-        lbl = self.labels[sample]
-        return pts, torch.empty(0, pts.shape[1]), lbl
-
-    def __len__(self):
-        return len(self.point_clouds)
-
 
 class LungData(Dataset):
     def __init__(self, folder):
@@ -178,27 +147,7 @@ class LungData(Dataset):
         return lobes
 
 
-def load_landmarks(filepath):
-    points = []
-    with open(filepath, 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        for line in reader:
-            points.append([eval(coord) for coord in line])
-
-    return torch.tensor(points)
-
-
-def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
-    array = sitk.GetArrayFromImage(img)
-    if dtype == torch.bool:
-        array = array.astype(bool)
-    if array.dtype == np.uint16:
-        array = array.astype(int)
-    tensor = torch.from_numpy(array)
-    if dtype is not None:
-        tensor = tensor.to(dtype)
-
-    return tensor
+from utils import load_points
 
 
 class PointDataset(Dataset):
@@ -274,6 +223,58 @@ class PointDataset(Dataset):
         return self.points[i], self.features[i], self.labels[i]
 
 
+class FaustDataset(Dataset):
+    def __init__(self, sample_points, points_folder='/share/data_sam1/bigalke/datasets/faust/training/registrations/',
+                 label_file='/share/data_sam1/bigalke/datasets/faust/training/body_part_labels.npy'):
+        self.sample_points = sample_points
+
+        # load point clouds
+        filenames = glob(os.path.join(points_folder, '*.npy'))
+        self.point_clouds = []
+        for file in filenames:
+            pts = torch.from_numpy(np.load(file)).T
+            self.point_clouds.append(pts.float())
+
+        # load label file (same for all point clouds, 1-to-1 correspondence)
+        self.labels = torch.from_numpy(np.load(label_file)).long() - 1  # labels in range 0..14
+
+        self.num_classes = len(torch.unique(self.labels))
+
+    def __getitem__(self, item):
+        # randomly sample points
+        pts = self.point_clouds[item]
+        sample = torch.randperm(pts.shape[1])[:self.sample_points]
+        pts = pts[:, sample]
+        lbl = self.labels[sample]
+        return pts, torch.empty(0, pts.shape[1]), lbl
+
+    def __len__(self):
+        return len(self.point_clouds)
+
+
+def load_landmarks(filepath):
+    points = []
+    with open(filepath, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for line in reader:
+            points.append([eval(coord) for coord in line])
+
+    return torch.tensor(points)
+
+
+def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
+    array = sitk.GetArrayFromImage(img)
+    if dtype == torch.bool:
+        array = array.astype(bool)
+    if array.dtype == np.uint16:
+        array = array.astype(int)
+    tensor = torch.from_numpy(array)
+    if dtype is not None:
+        tensor = tensor.to(dtype)
+
+    return tensor
+
+
 def create_split(k: int, dataset: LungData, filepath: str, seed=42):
     # get the names of images that have fissures segmented
     names = np.asarray([img.split(os.sep)[-1].split('.')[0] for i, img in enumerate(dataset.images) if dataset.fissures[i] is not None])
@@ -320,7 +321,6 @@ def load_split_file(filepath):
 def save_split_file(split, filepath):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
-
 
 
 if __name__ == '__main__':
