@@ -45,7 +45,7 @@ def visualize_point_cloud(points, labels):
     plt.show()
 
 
-def train(ds, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
@@ -60,14 +60,14 @@ def train(ds, batch_size, graph_k, use_coords, use_features, device, learn_rate,
     net.to(device)
 
     # optimizer and loss
-    optimizer = torch.optim.Adam(net.parameters(), lr=learn_rate)
+    optimizer = torch.optim.Adam(net.parameters(), lr=learn_rate)  # TODO: weight decay?
     class_frequency = ds.get_label_frequency()
     class_weights = 1 - class_frequency
     class_weights *= ds.num_classes
     print(f'Class weights: {class_weights.tolist()}')
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
-    # learnrate scheduling
+    # learnrate scheduling  # TODO: try cosine annealing
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=50,
                                                            threshold=1e-4, cooldown=50, verbose=True)
 
@@ -170,6 +170,7 @@ def train(ds, batch_size, graph_k, use_coords, use_features, device, learn_rate,
         'learn_rate': learn_rate,
         'epochs': epochs,
         'exclude_rhf': ds.exclude_rhf,
+        'lobes': ds.lobes,
         'dgcnn_input_transformer': dgcnn_input_transformer
     }
     with open(os.path.join(out_dir, 'setup.csv'), 'w') as csv_file:
@@ -178,11 +179,11 @@ def train(ds, batch_size, graph_k, use_coords, use_features, device, learn_rate,
         writer.writerow(setup_dict)
 
 
-def test(ds, graph_k, use_coords, use_features, device, out_dir):
+def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
     in_features = ds[0][0].shape[0]
 
     # load model
-    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes)
+    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes, spatial_transformer=transformer)
     net.to(device)
     net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth')))
     net.eval()
@@ -217,7 +218,7 @@ def test(ds, graph_k, use_coords, use_features, device, out_dir):
     return test_dice
 
 
-def cross_val(ds, split_file, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -228,15 +229,15 @@ def cross_val(ds, split_file, batch_size, graph_k, use_coords, use_features, dev
 
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         os.makedirs(fold_dir, exist_ok=True)
-        train(train_ds, batch_size, graph_k, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
+        train(train_ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        test_dice[fold] += test(val_ds, graph_k, use_coords, use_features, device, fold_dir)
+        test_dice[fold] += test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir)
 
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
     # print out results
-    print('============ RESULTS ============')
+    print('\n============ RESULTS ============')
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
@@ -252,7 +253,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
     parser.add_argument('--lr', default=0.001, help='learning rate', type=float)
     parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
-    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust'])  # TODO: add lobes as possibility
+    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust', 'lobes'])
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
     parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
@@ -262,18 +263,19 @@ if __name__ == '__main__':
     parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)', nargs='?')
     parser.add_argument('--exclude_rhf', const=True, default=False, help='exclude the right horizontal fissure from the model', nargs='?')
     parser.add_argument('--split', default=None, type=str, help='cross validation split file')
+    parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
     args = parser.parse_args()
     print(args)
 
     # load data
-    if args.data == 'fissures':
+    if args.data in ['fissures', 'lobes']:
         if not args.coords and not args.patch:
             print('No features specified, defaulting to coords as features. '
                   'To specify, provide arguments --coords and/or --patch.')
         point_dir = '../point_data/'
         print(f'Using point data from {point_dir}')
         features = 'mind' if args.patch else None
-        ds = PointDataset(args.pts, folder=point_dir, patch_feat=features, exclude_rhf=args.exclude_rhf)
+        ds = PointDataset(args.pts, folder=point_dir, patch_feat=features, exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
     elif args.data == 'faust':
         print(f'Using FAUST data set')
         ds = FaustDataset(args.pts)
@@ -292,7 +294,7 @@ if __name__ == '__main__':
     os.makedirs(args.output, exist_ok=True)
 
     if args.split is None:
-        train(ds, args.batch, args.k, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-        test(ds, args.k, args.coords, args.patch, device, args.output)
+        train(ds, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        test(ds, args.k, args.transformer, args.coords, args.patch, device, args.output)
     else:
-        cross_val(ds, args.split, args.batch, args.k, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        cross_val(ds, args.split, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)

@@ -499,6 +499,6 @@ def regularize_fissure_segmentations(mode):
 
 
 if __name__ == '__main__':
-    regularize_fissure_segmentations(mode='plane')
+    regularize_fissure_segmentations(mode='poisson')
     # result = poisson_reconstruction(sitk.ReadImage('../data/EMPIRE16_fissures_fixed.nii.gz'))
     # sitk.WriteImage(result, 'results/EMPIRE16_fissures_reg_fixed.nii.gz')

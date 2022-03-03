@@ -3,7 +3,7 @@ import time
 
 from torch import nn
 
-from image_ops import resample_equal_spacing
+from image_ops import resample_equal_spacing, multiple_objects_morphology
 import foerstner
 import SimpleITK as sitk
 import torch
@@ -151,7 +151,7 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
 
 
 def preprocess_point_features(data_path, point_data_dir, use_mind=True):
-    device = 'cuda:3'
+    device = 'cuda:2'
 
     ds = LungData(data_path)
 
@@ -163,7 +163,7 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
     # hyperparameters for MIND
     mind_sigma = 0.8
     delta = 1
-    ssc = True
+    ssc = False
 
     for i in range(len(ds)):
         torch.cuda.empty_cache()
@@ -179,18 +179,21 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
             continue
 
         img, fissures = ds[i]
-
+        lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
         # resample all images to unit spacing
         img = resample_equal_spacing(img, target_spacing=1)
-        mask = resample_equal_spacing(mask, target_spacing=1)
+        mask = resample_equal_spacing(mask, target_spacing=1, use_nearest_neighbor=True)
         fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
+        lobes = resample_equal_spacing(lobes, target_spacing=1, use_nearest_neighbor=True)
 
         # dilate fissures so that more keypoints get assigned foreground labels
-        fissures_dilate = fissures
-        for i in range(1, ds.num_classes):
-            fissures_dilate = sitk.DilateObjectMorphology(sitk.Cast(fissures_dilate, sitk.sitkUInt8), kernelRadius=(2, 2, 2), objectValue=i)
+        fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
+
+        # dilate lobes to fill gaps from the fissures
+        lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
+        sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
 
         # compute förstner keypoints
         start = time.time()
@@ -201,10 +204,16 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
         print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
 
         # get label for each point
-        fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilate).astype(int)).to(device)
-        labels = fissures_tensor[kp[:, 0], kp[:, 1], kp[:, 2]]
-        torch.save(labels.cpu(), os.path.join(point_data_dir, f'{case}_labels_{sequence}.pth'))
-        print(f'\tkeypoints per label: {labels.unique(return_counts=True)[1].tolist()}')
+        kp_cpu = kp.cpu()
+        fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
+        labels = fissures_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
+        torch.save(labels.cpu(), os.path.join(point_data_dir, f'{case}_fissures_{sequence}.pth'))
+        print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
+
+        lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
+        lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
+        torch.save(lobes.cpu(), os.path.join(point_data_dir, f'{case}_lobes_{sequence}.pth'))
+        print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
 
         # coordinate features: transform indices into physical points
         spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)

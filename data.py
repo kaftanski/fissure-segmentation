@@ -6,7 +6,7 @@ import pickle
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
-
+from utils import load_points
 import SimpleITK as sitk
 import numpy as np
 import torch
@@ -20,7 +20,7 @@ class LungData(Dataset):
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
         self.landmarks = []
         self.fissures = []
-        self.lobescribbles = []
+        self.lobes = []
 
         # fill missing landmarks and fissure segmentations with None
         for img in self.images:
@@ -36,11 +36,11 @@ class LungData(Dataset):
             else:
                 self.fissures.append(None)
 
-            lobes_file = img.replace('_img_', '_lobescribbles_')
+            lobes_file = img.replace('_img_', '_lobes_')
             if os.path.exists(lobes_file):
-                self.lobescribbles.append(lobes_file)
+                self.lobes.append(lobes_file)
             else:
-                self.lobescribbles.append(None)
+                self.lobes.append(None)
 
         self.num_classes = 4
 
@@ -126,7 +126,7 @@ class LungData(Dataset):
 
         return filenames
 
-    def get_lobescribbles(self, item):
+    def get_lobes(self, item):
         if isinstance(item, int):
             item = [item]
 
@@ -135,8 +135,8 @@ class LungData(Dataset):
         lobes = []
         for i in item:
             # load the lobe scribbles
-            if self.lobescribbles[i] is not None:
-                lobe = sitk.ReadImage(self.lobescribbles[i])
+            if self.lobes[i] is not None:
+                lobe = sitk.ReadImage(self.lobes[i])
             else:
                 lobe = None
             lobes.append(lobe)
@@ -147,16 +147,14 @@ class LungData(Dataset):
         return lobes
 
 
-from utils import load_points
-
-
 class PointDataset(Dataset):
-    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', patch_feat=None, exclude_rhf=False):
+    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', patch_feat=None, exclude_rhf=False, lobes=False):
         assert patch_feat in [None, 'mind', 'mind_ssc']
 
         files = sorted(glob(os.path.join(folder, '*_coords_*')))
         self.folder = folder
         self.exclude_rhf = exclude_rhf
+        self.lobes = lobes
         self.sample_points = sample_points
         self.ids = []
         self.points = []
@@ -165,9 +163,12 @@ class PointDataset(Dataset):
         for file in files:
             case, _, sequence = file.split('/')[-1].split('_')
             sequence = sequence.split('.')[0]
-            pts, lbls, feat = load_points(folder, case, sequence, patch_feat)
-            if exclude_rhf:
-                lbls[lbls == 3] = 0
+            pts, lbls, lobe_lbl, feat = load_points(folder, case, sequence, patch_feat)
+            if lobes:
+                lbls = lobe_lbl
+            else:
+                if exclude_rhf:
+                    lbls[lbls == 3] = 0
             self.points.append(pts)
             self.labels.append(lbls)
             if feat is not None:

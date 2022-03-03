@@ -38,7 +38,8 @@ def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str
 
 def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None):
     return torch.load(os.path.join(path, f'{case}_coords_{sequence}.pth'), map_location='cpu'), \
-           torch.load(os.path.join(path, f'{case}_labels_{sequence}.pth'), map_location='cpu'), \
+           torch.load(os.path.join(path, f'{case}_fissures_{sequence}.pth'), map_location='cpu'), \
+           torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location='cpu'), \
            torch.load(os.path.join(path, f'{case}_{feat}_{sequence}.pth'), map_location='cpu') if feat is not None \
                else None
 
