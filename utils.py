@@ -1,6 +1,9 @@
+import numpy as np
+import open3d as o3d
 import os
 
 import torch
+from numpy.typing import ArrayLike
 from torch.nn import functional as F
 
 
@@ -63,10 +66,10 @@ def filter_1d(img, weight, dim, padding_mode='replicate'):
 def smooth(img, sigma):
     device = img.device
 
-    sigma = torch.tensor([sigma]).to(device)
+    sigma = torch.tensor([sigma], device=device)
     N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
 
-    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N).to(device), 2) / (2 * torch.pow(sigma, 2)))
+    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N, device=device), 2) / (2 * torch.pow(sigma, 2)))
     weight /= weight.sum()
 
     img = filter_1d(img, weight, 0)
@@ -74,3 +77,31 @@ def smooth(img, sigma):
     img = filter_1d(img, weight, 2)
 
     return img
+
+
+def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
+    verts = o3d.utility.Vector3dVector(np.array(verts, dtype=np.float32))
+    tris = o3d.utility.Vector3iVector(np.array(tris, dtype=np.uint32))
+    return o3d.geometry.TriangleMesh(vertices=verts, triangles=tris)
+
+
+def kpts_to_grid(kpts_world, shape, align_corners=None):
+    device = kpts_world.device
+    D, H, W = shape
+
+    kpts_pt_ = (kpts_world.flip(-1) / (torch.tensor([W, H, D], device=device) - 1)) * 2 - 1
+    if not align_corners:
+        kpts_pt_ *= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
+
+    return kpts_pt_
+
+
+def kpts_to_world(kpts_pt, shape, align_corners=None):
+    device = kpts_pt.device
+    D, H, W = shape
+
+    if not align_corners:
+        kpts_pt /= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
+    kpts_world_ = (((kpts_pt + 1) / 2) * (torch.tensor([W, H, D], device=device) - 1)).flip(-1)
+
+    return kpts_world_

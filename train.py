@@ -11,8 +11,11 @@ import torch
 import argparse
 from torch.utils.data import random_split, DataLoader
 
-from data import FaustDataset, PointDataset, load_split_file, save_split_file
+from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
+from metrics import assd, ssd
+from surface_fitting import pointcloud_to_mesh
+from utils import kpts_to_world
 
 
 def batch_dice(prediction, target, n_labels):
@@ -54,9 +57,8 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
     in_features = train_ds[0][0].shape[0]
 
     # network
-    dgcnn_input_transformer = False
     net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-                   spatial_transformer=dgcnn_input_transformer)
+                   spatial_transformer=transformer)
     net.to(device)
 
     # optimizer and loss
@@ -171,7 +173,7 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
         'epochs': epochs,
         'exclude_rhf': ds.exclude_rhf,
         'lobes': ds.lobes,
-        'dgcnn_input_transformer': dgcnn_input_transformer
+        'dgcnn_input_transformer': transformer
     }
     with open(os.path.join(out_dir, 'setup.csv'), 'w') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
@@ -180,6 +182,7 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
 
 
 def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
+    img_ds = LungData('../data/')
     in_features = ds[0][0].shape[0]
 
     # load model
@@ -188,7 +191,12 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
     net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth')))
     net.eval()
 
-    test_dice = torch.zeros(ds.num_classes)
+    # metrics
+    test_dice = torch.zeros(len(ds), ds.num_classes)
+    avg_surface_dist = torch.zeros(len(ds), 2 if ds.exclude_rhf else 3)  # hardcoded number of fissures
+    std_surface_dist = torch.zeros_like(avg_surface_dist)
+    hd_surface_dist = torch.zeros_like(avg_surface_dist)
+    hd95_surface_dist = torch.zeros_like(avg_surface_dist)
     for i in range(len(ds)):
         pts, feat, lbls = ds.get_full_pointcloud(i)
         inputs = []
@@ -203,19 +211,64 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
         with torch.no_grad():
             out = net(inputs)
 
-        test_dice += batch_dice(out.argmax(1), lbls, ds.num_classes)
+        labels_pred = out.argmax(1)
+        test_dice[i] += batch_dice(labels_pred, lbls, ds.num_classes)
 
-    test_dice /= len(ds)
+        # convert points back to world coordinates
+        case, sequence = ds.ids[i]
+        image = img_ds.get_image(next(j for j, fn in enumerate(img_ds.images) if f'{case}_img_{sequence}' in fn))
+        spacing = torch.tensor(image.GetSpacing()[::-1], device=device)
+        shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing
+        pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
-    print(f'Test dice per class: {test_dice}')
+        if not ds.lobes:
+            # mesh fitting for each fissure
+            for j, f in enumerate(labels_pred.unique()):
+                if f == 0:
+                    continue
+                mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu())
+                mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu())
+                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, mesh_target)
+                avg_surface_dist[i, j] += asd
+                std_surface_dist[i, j] += sdsd
+                hd_surface_dist[i, j] += hdsd
+                hd95_surface_dist[i, j] += hd95sd
+
+        else:
+            # TODO: compute fissures from lobes
+            pass
+
+    mean_dice = test_dice.mean(0)
+    std_dice = test_dice.std(0)
+
+    mean_assd = avg_surface_dist.mean(0)
+    std_assd = avg_surface_dist.std(0)
+
+    mean_hd = hd_surface_dist.mean(0)
+    std_hd = hd_surface_dist.std(0)
+
+    mean_hd95 = hd95_surface_dist.mean(0)
+    std_hd95 = hd95_surface_dist.std(0)
+
+    print(f'Test dice per class: {mean_dice} +- {std_dice}')
+    print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
 
     # output file
     with open(os.path.join(out_dir, 'test_results.csv'), 'w') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
-        writer.writerow(['Test Dice'] + [d.item() for d in test_dice] + [test_dice.mean().item()])
+        writer.writerow(['Mean Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
+        writer.writerow(['StdDev Dice'] + [d.item() for d in std_dice] + [std_dice.mean().item()])
+        writer.writerow([])
+        writer.writerow(['Fissure'] + [str(i+1) for i in range(mean_assd.shape[0])] + ['mean'])
+        writer.writerow(['Mean ASSD'] + [d.item() for d in mean_assd] + [mean_assd.mean().item()])
+        writer.writerow(['StdDev ASSD'] + [d.item() for d in std_assd] + [std_assd.mean().item()])
+        writer.writerow(['Mean HD'] + [d.item() for d in mean_hd] + [mean_hd.mean().item()])
+        writer.writerow(['StdDev HD'] + [d.item() for d in std_hd] + [std_hd.mean().item()])
+        writer.writerow(['Mean HD95'] + [d.item() for d in mean_hd95] + [mean_hd95.mean().item()])
+        writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
-    return test_dice
+    return mean_dice
 
 
 def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
@@ -232,6 +285,8 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_
         train(train_ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
         test_dice[fold] += test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir)
+
+        # TODO: compute confusion matrix
 
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
@@ -264,6 +319,7 @@ if __name__ == '__main__':
     parser.add_argument('--exclude_rhf', const=True, default=False, help='exclude the right horizontal fissure from the model', nargs='?')
     parser.add_argument('--split', default=None, type=str, help='cross validation split file')
     parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
+    parser.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
     args = parser.parse_args()
     print(args)
 
@@ -294,7 +350,8 @@ if __name__ == '__main__':
     os.makedirs(args.output, exist_ok=True)
 
     if args.split is None:
-        train(ds, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        if not args.test_only:
+            train(ds, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
         test(ds, args.k, args.transformer, args.coords, args.patch, device, args.output)
     else:
         cross_val(ds, args.split, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)

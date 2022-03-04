@@ -3,6 +3,7 @@ import time
 
 from torch import nn
 
+import utils
 from image_ops import resample_equal_spacing, multiple_objects_morphology
 import foerstner
 import SimpleITK as sitk
@@ -217,8 +218,8 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
 
         # coordinate features: transform indices into physical points
         spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-        points = foerstner.kpts_pt(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
-                                   align_corners=True).transpose(0, 1)
+        points = utils.kpts_to_grid(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+                                    align_corners=True).transpose(0, 1)
         torch.save(points.cpu(), os.path.join(point_data_dir, f'{case}_coords_{sequence}.pth'))
 
         # image patch features

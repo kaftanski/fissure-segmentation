@@ -1,37 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-
-def filter1D(img, weight, dim, padding_mode='replicate'):
-    B, C, D, H, W = img.shape
-    N = weight.shape[0]
-
-    padding = torch.zeros(6, )
-    padding[[4 - 2 * dim, 5 - 2 * dim]] = N // 2
-    padding = padding.long().tolist()
-
-    view = torch.ones(5, )
-    view[dim + 2] = -1
-    view = view.long().tolist()
-
-    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode), weight.view(view)).view(B, C, D, H,
-                                                                                                            W)
-
-
-def smooth(img, sigma):
-    device = img.device
-
-    sigma = torch.tensor([sigma], device=device)
-    N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
-
-    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N, device=device), 2) / (2 * torch.pow(sigma, 2)))
-    weight /= weight.sum()
-
-    img = filter1D(img, weight, 0)
-    img = filter1D(img, weight, 1)
-    img = filter1D(img, weight, 2)
-
-    return img
+from utils import smooth, filter_1d
 
 
 def structure_tensor(img, sigma):
@@ -67,24 +37,13 @@ def invert_structure_tensor(struct):
     return struct_inv
 
 
-def kpts_pt(kpts_world, shape, align_corners=None):
-    device = kpts_world.device
-    D, H, W = shape
-
-    kpts_pt_ = (kpts_world.flip(-1) / (torch.tensor([W, H, D], device=device) - 1)) * 2 - 1
-    if not align_corners:
-        kpts_pt_ *= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
-
-    return kpts_pt_
-
-
 def distinctiveness(img, sigma):
     device = img.device
 
     filt = torch.tensor([1.0 / 12.0, -8.0 / 12.0, 0.0, 8.0 / 12.0, -1.0 / 12.0], device=device)
-    grad = torch.cat([filter1D(img, filt, 0),
-                      filter1D(img, filt, 1),
-                      filter1D(img, filt, 2)], dim=1)
+    grad = torch.cat([filter_1d(img, filt, 0),
+                      filter_1d(img, filt, 1),
+                      filter_1d(img, filt, 2)], dim=1)
 
     struct_inv = invert_structure_tensor(structure_tensor(grad, sigma))
 

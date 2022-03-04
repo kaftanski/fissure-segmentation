@@ -365,7 +365,7 @@ def mesh2labelmap_dist(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], outp
 
     dist_to_meshes = torch.zeros(len(query_indices), len(meshes))
     for i, (verts, faces) in enumerate(meshes):
-        dist_to_meshes[:, i] = dist_to_mesh(query_indices.cpu() * torch.tensor(img_spacing[::-1]), verts.cpu(), faces.cpu())
+        dist_to_meshes[:, i] = point_surface_distance(query_indices.cpu() * torch.tensor(img_spacing[::-1]), verts.cpu(), faces.cpu())
 
     min_dist_label = torch.argmin(dist_to_meshes, dim=1, keepdim=True)
     labelled_points = torch.where(torch.take_along_dim(dist_to_meshes, indices=min_dist_label, dim=1) <= dist_threshold,
@@ -398,13 +398,13 @@ def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], 
     return label_tensor
 
 
-def dist_to_mesh(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> np.ndarray:
+def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> torch.Tensor:
     """ Parallel unsigned distance computation from N query points to a target triangle mesh using Open3d.
 
     :param query_points: query points for distance computation. ArrayLike of shape (Nx3)
     :param trg_points: vertices of the target mesh. ArrayLike of shape (Vx3)
     :param trg_tris: shared edge triangle index list of the target mesh. ArrayLike of shape (Tx3)
-    :return: euclidean distance from every input point to the closest point on the target mesh. Array of shape (N)
+    :return: euclidean distance from every input point to the closest point on the target mesh. Tensor of shape (N)
     """
     # construct ray casting scene with target mesh in it
     scene = o3d.t.geometry.RaycastingScene()
@@ -413,6 +413,22 @@ def dist_to_mesh(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: Array
     # distance computation
     dist = scene.compute_distance(np.array(query_points, dtype=np.float32))
     return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
+
+
+def pointcloud_to_mesh(points: ArrayLike) -> o3d.geometry.TriangleMesh:
+    """
+
+    :param points: (Nx3)
+    :return:
+    """
+    # convert to open3d point cloud object
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.estimate_normals()
+
+    # compute the mesh
+    poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=6, width=0, scale=1.1, linear_fit=False)[0]
+    return poisson_mesh
 
 
 def poisson_reconstruction(fissures):
@@ -440,18 +456,13 @@ def poisson_reconstruction(fissures):
         # extract point cloud from thinned fissures
         fissure_points = torch.nonzero(label_tensor) * torch.tensor(spacing)
 
-        # convert to open3d point cloud object
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(fissure_points)
-        pcd.estimate_normals()
-
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
-        poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=6, width=0, scale=1.1, linear_fit=False)[0]
+        poisson_mesh = pointcloud_to_mesh(fissure_points)
 
         # cropping
         print('\tPost-processing ...')
-        bbox = pcd.get_axis_aligned_bounding_box()
+        bbox = poisson_mesh.get_axis_aligned_bounding_box()
         poisson_mesh_crop = poisson_mesh.crop(bbox)
 
         # convert mesh to labelmap by sampling points
