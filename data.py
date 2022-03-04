@@ -13,6 +13,33 @@ import torch
 from torch.utils.data import Dataset
 
 
+def _load_files_from_file_list(item, the_list):
+    if isinstance(item, int):
+        item = [item]
+
+    item = torch.arange(len(the_list))[item]
+
+    result = []
+    for i in item:
+        filename = the_list[i]
+        # load each item
+        if filename is not None:
+            if filename.endswith('.nii.gz'):
+                instance = sitk.ReadImage(filename)
+            elif filename.endswith('.csv'):
+                instance = load_landmarks(filename)
+            else:
+                instance = None
+        else:
+            instance = None
+        result.append(instance)
+
+    if len(item) == 1:
+        result = result[0]
+
+    return result
+
+
 class LungData(Dataset):
     def __init__(self, folder):
         super(LungData, self).__init__()
@@ -44,71 +71,17 @@ class LungData(Dataset):
 
         self.num_classes = 4
 
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            item = [item]
+    def get_image(self, item):
+        return _load_files_from_file_list(item, self.images)
 
-        item = torch.arange(len(self))[item]
-
-        imgs = []
-        fissures = []
-        for i in item:
-            # load the i-th image
-            img = sitk.ReadImage(self.images[i])
-            imgs.append(img)
-
-            # load the ground truth fissure segmentation, if available
-            if self.fissures[i] is not None:
-                fissure = sitk.ReadImage(self.fissures[i])
-            else:
-                fissure = None
-            fissures.append(fissure)
-
-        if len(item) == 1:
-            imgs = imgs[0]
-            fissures = fissures[0]
-
-        return imgs, fissures
-
-    def __len__(self):
-        return len(self.images)
+    def get_fissures(self, item):
+        return _load_files_from_file_list(item, self.fissures)
 
     def get_landmarks(self, item):
-        if isinstance(item, int):
-            item = [item]
-
-        item = torch.arange(len(self))[item]
-
-        lms = []
-        for i in item:
-            # load the reference landmarks, if available
-            if self.landmarks[i] is not None:
-                lm = load_landmarks(self.landmarks[i])
-            else:
-                lm = None
-            lms.append(lm)
-
-        if len(item) == 1:
-            lms = lms[0]
-
-        return lms
+        return _load_files_from_file_list(item, self.landmarks)
 
     def get_lung_mask(self, item):
-        if isinstance(item, int):
-            item = [item]
-
-        item = torch.arange(len(self))[item]
-
-        masks = []
-        for i in item:
-            # load the lung mask
-            mask = sitk.ReadImage(self.lung_masks[i])
-            masks.append(mask)
-
-        if len(item) == 1:
-            masks = masks[0]
-
-        return masks
+        return _load_files_from_file_list(item, self.lung_masks)
 
     def get_filename(self, item):
         if isinstance(item, int):
@@ -127,24 +100,13 @@ class LungData(Dataset):
         return filenames
 
     def get_lobes(self, item):
-        if isinstance(item, int):
-            item = [item]
+        return _load_files_from_file_list(item, self.lobes)
 
-        item = torch.arange(len(self))[item]
+    def __getitem__(self, item):
+        return self.get_image(item), self.get_fissures(item)
 
-        lobes = []
-        for i in item:
-            # load the lobe scribbles
-            if self.lobes[i] is not None:
-                lobe = sitk.ReadImage(self.lobes[i])
-            else:
-                lobe = None
-            lobes.append(lobe)
-
-        if len(item) == 1:
-            lobes = lobes[0]
-
-        return lobes
+    def __len__(self):
+        return len(self.images)
 
 
 class PointDataset(Dataset):
