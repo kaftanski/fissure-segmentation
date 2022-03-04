@@ -223,9 +223,7 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
 
         if not ds.lobes:
             # mesh fitting for each fissure
-            for j, f in enumerate(labels_pred.unique()):
-                if f == 0:
-                    continue
+            for j, f in enumerate(labels_pred.unique()[1:]):  # excluding background
                 mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu())
                 mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu())
                 asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, mesh_target)
