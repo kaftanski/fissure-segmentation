@@ -1,20 +1,19 @@
+import argparse
 import csv
+import os
 from copy import deepcopy
 
-import os
-
+import SimpleITK as sitk
 import numpy as np
-from matplotlib import pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from torch import nn
 import torch
-import argparse
+from matplotlib import pyplot as plt
+from torch import nn
 from torch.utils.data import random_split, DataLoader
 
 from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
-from metrics import assd, ssd
-from surface_fitting import pointcloud_to_mesh
+from metrics import ssd
+from surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
 from utils import kpts_to_world
 
 
@@ -40,7 +39,7 @@ def visualize_point_cloud(points, labels):
     ax = fig.add_subplot(111, projection='3d')
 
     points = points.cpu()
-    ax.scatter(points[0], points[1], points[2], c=labels.cpu(), cmap='tab20', marker='.')
+    ax.scatter(points[0], points[1], points[2], c=labels.cpu(), cmap='tab10', marker='.')
     ax.view_init(elev=100., azim=-60.)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -183,7 +182,7 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
         writer.writerow(setup_dict)
 
 
-def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
+def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
     img_ds = LungData('../data/')
@@ -192,8 +191,12 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
     # load model
     net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes, spatial_transformer=transformer)
     net.to(device)
-    net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth')))
+    net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth'), map_location=device))
     net.eval()
+
+    # directory for output predictions
+    pred_dir = os.path.join(out_dir, 'test_predictions')
+    os.makedirs(pred_dir, exist_ok=True)
 
     # metrics
     test_dice = torch.zeros(len(ds), ds.num_classes)
@@ -220,24 +223,57 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
 
         # convert points back to world coordinates
         case, sequence = ds.ids[i]
-        image = img_ds.get_image(next(j for j, fn in enumerate(img_ds.images) if f'{case}_img_{sequence}' in fn))
+        img_index = next(j for j, fn in enumerate(img_ds.images) if f'{case}_img_{sequence}' in fn)
+        image = img_ds.get_image(img_index)
         spacing = torch.tensor(image.GetSpacing()[::-1], device=device)
         shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
+        lung_mask = torch.from_numpy(sitk.GetArrayFromImage(img_ds.get_lung_mask(img_index)).astype(bool))
+
         if not ds.lobes:
             # mesh fitting for each fissure
+            meshes_predict = []
+            meshes_target = []
             for j, f in enumerate(labels_pred.unique()[1:]):  # excluding background
-                mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu())
-                mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu())
+                # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
+                mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
+
+                # crop mesh to lung-mask
+                for m in [mesh_predict, mesh_target]:
+                    vertices = torch.from_numpy(np.asarray(m.vertices)) / spacing.cpu()
+                    vertices = vertices.floor().long()
+
+                    # prevent index out of bounds
+                    for d in range(len(lung_mask.shape)):
+                        vertices[:, d] = torch.clamp(vertices[:, d], max=lung_mask.shape[d]-1)
+
+                    remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
+                    remove_verts[lung_mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
+                    m.remove_vertices_by_mask(remove_verts.numpy())
+
+                meshes_predict.append(mesh_predict)
+                meshes_target.append(mesh_target)
+
                 asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, mesh_target)
                 avg_surface_dist[i, j] += asd
                 std_surface_dist[i, j] += sdsd
                 hd_surface_dist[i, j] += hdsd
                 hd95_surface_dist[i, j] += hd95sd
 
+            labelmap_predict = o3d_mesh_to_labelmap(meshes_predict, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
+            label_image_predict = sitk.GetImageFromArray(labelmap_predict.numpy().astype(np.uint8))
+            label_image_predict.CopyInformation(image)
+            sitk.WriteImage(label_image_predict, os.path.join(pred_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
+
+            labelmap_target = o3d_mesh_to_labelmap(meshes_target, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
+            label_image_target = sitk.GetImageFromArray(labelmap_target.numpy().astype(np.uint8))
+            label_image_target.CopyInformation(image)
+            sitk.WriteImage(label_image_target, os.path.join(pred_dir, f'{case}_fissures_targ_{sequence}.nii.gz'))
+
         else:
-            # TODO: compute fissures from lobes
+            # TODO: compute fissures from lobe points
             pass
 
     mean_dice = test_dice.mean(0)
@@ -299,7 +335,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_
         os.makedirs(fold_dir, exist_ok=True)
         train(train_ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir, show)
 
         test_dice[fold] += mean_dice
         test_assd[fold] += mean_assd
@@ -349,6 +385,7 @@ if __name__ == '__main__':
     parser.add_argument('--split', default=None, type=str, help='cross validation split file')
     parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
     parser.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
+    parser.add_argument('--fold', default=0, help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)', type=int)
     args = parser.parse_args()
     print(args)
 
@@ -371,6 +408,7 @@ if __name__ == '__main__':
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
         device = f'cuda:{args.gpu}'
+        print(f"Using device: {device}")
     else:
         device = 'cpu'
         print(f'Requested GPU with index {args.gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
@@ -381,6 +419,11 @@ if __name__ == '__main__':
     if args.split is None:
         if not args.test_only:
             train(ds, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-        test(ds, args.k, args.transformer, args.coords, args.patch, device, args.output)
+        test(ds, args.k, args.transformer, args.coords, args.patch, device, args.output, args.show)
     else:
-        cross_val(ds, args.split, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        if args.test_only:
+            # test with the specified fold from the split file
+            folder = os.path.join(args.output, f'fold{args.fold}')
+            test(ds.split_data_set(load_split_file(args.split)[args.fold])[1], args.k, args.transformer, args.coords, args.patch, device, folder, args.show)
+        else:
+            cross_val(ds, args.split, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
