@@ -1,5 +1,5 @@
 import os
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, List
 
 import pytorch3d.structures
 from numpy.typing import ArrayLike
@@ -376,7 +376,7 @@ def mesh2labelmap_dist(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], outp
 
 
 def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],
-                           img_spacing: Sequence[float], num_samples: int = 10000) -> torch.Tensor:
+                           img_spacing: Sequence[float], num_samples: int = 10**7) -> torch.Tensor:
     """ Constructs a label map from meshes by sampling points and placing them into the image grid.
         Output labels will be in {1, 2, ..., len(meshes)}.
 
@@ -415,19 +415,29 @@ def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_t
     return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
 
 
-def pointcloud_to_mesh(points: ArrayLike) -> o3d.geometry.TriangleMesh:
+def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
     """
 
     :param points: (Nx3)
+    :param crop_to_bbox: crop the resulting mesh to the bounding box of the initial point cloud
     :return:
     """
     # convert to open3d point cloud object
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
+
+    # very important: make normals consistent and thus prevents weird loops in the reconstruction
     pcd.estimate_normals()
+    pcd.orient_normals_consistent_tangent_plane(100)
 
     # compute the mesh
-    poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=6, width=0, scale=1.1, linear_fit=False)[0]
+    poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth, width=width, scale=scale, linear_fit=False)[0]
+
+    # cropping
+    if crop_to_bbox:
+        bbox = pcd.get_axis_aligned_bounding_box()
+        poisson_mesh = poisson_mesh.crop(bbox)
+
     return poisson_mesh
 
 
@@ -436,8 +446,8 @@ def poisson_reconstruction(fissures):
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
 
     fissures_tensor = image2tensor(fissures).long()
-    regularized_fissure_tensor = torch.zeros_like(fissures_tensor)
-    spacing = fissures.GetSpacing()[::-1]  # spacing in zyx format
+    fissure_meshes = []
+    spacing = fissures.GetSpacing()
 
     # fit plane to each separate fissure
     labels = fissures_tensor.unique()[1:]
@@ -454,29 +464,47 @@ def poisson_reconstruction(fissures):
         label_tensor = image2tensor(label_image, dtype=torch.bool)
 
         # extract point cloud from thinned fissures
-        fissure_points = torch.nonzero(label_tensor) * torch.tensor(spacing)
+        fissure_points = torch.nonzero(label_tensor) * torch.tensor(spacing[::-1])  # spacing in zyx format
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
-        poisson_mesh = pointcloud_to_mesh(fissure_points)
+        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=True)  # TODO: do we need cropping or is it bad?
+        fissure_meshes.append(poisson_mesh)
 
-        # cropping
-        print('\tPost-processing ...')
-        bbox = poisson_mesh.get_axis_aligned_bounding_box()
-        poisson_mesh_crop = poisson_mesh.crop(bbox)
-
-        # convert mesh to labelmap by sampling points
-        print('\tConverting mesh to labelmap ...')
-        samples = poisson_mesh_crop.sample_points_uniformly(number_of_points=10**7)
-        fissure_samples = torch.from_numpy(np.asarray(samples.points))
-        fissure_samples /= torch.tensor(spacing)
-        fissure_samples = fissure_samples.long()
-        regularized_fissure_tensor[fissure_samples[:, 0], fissure_samples[:, 1], fissure_samples[:, 2]] = f
-
+    # convert mesh to labelmap by sampling points
+    print('\tConverting meshes to labelmap ...')
+    regularized_fissure_tensor = o3d_mesh_to_labelmap(fissure_meshes, shape=fissures_tensor.shape, spacing=spacing)
     regularized_fissures = sitk.GetImageFromArray(regularized_fissure_tensor.numpy().astype(np.uint8))
     regularized_fissures.CopyInformation(fissures)
+
     print('DONE\n')
     return regularized_fissures
+
+
+def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spacing: Tuple[float], n_samples=10**7) -> torch.Tensor:
+    """
+
+    :param o3d_meshes: list of open3d TriangleMesh to convert into one labelmap
+    :param shape: shape D,H,W of the output labelmap
+    :param spacing: the image spacing in x,y and z dimension
+    :param n_samples: number of samples used to convert to a labelmap
+    :return: labelmap tensor of given shape
+    """
+    label_tensor = torch.zeros(*shape, dtype=torch.long)
+
+    for i, mesh in enumerate(o3d_meshes):
+        samples = mesh.sample_points_uniformly(number_of_points=n_samples)
+        fissure_samples = torch.from_numpy(np.asarray(samples.points))
+        fissure_samples /= torch.tensor(spacing[::-1])
+        fissure_samples = fissure_samples.long()
+
+        # prevent index out of bounds
+        for d in range(len(shape)):
+            fissure_samples = fissure_samples[fissure_samples[:, d] < shape[d]]
+
+        label_tensor[fissure_samples[:, 0], fissure_samples[:, 1], fissure_samples[:, 2]] = i+1
+
+    return label_tensor
 
 
 def regularize_fissure_segmentations(mode):
@@ -486,9 +514,9 @@ def regularize_fissure_segmentations(mode):
     for i in range(len(ds)):
         file = ds.get_filename(i)
 
-        if 'COPD' in file:
-            print('skipping COPD image')
-            continue
+        # if 'COPD' in file:
+        #     print('skipping COPD image')
+        #     continue
 
         print(f'Regularizing fissures for image: {file.split(os.sep)[-1]}')
         if ds.fissures[i] is None:
