@@ -49,6 +49,8 @@ def visualize_point_cloud(points, labels):
 
 
 def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+    print('\nTRAINING MODEL ...\n')
+
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
@@ -182,6 +184,8 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
 
 
 def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
+    print('\nTESTING MODEL ...\n')
+
     img_ds = LungData('../data/')
     in_features = ds[0][0].shape[0]
 
@@ -242,6 +246,9 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
     mean_assd = avg_surface_dist.mean(0)
     std_assd = avg_surface_dist.std(0)
 
+    mean_sdsd = std_surface_dist.mean(0)
+    std_sdsd = std_surface_dist.std(0)
+
     mean_hd = hd_surface_dist.mean(0)
     std_hd = hd_surface_dist.std(0)
 
@@ -252,7 +259,13 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
 
     # output file
-    with open(os.path.join(out_dir, 'test_results.csv'), 'w') as csv_file:
+    write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+
+    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+
+
+def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95):
+    with open(filepath, 'w') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
         writer.writerow(['Mean Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
@@ -261,12 +274,12 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir):
         writer.writerow(['Fissure'] + [str(i+1) for i in range(mean_assd.shape[0])] + ['mean'])
         writer.writerow(['Mean ASSD'] + [d.item() for d in mean_assd] + [mean_assd.mean().item()])
         writer.writerow(['StdDev ASSD'] + [d.item() for d in std_assd] + [std_assd.mean().item()])
+        writer.writerow(['Mean SDSD'] + [d.item() for d in mean_sdsd] + [mean_sdsd.mean().item()])
+        writer.writerow(['StdDev SDSD'] + [d.item() for d in std_sdsd] + [std_sdsd.mean().item()])
         writer.writerow(['Mean HD'] + [d.item() for d in mean_hd] + [mean_hd.mean().item()])
         writer.writerow(['StdDev HD'] + [d.item() for d in std_hd] + [std_hd.mean().item()])
         writer.writerow(['Mean HD95'] + [d.item() for d in mean_hd95] + [mean_hd95.mean().item()])
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
-
-    return mean_dice
 
 
 def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
@@ -274,6 +287,10 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
     test_dice = torch.zeros(len(split), ds.num_classes)
+    test_assd = torch.zeros(len(split), ds.num_classes-1)
+    test_sdsd = torch.zeros_like(test_assd)
+    test_hd = torch.zeros_like(test_assd)
+    test_hd95 = torch.zeros_like(test_assd)
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
@@ -282,23 +299,37 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_
         os.makedirs(fold_dir, exist_ok=True)
         train(train_ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        test_dice[fold] += test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir)
+
+        test_dice[fold] += mean_dice
+        test_assd[fold] += mean_assd
+        test_sdsd[fold] += mean_sdsd
+        test_hd[fold] += mean_hd
+        test_hd95[fold] += mean_hd95
 
         # TODO: compute confusion matrix
 
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
+    mean_assd = test_assd.mean(0)
+    std_assd = test_assd.std(0)
+
+    mean_sdsd = test_sdsd.mean(0)
+    std_sdsd = test_sdsd.std(0)
+
+    mean_hd = test_hd.mean(0)
+    std_hd = test_hd.std(0)
+
+    mean_hd95 = test_hd95.mean(0)
+    std_hd95 = test_hd95.std(0)
+
     # print out results
     print('\n============ RESULTS ============')
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
-    with open(os.path.join(out_dir, 'cv_results.csv'), 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
-        writer.writerow(['Mean Test Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
-        writer.writerow(['Test Dice Std.Dev.'] + [d.item() for d in std_dice] + [std_dice.mean().item()])
+    write_results(os.path.join(out_dir, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
 if __name__ == '__main__':
