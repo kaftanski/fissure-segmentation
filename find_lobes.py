@@ -45,6 +45,8 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     if obj_cnt < num_lobes_target:
         print(f'\tThis is not enough, skipping relabelling.')
         return lobes_components
+    else:
+        print('\tSUCCESS!')
 
     # sort objects by size
     relabel_filter = sitk.RelabelComponentImageFilter()
@@ -96,13 +98,13 @@ if __name__ == '__main__':
         file = ds.get_filename(i)
         case, _, sequence = file.split(os.sep)[-1].split('_')
         sequence = sequence.split('.')[0]
-        if 'EMPIRE' not in case:
-            continue
+        # if 'EMPIRE' not in case:
+        #     continue
         print(f'\nComputing lobes for {case} {sequence}')
-        fissure_file = os.path.join(data_path, f'{case}_fissures_poisson_{sequence}.nii.gz')
-        if not os.path.exists(fissure_file):
-            print('\tNo fissures available ... Skipping.')
+        fissures = ds.get_regularized_fissures(i)
+        if fissures is None:
+            print('\tNo regularized fissures available ... Skipping.')
             continue
-        lobes = find_lobes(sitk.ReadImage(fissure_file), ds.get_lung_mask(i), exclude_rhf=True)
+        lobes = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
 
         sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
