@@ -179,7 +179,8 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
             print('\tNo fissure segmentation found.')
             continue
 
-        img, fissures = ds[i]
+        img = ds.get_image(i)
+        fissures = ds.get_regularized_fissures(i)
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
@@ -194,7 +195,7 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
 
         # dilate lobes to fill gaps from the fissures
         lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
-        sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
+        # sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
 
         # compute förstner keypoints
         start = time.time()
@@ -236,6 +237,7 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
 
 
 if __name__ == '__main__':
-    preprocess_point_features('/home/kaftan/FissureSegmentation/data', '/home/kaftan/FissureSegmentation/point_data')
+    preprocess_point_features('/home/kaftan/FissureSegmentation/data', '/home/kaftan/FissureSegmentation/point_data',
+                              use_mind=True)
     # ds = PointDataset('/home/kaftan/FissureSegmentation/point_data')
     # print(ds[0])
