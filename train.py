@@ -2,11 +2,13 @@ import argparse
 import csv
 import os
 from copy import deepcopy
+from typing import Sequence
 
 import SimpleITK as sitk
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from numpy.typing import ArrayLike
 from torch import nn
 from torch.utils.data import random_split, DataLoader
 
@@ -28,22 +30,52 @@ def batch_dice(prediction, target, n_labels):
     return dice.mean(0).cpu()
 
 
-def visualize_point_cloud(points, labels):
+def visualize_point_cloud(points, labels, title='', exclude_background=True):
     """
 
-    :param points: point cloud with N points, shape: (3 x N)
+    :param points: point cloud with N points, shape: (Nx3)
     :param labels: label for each point, shape (N)
+    :param title: figure title
+    :param exclude_background: if true, points with label 0 will not be plotted
     :return:
     """
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
     points = points.cpu()
-    ax.scatter(points[0], points[1], points[2], c=labels.cpu(), cmap='tab10', marker='.')
-    ax.view_init(elev=100., azim=-60.)
+    if exclude_background:
+        points = points[labels != 0]
+        labels = labels[labels != 0]
+
+    ax.scatter(points[:, 2], points[:, 1], points[:, 0], c=labels.cpu(), cmap='tab10', marker='.')
+    # ax.view_init(elev=100., azim=-60.)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
+    plt.show()
+
+
+def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = ''):
+    """
+
+    :param vertices_list: list of vertices, shape (Vx3) tensors
+    :param triangles_list: list of triangles, shape (Tx3) tensors, corresponding to the vertices
+    :param title: figure title
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    colors = ['r', 'g', 'b', 'y']
+    for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
+        ax.plot_trisurf(vertices[:, 2], vertices[:, 1], vertices[:, 0], triangles=triangles, color=colors[i])
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
     plt.show()
 
 
@@ -142,7 +174,7 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
 
         # visualization
         if show and not (epoch + 1) % every_n_epochs:
-            visualize_point_cloud(pts[0], out.argmax(1)[0])
+            visualize_point_cloud(pts[0].transpose(0,1), out.argmax(1)[0])
 
     # training plot
     plt.figure()
@@ -229,8 +261,8 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, sh
         shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
+        # POST-PROCESSING
         lung_mask = torch.from_numpy(sitk.GetArrayFromImage(img_ds.get_lung_mask(img_index)).astype(bool))
-
         if not ds.lobes:
             # mesh fitting for each fissure
             meshes_predict = []
@@ -240,15 +272,16 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, sh
                 mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
                 mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
 
-                # crop mesh to lung-mask
+                # post-process surfaces
                 for m in [mesh_predict, mesh_target]:
                     vertices = torch.from_numpy(np.asarray(m.vertices)) / spacing.cpu()
                     vertices = vertices.floor().long()
 
-                    # prevent index out of bounds
+                    # prevent index out of bounds by removing vertices out of range
                     for d in range(len(lung_mask.shape)):
                         vertices[:, d] = torch.clamp(vertices[:, d], max=lung_mask.shape[d]-1)
 
+                    # remove vertices outside the lung mask
                     remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
                     remove_verts[lung_mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
                     m.remove_vertices_by_mask(remove_verts.numpy())
@@ -256,17 +289,35 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, sh
                 meshes_predict.append(mesh_predict)
                 meshes_target.append(mesh_target)
 
+                # compute surface distances
                 asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, mesh_target)
                 avg_surface_dist[i, j] += asd
                 std_surface_dist[i, j] += sdsd
                 hd_surface_dist[i, j] += hdsd
                 hd95_surface_dist[i, j] += hd95sd
 
+            # visualize results
+            if show:
+                visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction')
+
+                visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target')
+
+                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in meshes_predict],
+                                  triangles_list=[np.asarray(m.triangles) for m in meshes_predict],
+                                  title=f'{case}_{sequence} surface prediction')
+
+                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in meshes_target],
+                                  triangles_list=[np.asarray(m.triangles) for m in meshes_target],
+                                  title=f'{case}_{sequence} surface target')
+
+            # write out label images (converted from surface reconstruction)
+            # predicted labelmap
             labelmap_predict = o3d_mesh_to_labelmap(meshes_predict, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
             label_image_predict = sitk.GetImageFromArray(labelmap_predict.numpy().astype(np.uint8))
             label_image_predict.CopyInformation(image)
             sitk.WriteImage(label_image_predict, os.path.join(pred_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
+            # target labelmap
             labelmap_target = o3d_mesh_to_labelmap(meshes_target, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
             label_image_target = sitk.GetImageFromArray(labelmap_target.numpy().astype(np.uint8))
             label_image_target.CopyInformation(image)
@@ -276,6 +327,7 @@ def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, sh
             # TODO: compute fissures from lobe points
             pass
 
+    # compute average metrics
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
