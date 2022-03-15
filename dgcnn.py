@@ -184,14 +184,16 @@ class SpatialTransformer(nn.Module):
         self.transform = nn.Linear(256, self.in_features * self.in_features)
 
     def forward(self, x):
-        coords = x[:, :self.in_features]  # convention: coords are always the first 3 channels!
+        coords = torch.clone(x[:, :self.in_features])  # convention: coords are always the first 3 channels!
         transform_mat = self.ec(coords)
         transform_mat = self.shared_fc(transform_mat)
         transform_mat = torch.max(transform_mat, dim=-1, keepdim=False)[0]
         transform_mat = self.mlp(transform_mat)
         transform_mat = self.transform(transform_mat)
         transform_mat = transform_mat.view(x.shape[0], self.in_features, self.in_features)
-        x[:, :self.in_features] = torch.bmm(coords.transpose(2, 1), transform_mat).transpose(2, 1)  # transform coords
+        coords = coords.transpose(2, 1)
+        coords = torch.bmm(coords, transform_mat)  # transform coords
+        x[:, :self.in_features] = coords.transpose(2, 1)
         return x
 
     def init_weights(self):
