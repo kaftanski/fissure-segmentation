@@ -6,15 +6,20 @@ from torch.nn import init
 from utils import pairwise_dist
 
 
-def create_neighbor_features(x: torch.Tensor, k: int) -> torch.Tensor:
-    """ Fast implementation of dynamic graph feature computation, needs a lot more VRAM though.
+def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None) -> torch.Tensor:
+    """ Memory efficient implementation of dynamic graph feature computation.
 
     :param x: features per point, shape: (point cloud batch x features x points)
     :param k: k nearest neighbors that are considered as edges for the graph
+    :param fixed_knn_graph: optionally input fixed kNN graph
     :return: edge features per point, shape: (point cloud batch x features x points x k)
     """
-    # k nearest neighbors in feature space
-    knn_indices = knn(x, k+1)[..., 1:]  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+    if fixed_knn_graph is None:
+        # k nearest neighbors in feature space
+        knn_indices = knn(x, k, self_loop=False)  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+    else:
+        knn_indices = fixed_knn_graph
+
     knn_indices = knn_indices.reshape(knn_indices.shape[0], -1)
     neighbor_features = torch.take_along_dim(x, indices=knn_indices.unsqueeze(1), dim=-1).view(*x.shape, k)
 
@@ -45,17 +50,21 @@ def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tenso
     return torch.cat([features.unsqueeze(-1).repeat(1, 1, 1, k), edge_features], dim=1)
 
 
-def knn(x, k):
+def knn(x, k, self_loop=False):
+    # use k+1 and ignore first neighbor to exclude self-loop in graph
+    k_modifier = 0 if self_loop else 1
+
     dist = pairwise_dist(x.transpose(2, 1))
-    idx = dist.topk(k=k, dim=-1, largest=False)[1]  # (batch_size, num_points, k)
+    idx = dist.topk(k=k+k_modifier, dim=-1, largest=False)[1][..., k_modifier:]  # (batch_size, num_points, k)
     return idx
 
 
 class DGCNNSeg(nn.Module):
-    def __init__(self, k, in_features, num_classes, spatial_transformer=False):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
         super(DGCNNSeg, self).__init__()
         self.k = k
         self.num_classes = num_classes
+        self.dynamic = dynamic
 
         if spatial_transformer:
             self.spatial_transformer = SpatialTransformer(k)
@@ -90,14 +99,17 @@ class DGCNNSeg(nn.Module):
         :param x: input of shape (point cloud batch x features x points)
         :return: point segmentation of shape (point cloud batch x num_classes)
         """
+        # compute static kNN graph based on coordinates if net is not supposed to be dynamic
+        knn_graph = None if self.dynamic else knn(x[:, :3], self.k, self_loop=False)
+
         # transform point cloud into canonical space
         if self.spatial_transformer is not None:
             x = self.spatial_transformer(x)
 
         # edge convolutions
-        x1 = self.ec1(x)
-        x2 = self.ec2(x1)
-        x3 = self.ec3(x2)
+        x1 = self.ec1(x, knn_graph)
+        x2 = self.ec2(x1, knn_graph)
+        x3 = self.ec3(x2, knn_graph)
         multi_level_features = torch.cat([x1, x2, x3], dim=1)
 
         # global feature vector
@@ -123,14 +135,15 @@ class EdgeConv(nn.Module):
         for i in range(len(out_features_list)):
             self.shared_mlp.append(SharedFullyConnected(features[i], features[i + 1]))
 
-    def forward(self, x):
+    def forward(self, x, fixed_knn_graph=None):
         """
 
         :param x: input of shape (point cloud batch x features x points)
+        :param fixed_knn_graph: specify this if you don't want dynamic graph computation and use the given graph instead
         :return: new point features (point cloud batch x features x points)
         """
         # create edge features of shape (point cloud batch x features x points x k)
-        x = create_neighbor_features(x, self.k)
+        x = create_neighbor_features(x, self.k, fixed_knn_graph)
 
         # extract features
         for layer in self.shared_mlp:
@@ -183,9 +196,9 @@ class SpatialTransformer(nn.Module):
         )
         self.transform = nn.Linear(256, self.in_features * self.in_features)
 
-    def forward(self, x):
+    def forward(self, x, fixed_knn_graph=None):
         coords = torch.clone(x[:, :self.in_features])  # convention: coords are always the first 3 channels!
-        transform_mat = self.ec(coords)
+        transform_mat = self.ec(coords, fixed_knn_graph)
         transform_mat = self.shared_fc(transform_mat)
         transform_mat = torch.max(transform_mat, dim=-1, keepdim=False)[0]
         transform_mat = self.mlp(transform_mat)

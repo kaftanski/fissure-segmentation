@@ -79,7 +79,7 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
     plt.show()
 
 
-def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     print('\nTRAINING MODEL ...\n')
 
     val_split = int(len(ds) * 0.2)
@@ -91,7 +91,7 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
 
     # network
     net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-                   spatial_transformer=transformer)
+                   spatial_transformer=transformer, dynamic=dynamic)
     net.to(device)
 
     # optimizer and loss
@@ -206,7 +206,8 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
         'epochs': epochs,
         'exclude_rhf': ds.exclude_rhf,
         'lobes': ds.lobes,
-        'dgcnn_input_transformer': transformer
+        'dgcnn_input_transformer': transformer,
+        'dynamic': dynamic
     }
     with open(os.path.join(out_dir, 'setup.csv'), 'w') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
@@ -214,14 +215,15 @@ def train(ds, batch_size, graph_k, transformer, use_coords, use_features, device
         writer.writerow(setup_dict)
 
 
-def test(ds, graph_k, transformer, use_coords, use_features, device, out_dir, show):
+def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
     img_ds = LungData('../data/')
     in_features = ds[0][0].shape[0]
 
     # load model
-    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes, spatial_transformer=transformer)
+    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
+                   spatial_transformer=transformer, dynamic=dynamic)
     net.to(device)
     net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth'), map_location=device))
     net.eval()
@@ -370,7 +372,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -385,9 +387,10 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, use_coords, use_
 
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         os.makedirs(fold_dir, exist_ok=True)
-        train(train_ds, batch_size, graph_k, transformer, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
+        train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, use_coords, use_features, device, fold_dir, show)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, dynamic,
+                                                                                  use_coords, use_features, device, fold_dir, show)
 
         test_dice[fold] += mean_dice
         test_assd[fold] += mean_assd
@@ -436,6 +439,7 @@ if __name__ == '__main__':
     parser.add_argument('--exclude_rhf', const=True, default=False, help='exclude the right horizontal fissure from the model', nargs='?')
     parser.add_argument('--split', default=None, type=str, help='cross validation split file')
     parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
+    parser.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN', nargs='?')
     parser.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
     parser.add_argument('--fold', default=0, help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)', type=int)
     args = parser.parse_args()
@@ -470,12 +474,12 @@ if __name__ == '__main__':
 
     if args.split is None:
         if not args.test_only:
-            train(ds, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-        test(ds, args.k, args.transformer, args.coords, args.patch, device, args.output, args.show)
+            train(ds, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+        test(ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.output, args.show)
     else:
         if args.test_only:
             # test with the specified fold from the split file
             folder = os.path.join(args.output, f'fold{args.fold}')
-            test(ds.split_data_set(load_split_file(args.split)[args.fold])[1], args.k, args.transformer, args.coords, args.patch, device, folder, args.show)
+            test(ds.split_data_set(load_split_file(args.split)[args.fold])[1], args.k, args.transformer, not args.static, args.coords, args.patch, device, folder, args.show)
         else:
-            cross_val(ds, args.split, args.batch, args.k, args.transformer, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+            cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
