@@ -469,7 +469,7 @@ def poisson_reconstruction(fissures):
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
-        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=True)  # TODO: do we need cropping or is it bad?
+        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=False)
         fissure_meshes.append(poisson_mesh)
 
     # convert mesh to labelmap by sampling points
@@ -526,6 +526,7 @@ def regularize_fissure_segmentations(mode):
 
         img, fissures = ds[i]
 
+        # TODO save mesh for supervision!
         if mode == 'plane':
             mask = ds.get_lung_mask(i)
             fissures_reg = fit_plane_to_fissure(fissures, mask)

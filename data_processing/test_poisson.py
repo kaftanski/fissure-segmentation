@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from data import PointDataset, LungData
-from surface_fitting import o3d_mesh_to_labelmap, pointcloud_to_mesh
+from data_processing.surface_fitting import o3d_mesh_to_labelmap, pointcloud_to_mesh
 from utils import kpts_to_world
 
 ds = PointDataset(1024, exclude_rhf=True)

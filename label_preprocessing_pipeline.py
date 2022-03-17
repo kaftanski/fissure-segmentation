@@ -4,10 +4,10 @@ import os.path
 import SimpleITK as sitk
 
 from data import LungData
-from surface_fitting import poisson_reconstruction
-from apply_lung_mask import apply_mask
-from find_lobes import find_lobes
-from point_features import compute_point_features
+from data_processing.surface_fitting import poisson_reconstruction
+from data_processing.apply_lung_mask import apply_mask
+from data_processing.find_lobes import find_lobes
+from data_processing.point_features import compute_point_features
 
 
 IMG_DATA_DIR = '/home/kaftan/FissureSegmentation/data'

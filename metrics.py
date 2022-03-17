@@ -1,8 +1,7 @@
 import open3d as o3d
 import torch
 
-from surface_fitting import point_surface_distance
-from utils import create_o3d_mesh
+from data_processing.surface_fitting import point_surface_distance
 
 
 def assd(verts_x: torch.Tensor, faces_x: torch.Tensor, verts_y: torch.Tensor, faces_y: torch.Tensor):

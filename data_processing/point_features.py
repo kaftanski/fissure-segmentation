@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from data import LungData
-from utils import pairwise_dist, save_points, filter_1d, smooth
+from utils import pairwise_dist, filter_1d, smooth
 
 
 def distinctiveness(img, sigma):

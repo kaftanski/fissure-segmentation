@@ -15,7 +15,7 @@ from torch.utils.data import random_split, DataLoader
 from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
 from metrics import ssd
-from surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
+from data_processing.surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
 from utils import kpts_to_world
 
 
