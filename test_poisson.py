@@ -13,7 +13,7 @@ points, _, labels = ds.get_full_pointcloud(i)
 img_ds = LungData('../data/')
 
 case, sequence = ds.ids[i]
-image = img_ds.get_image(next(j for j, fn in enumerate(img_ds.images) if f'{case}_img_{sequence}' in fn))
+image = img_ds.get_image(img_ds.get_index(case, sequence))
 spacing = torch.tensor(image.GetSpacing()[::-1])
 shape = torch.tensor(image.GetSize()[::-1]) * spacing
 points = kpts_to_world(points.transpose(0, 1), shape)  # points in millimeters

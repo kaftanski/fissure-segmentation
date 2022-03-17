@@ -442,6 +442,7 @@ def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, depth=6, width=0, 
 
 
 def poisson_reconstruction(fissures):
+    print('Performing surface fitting via Poisson Reconstruction')
     # transforming labelmap to unit spacing
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
 
@@ -478,7 +479,7 @@ def poisson_reconstruction(fissures):
     regularized_fissures.CopyInformation(fissures)
 
     print('DONE\n')
-    return regularized_fissures
+    return regularized_fissures, fissure_meshes
 
 
 def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spacing: Tuple[float], n_samples=10**7) -> torch.Tensor:
@@ -529,7 +530,7 @@ def regularize_fissure_segmentations(mode):
             mask = ds.get_lung_mask(i)
             fissures_reg = fit_plane_to_fissure(fissures, mask)
         elif mode == 'poisson':
-            fissures_reg = poisson_reconstruction(fissures)
+            fissures_reg, meshes = poisson_reconstruction(fissures)
         else:
             raise ValueError(f'No regularization mode named "{mode}".')
 

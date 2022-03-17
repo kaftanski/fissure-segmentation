@@ -257,7 +257,7 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
 
         # convert points back to world coordinates
         case, sequence = ds.ids[i]
-        img_index = next(j for j, fn in enumerate(img_ds.images) if f'{case}_img_{sequence}' in fn)
+        img_index = img_ds.get_index(case, sequence)
         image = img_ds.get_image(img_index)
         spacing = torch.tensor(image.GetSpacing()[::-1], device=device)
         shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing

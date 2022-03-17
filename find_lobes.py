@@ -2,11 +2,12 @@ import os.path
 
 import SimpleITK as sitk
 import numpy as np
+from typing import Tuple
 
 from data import LungData
 
 
-def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) -> sitk.Image:
+def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) -> Tuple[sitk.Image, bool]:
     """
 
     :param fissure_seg: fissure segmentation label image
@@ -14,6 +15,8 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     :param exclude_rhf: exclude the right horizontal fissure, results in 4 instead of 5 lobes
     :return: the lobe segmentation label image
     """
+    print('Computing lobe segmentation from fissures.')
+
     # change the right horizontal fissure to background, if it is to be excluded
     change_label_filter = sitk.ChangeLabelImageFilter()
     if exclude_rhf:
@@ -44,7 +47,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     print(f'\tFound {obj_cnt} connected components ...')
     if obj_cnt < num_lobes_target:
         print(f'\tThis is not enough, skipping relabelling.')
-        return lobes_components
+        return lobes_components, False
     else:
         print('\tSUCCESS!')
 
@@ -87,7 +90,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     change_label_filter.SetChangeMap(change_map)
     lobes_components_relabel = change_label_filter.Execute(biggest_n_components)
 
-    return lobes_components_relabel
+    return lobes_components_relabel, True
 
 
 if __name__ == '__main__':
@@ -105,6 +108,6 @@ if __name__ == '__main__':
         if fissures is None:
             print('\tNo regularized fissures available ... Skipping.')
             continue
-        lobes = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
+        lobes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
 
         sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))

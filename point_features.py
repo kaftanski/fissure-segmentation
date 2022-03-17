@@ -151,10 +151,10 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
     return mind
 
 
-def preprocess_point_features(data_path, point_data_dir, use_mind=True):
-    device = 'cuda:2'
-
-    ds = LungData(data_path)
+def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
+    print(f'Computing keypoints and point features for case {case}, {sequence}...')
+    device = 'cuda:1'
+    torch.cuda.empty_cache()
 
     # hyperparameters keypoints
     kp_sigma = 0.5
@@ -162,18 +162,73 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
     nms_kernel = 7
 
     # hyperparameters for MIND
+    use_mind = True
     mind_sigma = 0.8
     delta = 1
     ssc = False
 
-    for i in range(len(ds)):
-        torch.cuda.empty_cache()
+    # resample all images to unit spacing
+    img = resample_equal_spacing(img, target_spacing=1)
+    mask = resample_equal_spacing(mask, target_spacing=1, use_nearest_neighbor=True)
+    fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
+    lobes = resample_equal_spacing(lobes, target_spacing=1, use_nearest_neighbor=True)
 
+    # dilate fissures so that more keypoints get assigned foreground labels
+    fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
+
+    # dilate lobes to fill gaps from the fissures
+    lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
+    # sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
+
+    # compute förstner keypoints
+    start = time.time()
+    img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
+    kp = foerstner.foerstner_kpts(img_tensor,
+                                  mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(
+                                      0).unsqueeze(0).to(device),
+                                  sigma=kp_sigma, thresh=threshold, d=nms_kernel)
+    print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
+
+    # get label for each point
+    kp_cpu = kp.cpu()
+    fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
+    labels = fissures_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
+    torch.save(labels.cpu(), os.path.join(out_dir, f'{case}_fissures_{sequence}.pth'))
+    print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
+
+    lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
+    lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
+    torch.save(lobes.cpu(), os.path.join(out_dir, f'{case}_lobes_{sequence}.pth'))
+    print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
+
+    # coordinate features: transform indices into physical points
+    spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
+    points = utils.kpts_to_grid(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+                                align_corners=True).transpose(0, 1)
+    torch.save(points.cpu(), os.path.join(out_dir, f'{case}_coords_{sequence}.pth'))
+
+    # image patch features
+    if use_mind:
+        torch.cuda.empty_cache()
+        print('\tComputing MIND features')
+        # compute mind features for image
+        mind_features = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
+
+        # extract features for keypoints
+        mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
+        torch.save(mind_features.cpu(), os.path.join(out_dir,
+                                                     f'{case}_mind{"_ssc" if ssc else ""}_{sequence}.pth'))
+
+
+if __name__ == '__main__':
+    data_dir = '/home/kaftan/FissureSegmentation/data'
+    point_dir = '/home/kaftan/FissureSegmentation/point_data'
+    ds = LungData(data_dir)
+
+    for i in range(len(ds)):
         case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
         sequence = sequence.replace('.nii.gz', '')
-        # if case != 'COPD10':#'COPD' not in case and 'EMPIRE' not in case:
-        #     print(f'skipping {case}, {sequence}')
-        #     continue
+
         print(f'Computing points for case {case}, {sequence}...')
         if ds.fissures[i] is None:
             print('\tNo fissure segmentation found.')
@@ -184,60 +239,4 @@ def preprocess_point_features(data_path, point_data_dir, use_mind=True):
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
-        # resample all images to unit spacing
-        img = resample_equal_spacing(img, target_spacing=1)
-        mask = resample_equal_spacing(mask, target_spacing=1, use_nearest_neighbor=True)
-        fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
-        lobes = resample_equal_spacing(lobes, target_spacing=1, use_nearest_neighbor=True)
-
-        # dilate fissures so that more keypoints get assigned foreground labels
-        fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
-
-        # dilate lobes to fill gaps from the fissures
-        lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
-        # sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
-
-        # compute förstner keypoints
-        start = time.time()
-        img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
-        kp = foerstner.foerstner_kpts(img_tensor,
-                                      mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device),
-                                      sigma=kp_sigma, thresh=threshold, d=nms_kernel)
-        print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
-
-        # get label for each point
-        kp_cpu = kp.cpu()
-        fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
-        labels = fissures_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
-        torch.save(labels.cpu(), os.path.join(point_data_dir, f'{case}_fissures_{sequence}.pth'))
-        print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
-
-        lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
-        lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
-        torch.save(lobes.cpu(), os.path.join(point_data_dir, f'{case}_lobes_{sequence}.pth'))
-        print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
-
-        # coordinate features: transform indices into physical points
-        spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-        points = utils.kpts_to_grid(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
-                                    align_corners=True).transpose(0, 1)
-        torch.save(points.cpu(), os.path.join(point_data_dir, f'{case}_coords_{sequence}.pth'))
-
-        # image patch features
-        if use_mind:
-            torch.cuda.empty_cache()
-            print('\tComputing MIND features')
-            # compute mind features for image
-            mind_features = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
-
-            # extract features for keypoints
-            mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
-            torch.save(mind_features.cpu(), os.path.join(point_data_dir,
-                                                         f'{case}_mind{"_ssc" if ssc else ""}_{sequence}.pth'))
-
-
-if __name__ == '__main__':
-    preprocess_point_features('/home/kaftan/FissureSegmentation/data', '/home/kaftan/FissureSegmentation/point_data',
-                              use_mind=True)
-    # ds = PointDataset('/home/kaftan/FissureSegmentation/point_data')
-    # print(ds[0])
+        compute_point_features(img, fissures, lobes, mask, point_dir, case, sequence)

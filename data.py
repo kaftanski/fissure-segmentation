@@ -48,6 +48,7 @@ class LungData(Dataset):
         self.landmarks = []
         self.fissures = []
         self.lobes = []
+        self.ids = []
 
         # fill missing landmarks and fissure segmentations with None
         for img in self.images:
@@ -68,6 +69,10 @@ class LungData(Dataset):
                 self.lobes.append(lobes_file)
             else:
                 self.lobes.append(None)
+
+            case, _, sequence = img.split(os.sep)[-1].split('_')
+            sequence = sequence.split('.')[0]
+            self.ids.append((case, sequence))
 
         self.num_classes = 4
 
@@ -106,6 +111,12 @@ class LungData(Dataset):
 
     def get_lobes(self, item):
         return _load_files_from_file_list(item, self.lobes)
+
+    def get_id(self, item):
+        return self.ids[item]
+
+    def get_index(self, case, sequence):
+        return next(j for j, fn in enumerate(self.images) if f'{case}_img_{sequence}' in fn)
 
     def __getitem__(self, item):
         return self.get_image(item), self.get_fissures(item)
