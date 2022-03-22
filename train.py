@@ -3,7 +3,7 @@ import csv
 import os
 from copy import deepcopy
 from typing import Sequence
-
+import open3d as o3d
 import SimpleITK as sitk
 import numpy as np
 import torch
@@ -268,17 +268,24 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         if not ds.lobes:
             # mesh fitting for each fissure
             meshes_predict = []
-            meshes_target = img_ds.get_meshes(img_index)
+            meshes_target = img_ds.get_meshes(img_index)[:2 if ds.exclude_rhf else 3]
             for j, f in enumerate(labels_pred.unique()[1:]):  # excluding background
                 # using poisson reconstruction with octree-depth 3 because of sparse point cloud
                 mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=True, depth=3)
 
                 # post-process surfaces
-                mask_out_verts_from_mesh(mesh_predict, lung_mask, spacing)
+                mask_out_verts_from_mesh(mesh_predict, lung_mask, spacing)  # apply lung mask
+                # get connected components and select the biggest
+                triangle_clusters, _, cluster_area = mesh_predict.cluster_connected_triangles()
+                print(f"found {len(cluster_area)} connected components in prediction")
+                triangle_clusters = np.asarray(triangle_clusters)
+                cluster_area = np.asarray(cluster_area)
+                triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
+                mesh_predict.remove_triangles_by_mask(triangles_to_remove)
                 meshes_predict.append(mesh_predict)
 
                 # compute surface distances
-                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, meshes_target[j])
+                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, meshes_target[f-1])
                 avg_surface_dist[i, j] += asd
                 std_surface_dist[i, j] += sdsd
                 hd_surface_dist[i, j] += hdsd
@@ -427,7 +434,7 @@ if __name__ == '__main__':
     parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
     parser.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN', nargs='?')
     parser.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
-    parser.add_argument('--fold', default=0, help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)', type=int)
+    parser.add_argument('--fold', default=None, help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)', type=int)
     args = parser.parse_args()
     print(args)
 
@@ -458,14 +465,24 @@ if __name__ == '__main__':
     # setup directories
     os.makedirs(args.output, exist_ok=True)
 
-    if args.split is None:
-        if not args.test_only:
+    if not args.test_only:
+        if args.split is None:
             train(ds, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-        test(ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.output, args.show)
-    else:
-        if args.test_only:
-            # test with the specified fold from the split file
-            folder = os.path.join(args.output, f'fold{args.fold}')
-            test(ds.split_data_set(load_split_file(args.split)[args.fold])[1], args.k, args.transformer, not args.static, args.coords, args.patch, device, folder, args.show)
+            test(ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.output, args.show)
         else:
             cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+
+    else:
+        all_folds = load_split_file(os.path.join(args.output, 'cross_val_split.np.pkl'))
+        if args.fold is None:
+            # test with all folds
+            test_folds = range(len(all_folds))
+        else:
+            # test with the specified fold from the split file
+            test_folds = [args.fold]
+
+        for fold in test_folds:
+            folder = os.path.join(args.output, f'fold{fold}')
+            _, test_ds = ds.split_data_set(all_folds[fold])
+            test(test_ds, args.k, args.transformer, not args.static, args.coords,
+                 args.patch, device, folder, args.show)

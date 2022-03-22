@@ -3,6 +3,8 @@ import csv
 import glob
 import os.path
 import pickle
+import warnings
+
 import open3d as o3d
 from copy import deepcopy
 from glob import glob
@@ -115,7 +117,10 @@ class LungData(Dataset):
         return filenames
 
     def get_meshes(self, item):
-        return tuple(o3d.io.read_triangle_mesh(m) for m in self.meshes[item])
+        if self.meshes[item] is None:
+            return None
+        else:
+            return tuple(o3d.io.read_triangle_mesh(m) for m in self.meshes[item])
 
     def get_lobes(self, item):
         return _load_files_from_file_list(item, self.lobes)
@@ -193,21 +198,24 @@ class PointDataset(Dataset):
             case, sequence = self.ids[i]
             id = case + '_img_' + sequence
             if id in split['val']:
-                train_ds.points.pop(i)
-                train_ds.labels.pop(i)
-                train_ds.features.pop(i)
-                train_ds.ids.pop(i)
+                train_ds._pop_item(i)
+            elif id in split['train']:
+                val_ds._pop_item(i)
             else:
-                assert id in split['train'], f'Train/Validation split incomplete: instance {id} is contained in neither.'
-                val_ds.points.pop(i)
-                val_ds.labels.pop(i)
-                val_ds.features.pop(i)
-                val_ds.ids.pop(i)
+                warnings.warn(f'Train/Validation split incomplete: instance {id} is contained in neither.')
+                val_ds._pop_item(i)
+                train_ds._pop_item(i)
 
         return train_ds, val_ds
 
     def get_full_pointcloud(self, i):
         return self.points[i], self.features[i], self.labels[i]
+
+    def _pop_item(self, i):
+        self.points.pop(i)
+        self.labels.pop(i)
+        self.features.pop(i)
+        self.ids.pop(i)
 
 
 class FaustDataset(Dataset):
@@ -312,6 +320,15 @@ def save_split_file(split, filepath):
 
 if __name__ == '__main__':
     ds = LungData('/home/kaftan/FissureSegmentation/data/')
+    for i in range(len(ds)):
+        meshes = ds.get_meshes(i)
+        if meshes is None:
+            continue
+        print()
+        for j, m in enumerate(meshes):
+            cluster, n_tri_per_cluster, cluster_area = m.cluster_connected_triangles()
+            print(f'{ds.get_id(i)} Fissure {j+1} connected components: {len(n_tri_per_cluster)}, areas: {cluster_area}')
+    exit()
     # res = ds[0]
     split = create_split(5, ds, '../data/split.np.pkl')
     split_ld = load_split_file('../data/split.np.pkl')
