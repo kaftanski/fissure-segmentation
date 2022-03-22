@@ -3,6 +3,7 @@ import csv
 import glob
 import os.path
 import pickle
+import open3d as o3d
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
@@ -47,6 +48,7 @@ class LungData(Dataset):
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
         self.landmarks = []
         self.fissures = []
+        self.meshes = []
         self.lobes = []
         self.ids = []
 
@@ -73,6 +75,9 @@ class LungData(Dataset):
             case, _, sequence = img.split(os.sep)[-1].split('_')
             sequence = sequence.split('.')[0]
             self.ids.append((case, sequence))
+
+            meshlist = sorted(glob(os.path.join(folder, f'{case}_mesh_{sequence}', '*.obj')))
+            self.meshes.append(meshlist if meshlist else None)
 
         self.num_classes = 4
 
@@ -108,6 +113,9 @@ class LungData(Dataset):
             filenames = filenames[0]
 
         return filenames
+
+    def get_meshes(self, item):
+        return tuple(o3d.io.read_triangle_mesh(m) for m in self.meshes[item])
 
     def get_lobes(self, item):
         return _load_files_from_file_list(item, self.lobes)

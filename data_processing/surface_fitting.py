@@ -1,6 +1,6 @@
 import os
 from typing import Sequence, Tuple, List
-
+from utils import mask_out_verts_from_mesh
 import pytorch3d.structures
 from numpy.typing import ArrayLike
 from pytorch3d.vis import plotly_vis
@@ -415,11 +415,15 @@ def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_t
     return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
 
 
-def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
+def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
     """
 
     :param points: (Nx3)
     :param crop_to_bbox: crop the resulting mesh to the bounding box of the initial point cloud
+    :param mask: binary mask image for vertices of the mesh (e.g. lung mask), will be dilated to prevent artifacts
+    :param depth: octree depth, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
+    :param width: width, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
+    :param scale: scale, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :return:
     """
     # convert to open3d point cloud object
@@ -438,10 +442,17 @@ def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, depth=6, width=0, 
         bbox = pcd.get_axis_aligned_bounding_box()
         poisson_mesh = poisson_mesh.crop(bbox)
 
+    # masking
+    if mask is not None:
+        mask = sitk.BinaryDilate(mask, kernelRadius=(1, 1, 1))
+        mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool))
+        spacing = torch.tensor(mask.GetSpacing()[::-1])
+        mask_out_verts_from_mesh(poisson_mesh, mask_tensor, spacing)
+
     return poisson_mesh
 
 
-def poisson_reconstruction(fissures):
+def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
     print('Performing surface fitting via Poisson Reconstruction')
     # transforming labelmap to unit spacing
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
@@ -469,11 +480,11 @@ def poisson_reconstruction(fissures):
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
-        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=False)
+        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=True, mask=mask)
         fissure_meshes.append(poisson_mesh)
 
     # convert mesh to labelmap by sampling points
-    print('\tConverting meshes to labelmap ...')
+    print('Converting meshes to labelmap ...')
     regularized_fissure_tensor = o3d_mesh_to_labelmap(fissure_meshes, shape=fissures_tensor.shape, spacing=spacing)
     regularized_fissures = sitk.GetImageFromArray(regularized_fissure_tensor.numpy().astype(np.uint8))
     regularized_fissures.CopyInformation(fissures)
@@ -526,12 +537,16 @@ def regularize_fissure_segmentations(mode):
 
         img, fissures = ds[i]
 
-        # TODO save mesh for supervision!
         if mode == 'plane':
             mask = ds.get_lung_mask(i)
             fissures_reg = fit_plane_to_fissure(fissures, mask)
         elif mode == 'poisson':
-            fissures_reg, meshes = poisson_reconstruction(fissures)
+            fissures_reg, meshes = poisson_reconstruction(fissures, ds.get_lung_mask(i))
+            case, sequence = ds.get_id(i)
+            meshdir = os.path.join(base_dir, f"{case}_mesh_{sequence}")
+            os.makedirs(meshdir, exist_ok=True)
+            for m, mesh in enumerate(meshes):
+                o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_fissure{m+1}_{sequence}.obj'), mesh)
         else:
             raise ValueError(f'No regularization mode named "{mode}".')
 

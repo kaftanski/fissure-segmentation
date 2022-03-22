@@ -1,6 +1,6 @@
 import argparse
 import os.path
-
+import open3d as o3d
 import SimpleITK as sitk
 
 from data import LungData
@@ -28,10 +28,13 @@ def main(ds, index):
     print(f'Running data processing for fissures of {case}, {sequence}\n')
 
     # 1. surface fitting (poisson)
-    regularized_fissures, fissure_meshes = poisson_reconstruction(fissures)
+    regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)
     poisson_path = os.path.join(IMG_DATA_DIR, f'{case}_fissures_poisson_{sequence}.nii.gz')
     sitk.WriteImage(regularized_fissures, poisson_path)
-    # TODO: save meshes
+    meshdir = os.path.join(IMG_DATA_DIR, f"{case}_mesh_{sequence}")
+    os.makedirs(meshdir, exist_ok=True)
+    for m, mesh in enumerate(fissure_meshes):
+        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_fissure{m + 1}_{sequence}.obj'), mesh)
 
     # 2. Lung-Masking of fissure labels
     fissures_masked = apply_mask(regularized_fissures, mask)

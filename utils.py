@@ -105,3 +105,17 @@ def kpts_to_world(kpts_pt, shape, align_corners=None):
     kpts_world_ = (((kpts_pt + 1) / 2) * (torch.tensor([W, H, D], device=device) - 1)).flip(-1)
 
     return kpts_world_
+
+
+def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor, spacing: torch.Tensor):
+    vertices = torch.from_numpy(np.asarray(mesh.vertices)) / spacing.cpu()
+    vertices = vertices.floor().long()
+
+    # prevent index out of bounds by removing vertices out of range
+    for d in range(len(mask.shape)):
+        vertices[:, d] = torch.clamp(vertices[:, d], max=mask.shape[d] - 1)
+
+    # remove vertices outside the lung mask
+    remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
+    remove_verts[mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
+    mesh.remove_vertices_by_mask(remove_verts.numpy())

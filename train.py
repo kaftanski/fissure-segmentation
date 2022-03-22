@@ -16,7 +16,7 @@ from data import FaustDataset, PointDataset, load_split_file, save_split_file, L
 from dgcnn import DGCNNSeg
 from metrics import ssd
 from data_processing.surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
-from utils import kpts_to_world
+from utils import kpts_to_world, mask_out_verts_from_mesh
 
 
 def batch_dice(prediction, target, n_labels):
@@ -268,31 +268,17 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         if not ds.lobes:
             # mesh fitting for each fissure
             meshes_predict = []
-            meshes_target = []
+            meshes_target = img_ds.get_meshes(img_index)
             for j, f in enumerate(labels_pred.unique()[1:]):  # excluding background
                 # using poisson reconstruction with octree-depth 3 because of sparse point cloud
-                mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
-                mesh_target = pointcloud_to_mesh(pts[lbls.squeeze() == f].cpu(), crop_to_bbox=False, depth=3)
+                mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=True, depth=3)
 
                 # post-process surfaces
-                for m in [mesh_predict, mesh_target]:
-                    vertices = torch.from_numpy(np.asarray(m.vertices)) / spacing.cpu()
-                    vertices = vertices.floor().long()
-
-                    # prevent index out of bounds by removing vertices out of range
-                    for d in range(len(lung_mask.shape)):
-                        vertices[:, d] = torch.clamp(vertices[:, d], max=lung_mask.shape[d]-1)
-
-                    # remove vertices outside the lung mask
-                    remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
-                    remove_verts[lung_mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
-                    m.remove_vertices_by_mask(remove_verts.numpy())
-
+                mask_out_verts_from_mesh(mesh_predict, lung_mask, spacing)
                 meshes_predict.append(mesh_predict)
-                meshes_target.append(mesh_target)
 
                 # compute surface distances
-                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, mesh_target)
+                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, meshes_target[j])
                 avg_surface_dist[i, j] += asd
                 std_surface_dist[i, j] += sdsd
                 hd_surface_dist[i, j] += hdsd
