@@ -2,7 +2,7 @@ import argparse
 import csv
 import os
 from copy import deepcopy
-from typing import Sequence
+from typing import Sequence, List, Tuple
 import open3d as o3d
 import SimpleITK as sitk
 import numpy as np
@@ -14,7 +14,7 @@ from torch.utils.data import random_split, DataLoader
 
 from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
-from metrics import ssd
+from metrics import assd
 from data_processing.surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
 from utils import kpts_to_world, mask_out_verts_from_mesh
 
@@ -215,6 +215,58 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
         writer.writerow(setup_dict)
 
 
+def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
+                         meshes_target: List[List[o3d.geometry.TriangleMesh]],
+                         ids: List[Tuple[str, str]] = None,
+                         show: bool = False):
+    # metrics
+    # test_dice = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
+    avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
+    std_surface_dist = torch.zeros_like(avg_surface_dist)
+    hd_surface_dist = torch.zeros_like(avg_surface_dist)
+    hd95_surface_dist = torch.zeros_like(avg_surface_dist)
+
+    for i, (all_parts_predictions, all_parts_targets) in enumerate(zip(meshes_predict, meshes_target)):
+        for j, (pred_part, targ_part) in enumerate(zip(all_parts_predictions, all_parts_targets)):
+            asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
+
+            avg_surface_dist[i, j] += asd
+            std_surface_dist[i, j] += sdsd
+            hd_surface_dist[i, j] += hdsd
+            hd95_surface_dist[i, j] += hd95sd
+
+        # visualize results
+        if show:
+            if ids is not None:
+                case, sequence = ids[i]
+                title_prefix = f'{case}_{sequence} '
+            else:
+                title_prefix = f'sample {i}'
+
+            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
+                              triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
+                              title=title_prefix + 'surface prediction')
+
+            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_targets],
+                              triangles_list=[np.asarray(m.triangles) for m in all_parts_targets],
+                              title=title_prefix + 'surface target')
+
+    # compute average metrics
+    mean_assd = avg_surface_dist.mean(0)
+    std_assd = avg_surface_dist.std(0)
+
+    mean_sdsd = std_surface_dist.mean(0)
+    std_sdsd = std_surface_dist.std(0)
+
+    mean_hd = hd_surface_dist.mean(0)
+    std_hd = hd_surface_dist.std(0)
+
+    mean_hd95 = hd95_surface_dist.mean(0)
+    std_hd95 = hd95_surface_dist.std(0)
+
+    return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+
+
 def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
@@ -232,12 +284,11 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
     pred_dir = os.path.join(out_dir, 'test_predictions')
     os.makedirs(pred_dir, exist_ok=True)
 
-    # metrics
+    # compute all predictions
+    all_pred_meshes = []
+    all_targ_meshes = []
+    ids = []
     test_dice = torch.zeros(len(ds), ds.num_classes)
-    avg_surface_dist = torch.zeros(len(ds), 2 if ds.exclude_rhf else 3)  # hardcoded number of fissures
-    std_surface_dist = torch.zeros_like(avg_surface_dist)
-    hd_surface_dist = torch.zeros_like(avg_surface_dist)
-    hd95_surface_dist = torch.zeros_like(avg_surface_dist)
     for i in range(len(ds)):
         pts, feat, lbls = ds.get_full_pointcloud(i)
         inputs = []
@@ -284,26 +335,11 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
                 mesh_predict.remove_triangles_by_mask(triangles_to_remove)
                 meshes_predict.append(mesh_predict)
 
-                # compute surface distances
-                asd, sdsd, hdsd, hd95sd = ssd(mesh_predict, meshes_target[f-1])
-                avg_surface_dist[i, j] += asd
-                std_surface_dist[i, j] += sdsd
-                hd_surface_dist[i, j] += hdsd
-                hd95_surface_dist[i, j] += hd95sd
-
-            # visualize results
+            # visualize point clouds
             if show:
                 visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction')
 
                 visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target')
-
-                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in meshes_predict],
-                                  triangles_list=[np.asarray(m.triangles) for m in meshes_predict],
-                                  title=f'{case}_{sequence} surface prediction')
-
-                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in meshes_target],
-                                  triangles_list=[np.asarray(m.triangles) for m in meshes_target],
-                                  title=f'{case}_{sequence} surface target')
 
             # write out label images (converted from surface reconstruction)
             # predicted labelmap
@@ -318,6 +354,11 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
             label_image_target.CopyInformation(image)
             sitk.WriteImage(label_image_target, os.path.join(pred_dir, f'{case}_fissures_targ_{sequence}.nii.gz'))
 
+            # remember meshes for evaluation
+            all_pred_meshes.append(meshes_predict)
+            all_targ_meshes.append(meshes_target)
+            ids.append((case, sequence))
+
         else:
             # TODO: compute fissures from lobe points
             pass
@@ -326,17 +367,7 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
-    mean_assd = avg_surface_dist.mean(0)
-    std_assd = avg_surface_dist.std(0)
-
-    mean_sdsd = std_surface_dist.mean(0)
-    std_sdsd = std_surface_dist.std(0)
-
-    mean_hd = hd_surface_dist.mean(0)
-    std_hd = hd_surface_dist.std(0)
-
-    mean_hd95 = hd95_surface_dist.mean(0)
-    std_hd95 = hd95_surface_dist.std(0)
+    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(all_pred_meshes, all_targ_meshes, ids=ids, show=show)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
@@ -350,10 +381,11 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
 def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95):
     with open(filepath, 'w') as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
-        writer.writerow(['Mean Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
-        writer.writerow(['StdDev Dice'] + [d.item() for d in std_dice] + [std_dice.mean().item()])
-        writer.writerow([])
+        if mean_dice is not None:
+            writer.writerow(['Class'] + [str(i) for i in range(ds.num_classes)] + ['mean'])
+            writer.writerow(['Mean Dice'] + [d.item() for d in mean_dice] + [mean_dice.mean().item()])
+            writer.writerow(['StdDev Dice'] + [d.item() for d in std_dice] + [std_dice.mean().item()])
+            writer.writerow([])
         writer.writerow(['Fissure'] + [str(i+1) for i in range(mean_assd.shape[0])] + ['mean'])
         writer.writerow(['Mean ASSD'] + [d.item() for d in mean_assd] + [mean_assd.mean().item()])
         writer.writerow(['StdDev ASSD'] + [d.item() for d in std_assd] + [std_assd.mean().item()])
