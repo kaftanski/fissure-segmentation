@@ -129,7 +129,11 @@ class LungData(Dataset):
         return self.ids[item]
 
     def get_index(self, case, sequence):
-        return next(j for j, fn in enumerate(self.images) if f'{case}_img_{sequence}' in fn)
+        occurrence = list(j for j, fn in enumerate(self.images) if f'{case}_img_{sequence}' in fn)
+        if occurrence:
+            return occurrence[0]
+        else:
+            raise ValueError(f'No data with ID {case}_{sequence}.')
 
     def __getitem__(self, item):
         return self.get_image(item), self.get_fissures(item)
