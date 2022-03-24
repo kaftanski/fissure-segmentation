@@ -16,7 +16,7 @@ from data import FaustDataset, PointDataset, load_split_file, save_split_file, L
 from dgcnn import DGCNNSeg
 from metrics import assd
 from data_processing.surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
-from utils import kpts_to_world, mask_out_verts_from_mesh
+from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component
 
 
 def batch_dice(prediction, target, n_labels):
@@ -326,13 +326,7 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
 
                 # post-process surfaces
                 mask_out_verts_from_mesh(mesh_predict, lung_mask, spacing)  # apply lung mask
-                # get connected components and select the biggest
-                triangle_clusters, _, cluster_area = mesh_predict.cluster_connected_triangles()
-                print(f"found {len(cluster_area)} connected components in prediction")
-                triangle_clusters = np.asarray(triangle_clusters)
-                cluster_area = np.asarray(cluster_area)
-                triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
-                mesh_predict.remove_triangles_by_mask(triangles_to_remove)
+                remove_all_but_biggest_component(mesh_predict)  # only keep the biggest connected component
                 meshes_predict.append(mesh_predict)
 
             # visualize point clouds
@@ -397,7 +391,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
+def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -411,8 +405,9 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
 
         fold_dir = os.path.join(out_dir, f'fold{fold}')
-        os.makedirs(fold_dir, exist_ok=True)
-        train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
+        if not test_only:
+            os.makedirs(fold_dir, exist_ok=True)
+            train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, dynamic,
                                                                                   use_coords, use_features, device, fold_dir, show)
@@ -505,16 +500,13 @@ if __name__ == '__main__':
             cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
 
     else:
-        all_folds = load_split_file(os.path.join(args.output, 'cross_val_split.np.pkl'))
+        split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            test_folds = range(len(all_folds))
+            cross_val(ds, split_file, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output, test_only=True)
         else:
             # test with the specified fold from the split file
             test_folds = [args.fold]
-
-        for fold in test_folds:
-            folder = os.path.join(args.output, f'fold{fold}')
-            _, test_ds = ds.split_data_set(all_folds[fold])
-            test(test_ds, args.k, args.transformer, not args.static, args.coords,
-                 args.patch, device, folder, args.show)
+            folder = os.path.join(args.output, f'fold{args.fold}')
+            _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
+            test(test_ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, folder, args.show)
