@@ -203,7 +203,7 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
 
     # coordinate features: transform indices into physical points
     spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-    points = utils.kpts_to_grid(kp * spacing, torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+    points = utils.kpts_to_grid((kp * spacing).flip(-1), torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
                                 align_corners=True).transpose(0, 1)
     torch.save(points.cpu(), os.path.join(out_dir, f'{case}_coords_{sequence}.pth'))
 

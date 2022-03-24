@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import numpy as np
 import open3d as o3d
 import os
@@ -86,10 +88,17 @@ def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
 
 
 def kpts_to_grid(kpts_world, shape, align_corners=None):
+    """ expects points in xyz format from a tensor with given shape
+
+    :param kpts_world:
+    :param shape:
+    :param align_corners:
+    :return: points in range [-1, 1]
+    """
     device = kpts_world.device
     D, H, W = shape
 
-    kpts_pt_ = (kpts_world.flip(-1) / (torch.tensor([W, H, D], device=device) - 1)) * 2 - 1
+    kpts_pt_ = (kpts_world / (torch.tensor([W, H, D], device=device) - 1)) * 2 - 1
     if not align_corners:
         kpts_pt_ *= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
 
@@ -97,12 +106,19 @@ def kpts_to_grid(kpts_world, shape, align_corners=None):
 
 
 def kpts_to_world(kpts_pt, shape, align_corners=None):
+    """  expects points in xyz format
+
+    :param kpts_pt:
+    :param shape:
+    :param align_corners:
+    :return: points in xyz format transformed into the shape
+    """
     device = kpts_pt.device
     D, H, W = shape
 
     if not align_corners:
         kpts_pt /= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
-    kpts_world_ = (((kpts_pt + 1) / 2) * (torch.tensor([W, H, D], device=device) - 1)).flip(-1)
+    kpts_world_ = (((kpts_pt + 1) / 2) * (torch.tensor([W, H, D], device=device) - 1))
 
     return kpts_world_
 
@@ -119,11 +135,11 @@ def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor
 
     # prevent index out of bounds by removing vertices out of range
     for d in range(len(mask.shape)):
-        vertices[:, d] = torch.clamp(vertices[:, d], max=mask.shape[d] - 1)
+        vertices[:, d] = torch.clamp(vertices[:, d], max=mask.shape[len(mask.shape)-1-d] - 1)
 
     # remove vertices outside the lung mask
     remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
-    remove_verts[mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
+    remove_verts[mask[vertices[:, 2], vertices[:, 1], vertices[:, 0]]] = 0
     mesh.remove_vertices_by_mask(remove_verts.numpy())
 
 

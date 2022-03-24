@@ -14,7 +14,7 @@ from torch.utils.data import random_split, DataLoader
 
 from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
-from metrics import assd
+from metrics import assd, label_mesh_assd
 from data_processing.surface_fitting import pointcloud_to_mesh, o3d_mesh_to_labelmap
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component
 
@@ -47,7 +47,7 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True):
         points = points[labels != 0]
         labels = labels[labels != 0]
 
-    ax.scatter(points[:, 2], points[:, 1], points[:, 0], c=labels.cpu(), cmap='tab10', marker='.')
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap='tab10', marker='.')
     # ax.view_init(elev=100., azim=-60.)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -69,7 +69,7 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
 
     colors = ['r', 'g', 'b', 'y']
     for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
-        ax.plot_trisurf(vertices[:, 2], vertices[:, 1], vertices[:, 0], triangles=triangles, color=colors[i])
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=colors[i])
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -218,7 +218,7 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
                          meshes_target: List[List[o3d.geometry.TriangleMesh]],
                          ids: List[Tuple[str, str]] = None,
-                         show: bool = False):
+                         show: bool = False, spacings=None):
     # metrics
     # test_dice = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
     avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
@@ -228,7 +228,10 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
 
     for i, (all_parts_predictions, all_parts_targets) in enumerate(zip(meshes_predict, meshes_target)):
         for j, (pred_part, targ_part) in enumerate(zip(all_parts_predictions, all_parts_targets)):
-            asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
+            if isinstance(pred_part, torch.Tensor):
+                asd, sdsd, hdsd, hd95sd = label_mesh_assd(pred_part, targ_part, spacing=spacings[i])
+            else:
+                asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
 
             avg_surface_dist[i, j] += asd
             std_surface_dist[i, j] += sdsd
@@ -310,8 +313,8 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         case, sequence = ds.ids[i]
         img_index = img_ds.get_index(case, sequence)
         image = img_ds.get_image(img_index)
-        spacing = torch.tensor(image.GetSpacing()[::-1], device=device)
-        shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing
+        spacing = torch.tensor(image.GetSpacing(), device=device)
+        shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing.flip(0)
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
         # POST-PROCESSING

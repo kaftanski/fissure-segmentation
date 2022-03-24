@@ -10,6 +10,7 @@ from data import LungData
 from data_processing.surface_fitting import poisson_reconstruction
 from train import compute_mesh_metrics, write_results
 from utils import remove_all_but_biggest_component
+from metrics import label_mesh_assd
 
 
 def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000"):
@@ -79,12 +80,11 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
             _, pad_width, _ = crop_indices(shape_unit_spacing, largest_image_shape, (s//2 for s in shape_unit_spacing))
             unpad_z, unpad_y, unpad_x = -pad_width[0][0], -pad_width[1][0], -pad_width[2][0]
             for i, (prediction, target) in enumerate(zip(pred_meshes, target_meshes)):
-                # restore the xyz order for vertices
-                verts_xyz = np.flip(np.asarray(prediction.vertices), axis=-1)
+                verts = np.asarray(prediction.vertices)
 
                 # undo normalization and padding
-                verts_xyz = (0.5 * (verts_xyz + 1)) * (max(largest_image_shape)-1) + np.asarray([unpad_z, unpad_y, unpad_x])
-                prediction = o3d.geometry.TriangleMesh(vertices=o3d.utility.Vector3dVector(verts_xyz),
+                verts = (0.5 * (verts + 1)) * (max(largest_image_shape)-1) + np.asarray([unpad_z, unpad_y, unpad_x])
+                prediction = o3d.geometry.TriangleMesh(vertices=o3d.utility.Vector3dVector(verts),
                                                        triangles=prediction.triangles)
 
                 pred_meshes[i] = prediction
@@ -123,7 +123,10 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
-def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1'):
+def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
+                    mode='reconstruction'):
+    assert mode in ['surface', 'voxels']
+
     ds = LungData('../data')
     n_folds = 5
     n_fissures = 2
@@ -139,9 +142,10 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
         mesh_dir = os.path.join(fold_dir, 'validation_mesh_reconstructions')
         os.makedirs(mesh_dir, exist_ok=True)
 
-        all_pred_meshes = []
+        all_predictions = []
         all_targ_meshes = []
         ids = []
+        spacings = []
         for f in files:
             case, sequence = f.split(os.sep)[-1].split('_')[-2:]
             sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving').replace('.nii.gz', '')
@@ -152,21 +156,27 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
             all_targ_meshes.append(target_meshes)
 
             fissures_predict = sitk.ReadImage(f)
-            _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
-            # TODO: compare Poisson to Marching Cubes mesh generation
-            # TODO: try skimage skeletonize3d instead of sitk.BinaryThinning
-            for i, m in enumerate(predicted_meshes):
-                # post-process
-                remove_all_but_biggest_component(m)
+            if mode == 'reconstruction':
+                _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
+                # TODO: compare Poisson to Marching Cubes mesh generation
+                # TODO: try skimage skeletonize3d instead of sitk.BinaryThinning
+                for i, m in enumerate(predicted_meshes):
+                    # post-process
+                    remove_all_but_biggest_component(m)
 
-                # save reconstructed mesh
-                o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{i+1}_{sequence}.obj'), m)
+                    # save reconstructed mesh
+                    o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{i+1}_{sequence}.obj'), m)
 
-            all_pred_meshes.append(predicted_meshes)
+                all_predictions.append(predicted_meshes)
+            else:
+                fissure_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_predict).astype(int))
+                # TODO: skeletonization
+                all_predictions.append([fissure_tensor == f for f in fissure_tensor.unique()[1:]])
+                spacings.append(fissures_predict.GetSpacing())
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
-            all_pred_meshes, all_targ_meshes, ids=ids, show=True)
+            all_predictions, all_targ_meshes, ids=ids, show=True, spacings=None)
         write_results(os.path.join(mesh_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
@@ -199,4 +209,4 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
 if __name__ == '__main__':
     # evaluate_voxel2mesh()
-    evaluate_nnunet()
+    evaluate_nnunet(mode='voxels')

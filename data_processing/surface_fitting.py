@@ -1,6 +1,6 @@
 import os
 from typing import Sequence, Tuple, List
-from utils import mask_out_verts_from_mesh
+from utils import mask_out_verts_from_mesh, mask_to_points
 import pytorch3d.structures
 from numpy.typing import ArrayLike
 from pytorch3d.vis import plotly_vis
@@ -446,7 +446,7 @@ def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image =
     if mask is not None:
         mask = sitk.BinaryDilate(mask, kernelRadius=(1, 1, 1))
         mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool))
-        spacing = torch.tensor(mask.GetSpacing()[::-1])
+        spacing = torch.tensor(mask.GetSpacing())
         mask_out_verts_from_mesh(poisson_mesh, mask_tensor, spacing)
 
     return poisson_mesh
@@ -476,7 +476,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
         label_tensor = image2tensor(label_image, dtype=torch.bool)
 
         # extract point cloud from thinned fissures
-        fissure_points = torch.nonzero(label_tensor) * torch.tensor(spacing[::-1])  # spacing in zyx format
+        fissure_points = mask_to_points(label_tensor, spacing)
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
@@ -507,8 +507,8 @@ def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spa
     for i, mesh in enumerate(o3d_meshes):
         samples = mesh.sample_points_uniformly(number_of_points=n_samples)
         fissure_samples = torch.from_numpy(np.asarray(samples.points))
-        fissure_samples /= torch.tensor(spacing[::-1])
-        fissure_samples = fissure_samples.long()
+        fissure_samples /= torch.tensor(spacing)
+        fissure_samples = fissure_samples.long().flip(-1)
 
         # prevent index out of bounds
         for d in range(len(shape)):
