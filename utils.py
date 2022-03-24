@@ -107,6 +107,12 @@ def kpts_to_world(kpts_pt, shape, align_corners=None):
     return kpts_world_
 
 
+def mask_to_points(mask: torch.Tensor, spacing: Sequence[float] = (1., 1., 1.)):
+    points_img = torch.nonzero(mask).flip(-1)
+    points_world = points_img * torch.tensor(spacing)
+    return points_world
+
+
 def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor, spacing: torch.Tensor):
     vertices = torch.from_numpy(np.asarray(mesh.vertices)) / spacing.cpu()
     vertices = vertices.floor().long()
