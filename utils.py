@@ -119,3 +119,13 @@ def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor
     remove_verts = torch.ones(vertices.shape[0], dtype=torch.bool)
     remove_verts[mask[vertices[:, 0], vertices[:, 1], vertices[:, 2]]] = 0
     mesh.remove_vertices_by_mask(remove_verts.numpy())
+
+
+def remove_all_but_biggest_component(mesh_predict):
+    # get connected components and select the biggest
+    triangle_clusters, _, cluster_area = mesh_predict.cluster_connected_triangles()
+    print(f"found {len(cluster_area)} connected components in prediction")
+    triangle_clusters = np.asarray(triangle_clusters)
+    cluster_area = np.asarray(cluster_area)
+    triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
+    mesh_predict.remove_triangles_by_mask(triangles_to_remove)
