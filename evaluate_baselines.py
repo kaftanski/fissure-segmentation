@@ -1,21 +1,18 @@
 import os
 from glob import glob
 
+import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
 
 from data import LungData
-from metrics import assd
+from data_processing.surface_fitting import poisson_reconstruction
 from train import compute_mesh_metrics, write_results
+from utils import remove_all_but_biggest_component
 
 
 def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000"):
-    def extract_id_from_fn(fn):
-        case, sequence = fn.split('_')[-4:-2]
-        sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving')
-        return case, sequence
-
     def _box_in_bounds(box, image_shape):
         """ from voxel2mesh utils.utils_common.py"""
         newbox = []
@@ -65,7 +62,8 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
             files_per_fissure.append(sorted(glob(os.path.join(mesh_dir, f'testing_pred_*_part_{f}.obj'))))
 
         for files in zip(*files_per_fissure):
-            case, sequence = extract_id_from_fn(files[0])
+            case, sequence = files[0].split('_')[-4:-2]
+            sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving')
             ids.append((case, sequence))
 
             # load the target meshes
@@ -125,5 +123,80 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
+def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1'):
+    ds = LungData('../data')
+    n_folds = 5
+    n_fissures = 2
+
+    test_assd = torch.zeros(n_folds, n_fissures)
+    test_sdsd = torch.zeros_like(test_assd)
+    test_hd = torch.zeros_like(test_assd)
+    test_hd95 = torch.zeros_like(test_assd)
+    for fold in range(n_folds):
+        fold_dir = os.path.join(result_dir, f'fold_{fold}')
+        files = sorted(glob(os.path.join(fold_dir, 'validation_raw_postprocessed', '*.nii.gz')))
+
+        mesh_dir = os.path.join(fold_dir, 'validation_mesh_reconstructions')
+        os.makedirs(mesh_dir, exist_ok=True)
+
+        all_pred_meshes = []
+        all_targ_meshes = []
+        ids = []
+        for f in files:
+            case, sequence = f.split(os.sep)[-1].split('_')[-2:]
+            sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving').replace('.nii.gz', '')
+            ids.append((case, sequence))
+
+            img_index = ds.get_index(case, sequence)
+            target_meshes = ds.get_meshes(img_index)[:n_fissures]
+            all_targ_meshes.append(target_meshes)
+
+            fissures_predict = sitk.ReadImage(f)
+            _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
+            # TODO: compare Poisson to Marching Cubes mesh generation
+            # TODO: try skimage skeletonize3d instead of sitk.BinaryThinning
+            for i, m in enumerate(predicted_meshes):
+                # post-process
+                remove_all_but_biggest_component(m)
+
+                # save reconstructed mesh
+                o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{i+1}_{sequence}.obj'), m)
+
+            all_pred_meshes.append(predicted_meshes)
+
+        # compute surface distances
+        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
+            all_pred_meshes, all_targ_meshes, ids=ids, show=True)
+        write_results(os.path.join(mesh_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
+                      std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+
+        test_assd[fold] += mean_assd
+        test_sdsd[fold] += mean_sdsd
+        test_hd[fold] += mean_hd
+        test_hd95[fold] += mean_hd95
+
+    # compute averages over cross-validation folds
+    mean_assd = test_assd.mean(0)
+    std_assd = test_assd.std(0)
+
+    mean_sdsd = test_sdsd.mean(0)
+    std_sdsd = test_sdsd.std(0)
+
+    mean_hd = test_hd.mean(0)
+    std_hd = test_hd.std(0)
+
+    mean_hd95 = test_hd95.mean(0)
+    std_hd95 = test_hd95.std(0)
+
+    # print out results
+    print('\n============ RESULTS ============')
+    print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
+
+    # output file
+    write_results(os.path.join(result_dir, 'cv_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+
+
 if __name__ == '__main__':
-    evaluate_voxel2mesh()
+    # evaluate_voxel2mesh()
+    evaluate_nnunet()
