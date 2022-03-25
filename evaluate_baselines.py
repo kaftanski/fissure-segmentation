@@ -5,12 +5,12 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
+from skimage.morphology import skeletonize_3d
 
 from data import LungData
 from data_processing.surface_fitting import poisson_reconstruction
 from train import compute_mesh_metrics, write_results
 from utils import remove_all_but_biggest_component
-from metrics import label_mesh_assd
 
 
 def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000"):
@@ -124,11 +124,11 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
 
 def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
-                    mode='reconstruction'):
+                    mode='surface'):
     assert mode in ['surface', 'voxels']
 
     ds = LungData('../data')
-    n_folds = 5
+    n_folds = 1
     n_fissures = 2
 
     test_assd = torch.zeros(n_folds, n_fissures)
@@ -156,7 +156,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
             all_targ_meshes.append(target_meshes)
 
             fissures_predict = sitk.ReadImage(f)
-            if mode == 'reconstruction':
+            if mode == 'surface':
                 _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
                 # TODO: compare Poisson to Marching Cubes mesh generation
                 # TODO: try skimage skeletonize3d instead of sitk.BinaryThinning
@@ -170,13 +170,22 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
                 all_predictions.append(predicted_meshes)
             else:
                 fissure_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_predict).astype(int))
-                # TODO: skeletonization
-                all_predictions.append([fissure_tensor == f for f in fissure_tensor.unique()[1:]])
+                predicted_fissures = [fissure_tensor == f for f in fissure_tensor.unique()[1:]]
+                # predicted_fissures = [torch.from_numpy(skeletonize_3d(fissure_tensor == f) > 0) for f in fissure_tensor.unique()[1:]]
+                all_predictions.append(predicted_fissures)
                 spacings.append(fissures_predict.GetSpacing())
+
+                # # re-assemble labelmap
+                # fissure_skeleton = torch.zeros_like(predicted_fissures[0], dtype=torch.long)
+                # for skel in predicted_fissures:
+                #     fissure_skeleton += fissure_tensor * skel
+                # img = sitk.GetImageFromArray(fissure_skeleton.numpy().astype(np.uint8))
+                # img.CopyInformation(fissures_predict)
+                # sitk.WriteImage(img, f'./results/nnunet_pred_skeletonized_{case}_{sequence}.nii.gz')
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
-            all_predictions, all_targ_meshes, ids=ids, show=True, spacings=None)
+            all_predictions, all_targ_meshes, ids=ids, show=True, spacings=spacings)
         write_results(os.path.join(mesh_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
@@ -209,4 +218,4 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
 if __name__ == '__main__':
     # evaluate_voxel2mesh()
-    evaluate_nnunet(mode='voxels')
+    evaluate_nnunet(mode='surface')

@@ -227,9 +227,11 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     hd95_surface_dist = torch.zeros_like(avg_surface_dist)
 
     for i, (all_parts_predictions, all_parts_targets) in enumerate(zip(meshes_predict, meshes_target)):
+        pred_points = []
         for j, (pred_part, targ_part) in enumerate(zip(all_parts_predictions, all_parts_targets)):
             if isinstance(pred_part, torch.Tensor):
-                asd, sdsd, hdsd, hd95sd = label_mesh_assd(pred_part, targ_part, spacing=spacings[i])
+                asd, sdsd, hdsd, hd95sd, points = label_mesh_assd(pred_part, targ_part, spacing=spacings[i])
+                pred_points.append(points)
             else:
                 asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
 
@@ -246,9 +248,14 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
             else:
                 title_prefix = f'sample {i}'
 
-            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
-                              triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
-                              title=title_prefix + 'surface prediction')
+            if pred_points:
+                all_points = torch.concat(pred_points, dim=0)
+                lbls = torch.concat([torch.ones(len(pts), dtype=torch.long) + p for p, pts in enumerate(pred_points)])
+                visualize_point_cloud(all_points, labels=lbls, title=title_prefix + 'points prediction')
+            else:
+                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
+                                  triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
+                                  title=title_prefix + 'surface prediction')
 
             visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_targets],
                               triangles_list=[np.asarray(m.triangles) for m in all_parts_targets],

@@ -26,11 +26,11 @@ def assd(mesh_x: o3d.geometry.TriangleMesh, mesh_y: o3d.geometry.TriangleMesh):
     return mean, std, hd, hd95
 
 
-def label_mesh_assd(mesh: o3d.geometry.TriangleMesh, labelmap: torch.Tensor, spacing: Sequence[float] = (1., 1., 1.)):
+def label_mesh_assd(labelmap: torch.Tensor, mesh: o3d.geometry.TriangleMesh, spacing: Sequence[float] = (1., 1., 1.)):
     """
 
-    :param mesh: triangle mesh
     :param labelmap: binary labelmap (all non-zero elements are considered foreground)
+    :param mesh: triangle mesh
     :param spacing: the image spacing for the labelmap (used to convert pixel into world coordinates
     :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
     """
@@ -53,7 +53,7 @@ def label_mesh_assd(mesh: o3d.geometry.TriangleMesh, labelmap: torch.Tensor, spa
     hd = (dist_pts_to_mesh.max() + dist_mesh_to_points.max()) / 2
     hd95 = (torch.quantile(dist_pts_to_mesh, q=0.95) + torch.quantile(dist_mesh_to_points, q=0.95)) / 2
 
-    return mean, std, hd, hd95
+    return mean, std, hd, hd95, points
 
 
 def batch_assd(verts_x: torch.Tensor, faces_x: torch.Tensor, verts_y: torch.Tensor, faces_y: torch.Tensor):
