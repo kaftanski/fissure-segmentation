@@ -56,7 +56,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
         ids = []
 
         fold_dir = os.path.join(experiment_dir, f'trial_{fold+1}')
-        mesh_dir = os.path.join(fold_dir, 'best_performance3', 'mesh')
+        mesh_dir = os.path.join(fold_dir, 'best_performance', 'mesh')
 
         files_per_fissure = []
         for f in range(n_fissures):
