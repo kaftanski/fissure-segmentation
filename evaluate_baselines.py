@@ -190,7 +190,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
             all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings)
-        write_results(os.path.join(mesh_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
+        write_results(os.path.join(mesh_dir, f'test_results_{mode}.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
         test_assd[fold] += mean_assd
@@ -216,11 +216,11 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
     print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
 
     # output file
-    write_results(os.path.join(result_dir, 'cv_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
+    write_results(os.path.join(result_dir, f'cv_results_{mode}.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
 if __name__ == '__main__':
     # evaluate_voxel2mesh(show=False)
-    evaluate_nnunet(mode='surface', show=False)
-    evaluate_nnunet(mode='voxel', show=False)
+    # evaluate_nnunet(mode='surface', show=False)
+    evaluate_nnunet(mode='voxels', show=False)
