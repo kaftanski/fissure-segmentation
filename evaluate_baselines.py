@@ -13,7 +13,7 @@ from train import compute_mesh_metrics, write_results
 from utils import remove_all_but_biggest_component
 
 
-def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000"):
+def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000", show=True):
     def _box_in_bounds(box, image_shape):
         """ from voxel2mesh utils.utils_common.py"""
         newbox = []
@@ -60,7 +60,11 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
         files_per_fissure = []
         for f in range(n_fissures):
-            files_per_fissure.append(sorted(glob(os.path.join(mesh_dir, f'testing_pred_*_part_{f}.obj'))))
+            meshes = sorted(glob(os.path.join(mesh_dir, f'testing_pred_*_part_{f}.obj')))
+            if not meshes:
+                files_per_fissure.append(sorted(glob(os.path.join(mesh_dir.replace('best_performance', 'best_performance3'), f'testing_pred_*_part_{f}.obj'))))
+            else:
+                files_per_fissure.append(meshes)
 
         for files in zip(*files_per_fissure):
             case, sequence = files[0].split('_')[-4:-2]
@@ -93,7 +97,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
             all_targ_meshes.append(target_meshes)
 
         # compute surface distances
-        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(all_pred_meshes, all_targ_meshes, ids=ids, show=True)
+        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(all_pred_meshes, all_targ_meshes, ids=ids, show=show)
         write_results(os.path.join(fold_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
         test_assd[fold] += mean_assd
@@ -124,11 +128,11 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
 
 def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
-                    mode='surface'):
+                    mode='surface', show=True):
     assert mode in ['surface', 'voxels']
 
     ds = LungData('../data')
-    n_folds = 1
+    n_folds = 5
     n_fissures = 2
 
     test_assd = torch.zeros(n_folds, n_fissures)
@@ -185,7 +189,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
-            all_predictions, all_targ_meshes, ids=ids, show=True, spacings=spacings)
+            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings)
         write_results(os.path.join(mesh_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
@@ -217,5 +221,6 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
 
 if __name__ == '__main__':
-    # evaluate_voxel2mesh()
-    evaluate_nnunet(mode='surface')
+    # evaluate_voxel2mesh(show=False)
+    evaluate_nnunet(mode='surface', show=False)
+    evaluate_nnunet(mode='voxel', show=False)
