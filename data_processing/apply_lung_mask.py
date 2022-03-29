@@ -25,4 +25,4 @@ if __name__ == '__main__':
 
         fissures = apply_mask(fissures, mask)
 
-        sitk.WriteImage(fissures, ds.get_filename(i).replace('_img_', '_fissures_poisson_masked_'))
+        sitk.WriteImage(fissures, ds.get_filename(i).replace('_img_', '_fissures_poisson_'))

@@ -91,7 +91,7 @@ class LungData(Dataset):
 
     def get_regularized_fissures(self, item):
         # this specifies what data should be considered "regularized"
-        return _load_files_from_file_list(item, [f.replace('_fissures_', '_fissures_poisson_masked_') if f is not None
+        return _load_files_from_file_list(item, [f.replace('_fissures_', '_fissures_poisson_') if f is not None
                                                  else None for f in self.fissures])
 
     def get_landmarks(self, item):
