@@ -1,10 +1,95 @@
 import os.path
 
+from matplotlib import pyplot as plt
+from torch.nn import functional as F
 import SimpleITK as sitk
 import numpy as np
 from typing import Tuple
 
+import torch
+
 from data import LungData
+from data_processing.random_walk import compute_laplace_matrix, random_walk
+
+
+def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    # compute graph laplacian
+    print('Computing graph Laplacian matrix')
+    L = compute_laplace_matrix(lobes != 0, 'binary')
+
+    # random walk lobe segmentation
+    print('Performing random walk')
+    probabilities = random_walk(L, labels=lobes, graph_mask=mask)
+
+    # final lobe segmentation
+    lobes_rw = torch.where(condition=mask.bool(), input=probabilities.argmax(-1) + 1, other=0)  # background is set to zero
+    # assert torch.all(seeds[seeds != 0] == lobes[seeds != 0]), 'Seed scribbles have changed label'
+
+    return lobes_rw
+
+
+def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
+    # convert SimpleITK images to tensors
+    mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).bool()
+    lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes).astype(int)).long()
+
+    # fill lobes with random walk
+    lobes_filled = fill_lobes(lobes_tensor, mask_tensor)
+    plt.imshow(lobes_filled[200])
+    plt.show()
+
+    lobes_filled_img = sitk.GetImageFromArray(lobes_filled.numpy())
+    lobes_filled_img.CopyInformation(lobes)
+    sitk.WriteImage(lobes_filled_img, './results/lobes_filled_EMPIRE01_fixed.nii.gz')
+
+    lobes_one_hot = F.one_hot(lobes_filled).permute(3, 0, 1, 2).unsqueeze(0)
+    print(lobes_one_hot.shape)
+
+    # Lobe labels / one-hot channels:
+    # right lower lobe: 1
+    # right upper lobe: 2
+    # left lower lobe: 3
+    # left upper lobe: 4
+    # right middle lobe: 5 (contained in label 2 if right horizontal fissure is not segmented)
+
+    n_lobes = lobes_one_hot.shape[1] - 1  # excluding background
+
+    # create overlapping structures in lobe-channels by channel-wise dilation
+    dilation_kernel = torch.tensor([[[0, 0, 0],
+                                     [0, 1, 0],
+                                     [0, 0, 0]],
+                                    [[0, 1, 0],
+                                     [1, 1, 1],
+                                     [0, 1, 0]],
+                                    [[0, 0, 0],
+                                     [0, 1, 0],
+                                     [0, 0, 0]]]).view(1, 1, 3, 3, 3).repeat(n_lobes+1, 1, 1, 1, 1)
+
+    device = 'cuda:2'
+    dilated_lobes_one_hot = F.conv3d(F.pad(lobes_one_hot.half().to(device), pad=(1, 1, 1, 1, 1, 1)),
+                                     dilation_kernel.half().to(device), groups=n_lobes+1)
+
+    # assemble the fissure segmentation (fissures at the boundaries of specific lobes)
+    # left fissure (1): between lobes 3 & 4
+    lf = torch.logical_and(dilated_lobes_one_hot[0, 3], dilated_lobes_one_hot[0, 4])
+    fissure_tensor = torch.zeros_like(lf, dtype=torch.long)
+    fissure_tensor[lf] = 1
+
+    # right oblique fissure (2): between lobes 1 & 2 (and 1 & 5 if lobe 5 is present)
+    rof = torch.logical_and(dilated_lobes_one_hot[0, 1], dilated_lobes_one_hot[0, 2])
+    if n_lobes == 5:
+        rof += torch.logical_and(dilated_lobes_one_hot[0, 1], dilated_lobes_one_hot[0, 5])
+    fissure_tensor[rof] = 2
+
+    # right horizontal fissure (3): between lobes 2 & 5 (if lobe 5 is present)
+    if n_lobes == 5:
+        rhf = torch.logical_and(dilated_lobes_one_hot[0, 2], dilated_lobes_one_hot[0, 5])
+        fissure_tensor[rhf] = 3
+
+    fissure_img = sitk.GetImageFromArray(fissure_tensor.cpu().numpy().astype(np.uint8))
+    fissure_img.CopyInformation(lobes)
+    sitk.WriteImage(fissure_img, './results/EMPIRE01_fixed_reconstructed_fissures.nii.gz')
+    return fissure_img, lobes_filled_img
 
 
 def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) -> Tuple[sitk.Image, bool]:
@@ -97,17 +182,23 @@ if __name__ == '__main__':
     data_path = '/home/kaftan/FissureSegmentation/data/'
     ds = LungData(data_path)
 
-    for i in range(len(ds)):
-        file = ds.get_filename(i)
-        case, _, sequence = file.split(os.sep)[-1].split('_')
-        sequence = sequence.split('.')[0]
-        # if 'EMPIRE' not in case:
-        #     continue
-        print(f'\nComputing lobes for {case} {sequence}')
-        fissures = ds.get_regularized_fissures(i)
-        if fissures is None:
-            print('\tNo regularized fissures available ... Skipping.')
-            continue
-        lobes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
+    # for i in range(len(ds)):
+    #     file = ds.get_filename(i)
+    #     case, _, sequence = file.split(os.sep)[-1].split('_')
+    #     sequence = sequence.split('.')[0]
+    #     # if 'EMPIRE' not in case:
+    #     #     continue
+    #     print(f'\nComputing lobes for {case} {sequence}')
+    #     fissures = ds.get_regularized_fissures(i)
+    #     if fissures is None:
+    #         print('\tNo regularized fissures available ... Skipping.')
+    #         continue
+    #     lobes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
+    #
+    #     sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
 
-        sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+    test_case, test_seq = 'EMPIRE01', 'fixed'
+    ind = ds.get_index(test_case, test_seq)
+    lob = ds.get_lobes(ind)
+    mas = ds.get_lung_mask(ind)
+    lobes_to_fissures(lob, mas)

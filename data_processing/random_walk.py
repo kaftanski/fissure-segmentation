@@ -49,7 +49,7 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
             val = torch.exp(-(torch.take(im, ii[:, 0]) - torch.take(im, ii[:, 1])).pow(2) / (2 * sigma ** 2))
         elif edge_weights == 'binary':
             # 1 if values are the same, 0 if not
-            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 10., 0.)
+            val = torch.where((torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])), 1., 0.01)
             # val = (torch.take(im, ii[:, 0]) == torch.take(im, ii[:, 1])).float()
         else:
             raise ValueError(f'No edge weights named "{edge_weights}" known.')
