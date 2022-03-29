@@ -42,12 +42,14 @@ def main(ds, index):
     print()
 
     # 3. Lobe Generation
-    lobes, success = find_lobes(fissures_masked, mask, exclude_rhf=exclude_right_horizontal_fissure)
+    lobes, lobe_meshes, success = find_lobes(fissures_masked, mask, exclude_rhf=exclude_right_horizontal_fissure)
     sitk.WriteImage(lobes, os.path.join(IMG_DATA_DIR, f'{case}_lobes_{sequence}.nii.gz'))
     if not success:
         print('Not enough lobes found, please check if the fissure segmentation is complete. '
               'Skipping point feature computation.')
         return
+    for m, mesh in enumerate(lobe_meshes):
+        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
 
     # 4. Point Features
     compute_point_features(img, fissures_masked, lobes, mask, POINT_DATA_DIR, case, sequence)

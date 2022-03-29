@@ -50,8 +50,9 @@ class LungData(Dataset):
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
         self.landmarks = []
         self.fissures = []
-        self.meshes = []
+        self.fissure_meshes = []
         self.lobes = []
+        self.lobe_meshes = []
         self.ids = []
 
         # fill missing landmarks and fissure segmentations with None
@@ -78,8 +79,11 @@ class LungData(Dataset):
             sequence = sequence.split('.')[0]
             self.ids.append((case, sequence))
 
-            meshlist = sorted(glob(os.path.join(folder, f'{case}_mesh_{sequence}', '*.obj')))
-            self.meshes.append(meshlist if meshlist else None)
+            meshlist = sorted(glob(os.path.join(folder, f'{case}_mesh_{sequence}', f'{case}_fissure*_{sequence}.obj')))
+            self.fissure_meshes.append(meshlist if meshlist else None)
+
+            meshlist = sorted(glob(os.path.join(folder, f'{case}_mesh_{sequence}', f'{case}_lobe*_{sequence}.obj')))
+            self.lobe_meshes.append(meshlist if meshlist else None)
 
         self.num_classes = 4
 
@@ -116,11 +120,17 @@ class LungData(Dataset):
 
         return filenames
 
-    def get_meshes(self, item):
-        if self.meshes[item] is None:
+    def get_fissure_meshes(self, item):
+        if self.fissure_meshes[item] is None:
             return None
         else:
-            return tuple(o3d.io.read_triangle_mesh(m) for m in self.meshes[item])
+            return tuple(o3d.io.read_triangle_mesh(m) for m in self.fissure_meshes[item])
+
+    def get_lobe_meshes(self, item):
+        if self.fissure_meshes[item] is None:
+            return None
+        else:
+            return tuple(o3d.io.read_triangle_mesh(m) for m in self.lobe_meshes[item])
 
     def get_lobes(self, item):
         return _load_files_from_file_list(item, self.lobes)
@@ -325,7 +335,7 @@ def save_split_file(split, filepath):
 if __name__ == '__main__':
     ds = LungData('/home/kaftan/FissureSegmentation/data/')
     for i in range(len(ds)):
-        meshes = ds.get_meshes(i)
+        meshes = ds.get_fissure_meshes(i)
         if meshes is None:
             continue
         print()

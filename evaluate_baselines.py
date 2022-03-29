@@ -73,7 +73,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
             # load the target meshes
             img_index = ds.get_index(case, sequence)
-            target_meshes = ds.get_meshes(img_index)[:n_fissures]
+            target_meshes = ds.get_fissure_meshes(img_index)[:n_fissures]
 
             # load v2m predictions
             pred_meshes = [o3d.io.read_triangle_mesh(fn) for fn in files]
@@ -156,7 +156,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
             ids.append((case, sequence))
 
             img_index = ds.get_index(case, sequence)
-            target_meshes = ds.get_meshes(img_index)[:n_fissures]
+            target_meshes = ds.get_fissure_meshes(img_index)[:n_fissures]
             all_targ_meshes.append(target_meshes)
 
             fissures_predict = sitk.ReadImage(f)

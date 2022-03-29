@@ -1,15 +1,17 @@
 import os.path
-
+import open3d as o3d
 from matplotlib import pyplot as plt
+from skimage.measure import marching_cubes
 from torch.nn import functional as F
 import SimpleITK as sitk
 import numpy as np
-from typing import Tuple
+from typing import Tuple, List
 
 import torch
 
 from data import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
+from utils import create_o3d_mesh
 
 
 def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -92,7 +94,8 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
     return fissure_img, lobes_filled_img
 
 
-def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) -> Tuple[sitk.Image, bool]:
+def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool = False) \
+        -> Tuple[sitk.Image, List[o3d.geometry.TriangleMesh], bool]:
     """
 
     :param fissure_seg: fissure segmentation label image
@@ -132,7 +135,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     print(f'\tFound {obj_cnt} connected components ...')
     if obj_cnt < num_lobes_target:
         print(f'\tThis is not enough, skipping relabelling.')
-        return lobes_components, False
+        return lobes_components, [], False
     else:
         print('\tSUCCESS!')
 
@@ -175,30 +178,42 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     change_label_filter.SetChangeMap(change_map)
     lobes_components_relabel = change_label_filter.Execute(biggest_n_components)
 
-    return lobes_components_relabel, True
+    # compute the surface mesh via marching cubes
+    lobes_meshes = []
+    for lb in range(1, num_lobes_target+1):
+        print(f'\tComputing lobe surface mesh no. {lb}')
+        verts, faces, normals, values = marching_cubes(volume=(sitk.GetArrayViewFromImage(lobes_components_relabel) == lb),
+                                                       level=0.5, spacing=lobes_components_relabel.GetSpacing()[::-1],
+                                                       allow_degenerate=False, mask=sitk.GetArrayViewFromImage(lung_mask))
+
+        mesh = create_o3d_mesh(verts=verts, tris=faces)
+        lobes_meshes.append(mesh)
+
+    return lobes_components_relabel, lobes_meshes, True
 
 
 if __name__ == '__main__':
     data_path = '/home/kaftan/FissureSegmentation/data/'
     ds = LungData(data_path)
 
-    # for i in range(len(ds)):
-    #     file = ds.get_filename(i)
-    #     case, _, sequence = file.split(os.sep)[-1].split('_')
-    #     sequence = sequence.split('.')[0]
-    #     # if 'EMPIRE' not in case:
-    #     #     continue
-    #     print(f'\nComputing lobes for {case} {sequence}')
-    #     fissures = ds.get_regularized_fissures(i)
-    #     if fissures is None:
-    #         print('\tNo regularized fissures available ... Skipping.')
-    #         continue
-    #     lobes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
-    #
-    #     sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+    for i in range(len(ds)):
+        file = ds.get_filename(i)
+        case, _, sequence = file.split(os.sep)[-1].split('_')
+        sequence = sequence.split('.')[0]
+        # if 'EMPIRE' not in case:
+        #     continue
+        print(f'\nComputing lobes for {case} {sequence}')
+        fissures = ds.get_regularized_fissures(i)
+        if fissures is None:
+            print('\tNo regularized fissures available ... Skipping.')
+            continue
+        lobes, lobe_meshes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
+        sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+        for m, mesh in enumerate(lobe_meshes):
+            o3d.io.write_triangle_mesh(os.path.join(data_path, f'{case}_mesh_{sequence}', f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
 
-    test_case, test_seq = 'EMPIRE01', 'fixed'
-    ind = ds.get_index(test_case, test_seq)
-    lob = ds.get_lobes(ind)
-    mas = ds.get_lung_mask(ind)
-    lobes_to_fissures(lob, mas)
+    # test_case, test_seq = 'EMPIRE01', 'fixed'
+    # ind = ds.get_index(test_case, test_seq)
+    # lob = ds.get_lobes(ind)
+    # mas = ds.get_lung_mask(ind)
+    # lobes_to_fissures(lob, mas)

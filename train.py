@@ -329,7 +329,7 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         if not ds.lobes:
             # mesh fitting for each fissure
             meshes_predict = []
-            meshes_target = img_ds.get_meshes(img_index)[:2 if ds.exclude_rhf else 3]
+            meshes_target = img_ds.get_fissure_meshes(img_index)[:2 if ds.exclude_rhf else 3]
             for j, f in enumerate(labels_pred.unique()[1:]):  # excluding background
                 # using poisson reconstruction with octree-depth 3 because of sparse point cloud
                 mesh_predict = pointcloud_to_mesh(pts[labels_pred.squeeze() == f].cpu(), crop_to_bbox=True, depth=3)
