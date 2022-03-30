@@ -18,11 +18,7 @@ def assd(mesh_x: o3d.geometry.TriangleMesh, mesh_y: o3d.geometry.TriangleMesh):
     dist_xy = point_surface_distance(query_points=mesh_x.vertices, trg_points=mesh_y.vertices, trg_tris=mesh_y.triangles)
     dist_yx = point_surface_distance(query_points=mesh_y.vertices, trg_points=mesh_x.vertices, trg_tris=mesh_x.triangles)
 
-    mean = (dist_xy.mean() + dist_yx.mean()) / 2
-    std = (dist_xy.std() + dist_yx.std()) / 2
-    hd = (dist_xy.max() + dist_yx.max()) / 2
-    hd95 = (torch.quantile(dist_xy, q=0.95) + torch.quantile(dist_yx, q=0.95)) / 2
-
+    mean, std, hd, hd95 = _symmetric_point_distances(dist_xy, dist_yx)
     return mean, std, hd, hd95
 
 
@@ -47,13 +43,33 @@ def label_mesh_assd(labelmap: torch.Tensor, mesh: o3d.geometry.TriangleMesh, spa
     dist_mesh_to_points = torch.from_numpy(np.asarray(mesh_sampled_pc.compute_point_cloud_distance(pcd)))
     print(dist_pts_to_mesh.mean(), dist_mesh_to_points.mean())
 
-    mean = (dist_pts_to_mesh.mean() + dist_mesh_to_points.mean()) / 2
-
-    std = (dist_pts_to_mesh.std() + dist_mesh_to_points.std()) / 2
-    hd = (dist_pts_to_mesh.max() + dist_mesh_to_points.max()) / 2
-    hd95 = (torch.quantile(dist_pts_to_mesh, q=0.95) + torch.quantile(dist_mesh_to_points, q=0.95)) / 2
-
+    mean, std, hd, hd95 = _symmetric_point_distances(dist_pts_to_mesh, dist_mesh_to_points)
     return mean, std, hd, hd95, points
+
+
+def label_label_assd(labelmap1, labelmap2, spacing: Sequence[float] = (1., 1., 1.)):
+    # compute point clouds from foreground pixels in labelmap
+    points1 = mask_to_points(labelmap1, spacing)
+    points2 = mask_to_points(labelmap2, spacing)
+
+    pc1 = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(points1.numpy().astype(np.float32)))
+    pc2 = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(points2.numpy().astype(np.float32)))
+
+    # compute chamfer distances
+    dist_12 = torch.from_numpy(np.asarray(pc1.compute_point_cloud_distance(pc2)))
+    dist_21 = torch.from_numpy(np.asarray(pc2.compute_point_cloud_distance(pc1)))
+    print(dist_12.mean(), dist_21.mean())
+
+    mean, std, hd, hd95 = _symmetric_point_distances(dist_12, dist_21)
+    return mean, std, hd, hd95
+
+
+def _symmetric_point_distances(dist_points1, dist_points2):
+    mean = (dist_points1.mean() + dist_points2.mean()) / 2
+    std = (dist_points1.std() + dist_points2.std()) / 2
+    hd = (dist_points1.max() + dist_points2.max()) / 2
+    hd95 = (torch.quantile(dist_points1, q=0.95) + torch.quantile(dist_points2, q=0.95)) / 2
+    return mean, std, hd, hd95
 
 
 def batch_assd(verts_x: torch.Tensor, faces_x: torch.Tensor, verts_y: torch.Tensor, faces_y: torch.Tensor):

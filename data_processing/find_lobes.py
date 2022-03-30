@@ -37,12 +37,11 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
 
     # fill lobes with random walk
     lobes_filled = fill_lobes(lobes_tensor, mask_tensor)
-    plt.imshow(lobes_filled[200])
-    plt.show()
+    # plt.imshow(lobes_filled[lobes_filled.shape[0]//2])
+    # plt.show()
 
     lobes_filled_img = sitk.GetImageFromArray(lobes_filled.numpy())
     lobes_filled_img.CopyInformation(lobes)
-    sitk.WriteImage(lobes_filled_img, './results/lobes_filled_EMPIRE01_fixed.nii.gz')
 
     lobes_one_hot = F.one_hot(lobes_filled).permute(3, 0, 1, 2).unsqueeze(0)
     print(lobes_one_hot.shape)
@@ -90,7 +89,6 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
 
     fissure_img = sitk.GetImageFromArray(fissure_tensor.cpu().numpy().astype(np.uint8))
     fissure_img.CopyInformation(lobes)
-    sitk.WriteImage(fissure_img, './results/EMPIRE01_fixed_reconstructed_fissures.nii.gz')
     return fissure_img, lobes_filled_img
 
 
