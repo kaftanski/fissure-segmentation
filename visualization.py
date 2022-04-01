@@ -1,6 +1,9 @@
+from typing import Sequence
+
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
+from numpy.typing import ArrayLike
 
 
 def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: str = None, onehot_encoding: bool = False, ax=None):
@@ -33,3 +36,52 @@ def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: s
 
     if title:
         ax.set_title(title)
+
+
+def visualize_point_cloud(points, labels, title='', exclude_background=True):
+    """
+
+    :param points: point cloud with N points, shape: (Nx3)
+    :param labels: label for each point, shape (N)
+    :param title: figure title
+    :param exclude_background: if true, points with label 0 will not be plotted
+    :return:
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    points = points.cpu()
+    if exclude_background:
+        points = points[labels != 0]
+        labels = labels[labels != 0]
+
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap='tab10', marker='.')
+    # ax.view_init(elev=100., azim=-60.)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
+    plt.show()
+
+
+def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = ''):
+    """
+
+    :param vertices_list: list of vertices, shape (Vx3) tensors
+    :param triangles_list: list of triangles, shape (Tx3) tensors, corresponding to the vertices
+    :param title: figure title
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    colors = ['r', 'g', 'b', 'y']
+    for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=colors[i])
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
+    plt.show()

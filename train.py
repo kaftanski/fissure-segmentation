@@ -2,13 +2,12 @@ import argparse
 import csv
 import os
 from copy import deepcopy
-from typing import Sequence, List, Tuple
+from typing import List, Tuple
 import open3d as o3d
 import SimpleITK as sitk
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from numpy.typing import ArrayLike
 from torch import nn
 from torch.utils.data import random_split, DataLoader
 
@@ -31,55 +30,6 @@ def batch_dice(prediction, target, n_labels):
         dice[:, l] = 2 * (label_pred * label_target).sum(-1) / (label_pred.sum(-1) + label_target.sum(-1) + 1e-8)
 
     return dice.mean(0).cpu()
-
-
-def visualize_point_cloud(points, labels, title='', exclude_background=True):
-    """
-
-    :param points: point cloud with N points, shape: (Nx3)
-    :param labels: label for each point, shape (N)
-    :param title: figure title
-    :param exclude_background: if true, points with label 0 will not be plotted
-    :return:
-    """
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    points = points.cpu()
-    if exclude_background:
-        points = points[labels != 0]
-        labels = labels[labels != 0]
-
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap='tab10', marker='.')
-    # ax.view_init(elev=100., azim=-60.)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    if title:
-        ax.set_title(title)
-    plt.show()
-
-
-def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = ''):
-    """
-
-    :param vertices_list: list of vertices, shape (Vx3) tensors
-    :param triangles_list: list of triangles, shape (Tx3) tensors, corresponding to the vertices
-    :param title: figure title
-    """
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    colors = ['r', 'g', 'b', 'y']
-    for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
-        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=colors[i])
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    if title:
-        ax.set_title(title)
-    plt.show()
 
 
 def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
@@ -177,7 +127,7 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 
         # visualization
         if show and not (epoch + 1) % every_n_epochs:
-            visualize_point_cloud(pts[0].transpose(0,1), out.argmax(1)[0])
+            visualize_point_cloud(pts[0].transpose(0, 1), out.argmax(1)[0])
 
     # training plot
     plt.figure()
