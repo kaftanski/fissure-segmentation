@@ -184,6 +184,7 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
                                                        level=0.5, spacing=lobes_components_relabel.GetSpacing()[::-1],
                                                        allow_degenerate=False, mask=sitk.GetArrayViewFromImage(lung_mask))
 
+        verts = verts.flip(-1)  # bring coordinates into xyz format
         mesh = create_o3d_mesh(verts=verts, tris=faces)
         lobes_meshes.append(mesh)
 
