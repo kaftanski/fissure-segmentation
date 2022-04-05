@@ -12,6 +12,7 @@ import torch
 from data import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
 from utils import create_o3d_mesh
+from visualization import visualize_trimesh
 
 
 def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -83,7 +84,7 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
     fissure_tensor[rof] = 2
 
     # right horizontal fissure (3): between lobes 2 & 5 (if lobe 5 is present)
-    if n_lobes == 5:
+    if n_lobes == 5:  # TODO: look at these results!
         rhf = torch.logical_and(dilated_lobes_one_hot[0, 2], dilated_lobes_one_hot[0, 5])
         fissure_tensor[rhf] = 3
 
@@ -195,6 +196,8 @@ if __name__ == '__main__':
     data_path = '/home/kaftan/FissureSegmentation/data/'
     ds = LungData(data_path)
 
+    total_lobes = 0
+    successes = 0
     for i in range(len(ds)):
         file = ds.get_filename(i)
         case, _, sequence = file.split(os.sep)[-1].split('_')
@@ -206,10 +209,19 @@ if __name__ == '__main__':
         if fissures is None:
             print('\tNo regularized fissures available ... Skipping.')
             continue
-        lobes, lobe_meshes, _ = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
-        sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
-        for m, mesh in enumerate(lobe_meshes):
-            o3d.io.write_triangle_mesh(os.path.join(data_path, f'{case}_mesh_{sequence}', f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
+        lobes, lobe_meshes, success = find_lobes(fissures, ds.get_lung_mask(i), exclude_rhf=True)
+        total_lobes += 1
+        if success:
+            sitk.WriteImage(lobes, os.path.join(data_path, f'{case}_lobes_{sequence}.nii.gz'))
+            for m, mesh in enumerate(lobe_meshes):
+                o3d.io.write_triangle_mesh(os.path.join(data_path, f'{case}_mesh_{sequence}', f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
+
+            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in lobe_meshes],
+                              triangles_list=[np.asarray(m.triangles) for m in lobe_meshes],
+                              title=f'{case} {sequence} lobe meshes')
+            successes += 1
+
+    print(f'\nResult: {successes} out of {total_lobes} succeeded.')
 
     # test_case, test_seq = 'EMPIRE01', 'fixed'
     # ind = ds.get_index(test_case, test_seq)
