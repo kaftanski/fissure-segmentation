@@ -163,11 +163,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
             if mode == 'surface':
                 _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
                 # TODO: compare Poisson to Marching Cubes mesh generation
-                # TODO: try skimage skeletonize3d instead of sitk.BinaryThinning
                 for i, m in enumerate(predicted_meshes):
-                    # post-process
-                    remove_all_but_biggest_component(m)
-
                     # save reconstructed mesh
                     o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{i+1}_{sequence}.obj'), m)
 

@@ -1,6 +1,6 @@
 import os
 from typing import Sequence, Tuple, List
-from utils import mask_out_verts_from_mesh, mask_to_points
+from utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
 import pytorch3d.structures
 from numpy.typing import ArrayLike
 from pytorch3d.vis import plotly_vis
@@ -481,6 +481,11 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
         poisson_mesh = pointcloud_surface_fitting(fissure_points, crop_to_bbox=True, mask=mask)
+
+        # post-process: keep only the largest component (that is in the correct body half)
+        right = f > 1  # right fissure(s) are label 2 and 3
+        remove_all_but_biggest_component(poisson_mesh, right=right,
+                                         center_x=(fissures.GetSize()[0] * fissures.GetSpacing()[0]) / 2)
         fissure_meshes.append(poisson_mesh)
 
     # convert mesh to labelmap by sampling points

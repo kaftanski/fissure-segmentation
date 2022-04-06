@@ -143,12 +143,36 @@ def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor
     mesh.remove_vertices_by_mask(remove_verts.numpy())
 
 
-def remove_all_but_biggest_component(mesh_predict):
+def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: bool = None, center_x: float = None):
     # TODO: if 2 big components are present, choose the "right" one -> right component for right fissure
     # get connected components and select the biggest
-    triangle_clusters, _, cluster_area = mesh_predict.cluster_connected_triangles()
+    triangle_clusters, _, cluster_area = mesh.cluster_connected_triangles()
     print(f"found {len(cluster_area)} connected components in prediction")
     triangle_clusters = np.asarray(triangle_clusters)
     cluster_area = np.asarray(cluster_area)
+
+    if center_x is not None:
+        all_verts = np.asarray(mesh.vertices)
+        all_tris = np.asarray(mesh.triangles)
+
+        # check that cluster has its center in the right or left half of the space (depending on the value in "right")
+        for c, cluster in enumerate(np.unique(triangle_clusters)):
+            # current cluster triangles
+            c_tris = all_tris[triangle_clusters == cluster]
+
+            # all vertices belonging to current cluster
+            c_verts = all_verts[np.unique(c_tris)]
+
+            # center of cluster
+            c_center = np.mean(c_verts, axis=0)
+
+            # if the cluster is in the wrong half of the space remove it from the choice
+            if right and c_center[0] > center_x:  # we are searching for right fissure but got cluster on the left
+                # set the value to negative, but so that in case we have no cluster in the right half,
+                # still the biggest will be chosen by argmax later
+                cluster_area[c] = -1 / cluster_area[c]
+            elif not right and c_center[0] < center_x:  # we are searching for left fissure but got cluster on the right
+                cluster_area[c] = -1 / cluster_area[c]
+
     triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
-    mesh_predict.remove_triangles_by_mask(triangles_to_remove)
+    mesh.remove_triangles_by_mask(triangles_to_remove)

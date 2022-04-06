@@ -319,14 +319,11 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         for j in range(len(meshes_target)):  # excluding background
             label = j+1
 
-            # right fissure(s) are label 2 and 3
-            right = label > 1
 
             if not ds.lobes:
                 # using poisson reconstruction with octree-depth 3 because of sparse point cloud
                 mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
                                                           depth=3)
-
             else:
                 # extract the fissure points from labelmap
                 fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,
@@ -337,7 +334,8 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
 
             # post-process surfaces
             mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask
-            remove_all_but_biggest_component(mesh_predict)  # only keep the biggest connected component
+            right = label > 1  # right fissure(s) are label 2 and 3
+            remove_all_but_biggest_component(mesh_predict, right=right, center_x=shape[2]/2)  # only keep the biggest connected component
 
             meshes_predict.append(mesh_predict)
 
