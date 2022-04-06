@@ -85,7 +85,9 @@ def random_walk(L: torch.sparse.Tensor, labels: torch.Tensor, graph_mask: torch.
     seeded = labels.view(-1) != 0
     if graph_mask is None:
         graph_mask = torch.tensor(True)
-    x_s = ind[torch.logical_and(seeded, graph_mask.view(-1))]
+
+    seeded = torch.logical_and(seeded, graph_mask.view(-1))  # remove seeded nodes outside the mask
+    x_s = ind[seeded]
     x_u = ind[torch.logical_and(torch.logical_not(seeded), graph_mask.view(-1))]
 
     # get blocks from L: L_u (edges between unseeded nodes) and B^T (edges between an unseeded and an seeded node)
