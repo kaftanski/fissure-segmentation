@@ -5,12 +5,11 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
-from skimage.morphology import skeletonize_3d
 
 from data import LungData
 from data_processing.surface_fitting import poisson_reconstruction
 from train import compute_mesh_metrics, write_results
-from utils import remove_all_but_biggest_component
+from data_processing.find_lobes import lobes_to_fissures
 
 
 def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000", show=True):
@@ -128,7 +127,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
 
 def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
-                    mode='surface', show=True):
+                    mode='surface', show=True, lobes=False):
     assert mode in ['surface', 'voxels']
 
     ds = LungData('../data')
@@ -159,9 +158,12 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
             target_meshes = ds.get_fissure_meshes(img_index)[:n_fissures]
             all_targ_meshes.append(target_meshes)
 
-            fissures_predict = sitk.ReadImage(f)
+            labelmap_predict = sitk.ReadImage(f)
+            if 'Lobes' in result_dir:  # results are lobes -> convert them to fissures first
+                labelmap_predict, _ = lobes_to_fissures(labelmap_predict, mask=ds.get_lung_mask(img_index))
+
             if mode == 'surface':
-                _, predicted_meshes = poisson_reconstruction(fissures_predict, ds.get_lung_mask(img_index))
+                _, predicted_meshes = poisson_reconstruction(labelmap_predict, ds.get_lung_mask(img_index))
                 # TODO: compare Poisson to Marching Cubes mesh generation
                 for i, m in enumerate(predicted_meshes):
                     # save reconstructed mesh
@@ -169,11 +171,11 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
                 all_predictions.append(predicted_meshes)
             else:
-                fissure_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_predict).astype(int))
+                fissure_tensor = torch.from_numpy(sitk.GetArrayFromImage(labelmap_predict).astype(int))
                 predicted_fissures = [fissure_tensor == f for f in fissure_tensor.unique()[1:]]
                 # predicted_fissures = [torch.from_numpy(skeletonize_3d(fissure_tensor == f) > 0) for f in fissure_tensor.unique()[1:]]
                 all_predictions.append(predicted_fissures)
-                spacings.append(fissures_predict.GetSpacing())
+                spacings.append(labelmap_predict.GetSpacing())
 
                 # # re-assemble labelmap
                 # fissure_skeleton = torch.zeros_like(predicted_fissures[0], dtype=torch.long)
@@ -218,5 +220,5 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
 if __name__ == '__main__':
     # evaluate_voxel2mesh(show=False)
-    # evaluate_nnunet(mode='surface', show=False)
+    evaluate_nnunet(mode='surface', show=False)
     evaluate_nnunet(mode='voxels', show=False)
