@@ -415,7 +415,7 @@ def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_t
     return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
 
 
-def pointcloud_to_mesh(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
+def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
     """
 
     :param points: (Nx3)
@@ -480,7 +480,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
-        poisson_mesh = pointcloud_to_mesh(fissure_points, crop_to_bbox=True, mask=mask)
+        poisson_mesh = pointcloud_surface_fitting(fissure_points, crop_to_bbox=True, mask=mask)
         fissure_meshes.append(poisson_mesh)
 
     # convert mesh to labelmap by sampling points

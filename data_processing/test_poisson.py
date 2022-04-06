@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from data import PointDataset, LungData
-from data_processing.surface_fitting import o3d_mesh_to_labelmap, pointcloud_to_mesh
+from data_processing.surface_fitting import o3d_mesh_to_labelmap, pointcloud_surface_fitting
 from utils import kpts_to_world
 
 ds = PointDataset(1024, exclude_rhf=True)
@@ -21,7 +21,7 @@ points = kpts_to_world(points.transpose(0, 1), shape)  # points in millimeters
 for depth in range(2, 10):
     meshes = []
     for f in labels.unique()[1:]:
-        meshes.append(pointcloud_to_mesh(points[labels == f], depth=depth))
+        meshes.append(pointcloud_surface_fitting(points[labels == f], depth=depth))
 
     labelmap = o3d_mesh_to_labelmap(meshes, image.GetSize()[::-1], image.GetSpacing())
     label_image_predict = sitk.GetImageFromArray(labelmap.numpy().astype(np.uint8))
