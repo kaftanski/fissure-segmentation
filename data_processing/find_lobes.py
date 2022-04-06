@@ -31,7 +31,8 @@ def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     return lobes_rw
 
 
-def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
+def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image, device='cuda:2'):
+    print('Converting Lobes to Fissures ...')
     # convert SimpleITK images to tensors
     mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).bool()
     lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes).astype(int)).long()
@@ -67,7 +68,6 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image):
                                      [0, 1, 0],
                                      [0, 0, 0]]]).view(1, 1, 3, 3, 3).repeat(n_lobes+1, 1, 1, 1, 1)
 
-    device = 'cuda:2'
     dilated_lobes_one_hot = F.conv3d(F.pad(lobes_one_hot.half().to(device), pad=(1, 1, 1, 1, 1, 1)),
                                      dilation_kernel.half().to(device), groups=n_lobes+1)
 

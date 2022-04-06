@@ -15,7 +15,8 @@ from data import FaustDataset, PointDataset, load_split_file, save_split_file, L
 from dgcnn import DGCNNSeg
 from metrics import assd, label_mesh_assd
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
-from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component
+from data_processing.find_lobes import lobes_to_fissures
+from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
 
 
@@ -287,35 +288,61 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
             visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction')
             visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target')
 
-        # load the right target meshes
-        if not ds.lobes:
-            data_type = 'fissures'
-            poisson_depth = 3
-            meshes_target = img_ds.get_fissure_meshes(img_index)[:2 if ds.exclude_rhf else 3]
-        else:
-            data_type = 'lobes'
-            poisson_depth = 4
-            meshes_target = img_ds.get_lobe_meshes(img_index)
-
         # POST-PROCESSING prediction
-        lung_mask = torch.from_numpy(sitk.GetArrayFromImage(img_ds.get_lung_mask(img_index)).astype(bool))
+        mask_img = img_ds.get_lung_mask(img_index)
+        mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask_img).astype(bool))
+
+        if ds.lobes:
+            # load the right target meshes (2 fissures in case of 4 lobes, 3 otherwise)
+            meshes_target = img_ds.get_fissure_meshes(img_index)[:2 if len(lbls.unique()[1:]) == 4 else 3]
+
+            # voxelize point labels (sparse)
+            lobes_tensor = torch.zeros_like(mask_tensor, dtype=torch.long)
+            pts_index = (pts / spacing).flip(-1).round().long().cpu()
+            lobes_tensor[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]] = labels_pred.squeeze().cpu()
+
+            # point labels are seeds for random walk, filling in the gaps
+            sparse_lobes_img = sitk.GetImageFromArray(lobes_tensor.numpy().astype(np.uint8))
+            sparse_lobes_img.CopyInformation(image)
+            fissure_pred_img, lobes_pred_img = lobes_to_fissures(sparse_lobes_img, mask_img, device=device)
+
+            # write out intermediate results
+            sitk.WriteImage(sparse_lobes_img, os.path.join(label_dir, f'{case}_lobes_pointcloud_{sequence}.nii.gz'))
+            sitk.WriteImage(fissure_pred_img, os.path.join(label_dir, f'{case}_fissures_from_lobes_{sequence}.nii.gz'))
+            sitk.WriteImage(lobes_pred_img, os.path.join(label_dir, f'{case}_lobes_pred_{sequence}.nii.gz'))
+
+        else:
+            meshes_target = img_ds.get_fissure_meshes(img_index)[:2 if ds.exclude_rhf else 3]
 
         # mesh fitting for each label
         meshes_predict = []
-        for j, label in enumerate(labels_pred.unique()[1:]):  # excluding background
-            # using poisson reconstruction with octree-depth 3 because of sparse point cloud
-            mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
-                                                      depth=poisson_depth)
+        for j in range(len(meshes_target)):  # excluding background
+            label = j+1
 
-            if not ds.lobes:  # else: keep watertightness of the reconstruction intact
-                # post-process surfaces
-                mask_out_verts_from_mesh(mesh_predict, lung_mask, spacing)  # apply lung mask
-                remove_all_but_biggest_component(mesh_predict)  # only keep the biggest connected component
+            # right fissure(s) are label 2 and 3
+            right = label > 1
+
+            if not ds.lobes:
+                # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
+                                                          depth=3)
+
+            else:
+                # extract the fissure points from labelmap
+                fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,
+                                                  spacing=fissure_pred_img.GetSpacing())
+
+                # fit surface to the points with depth 6, because points are dense
+                mesh_predict = pointcloud_surface_fitting(fissure_pred_pts, crop_to_bbox=True, depth=6)
+
+            # post-process surfaces
+            mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask
+            remove_all_but_biggest_component(mesh_predict)  # only keep the biggest connected component
 
             meshes_predict.append(mesh_predict)
 
             # write out meshes
-            o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_{data_type}{label}_pred_{sequence}.obj'),
+            o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{label}_pred_{sequence}.obj'),
                                        mesh_predict)
 
         # write out label images (converted from surface reconstruction)
@@ -323,46 +350,17 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         labelmap_predict = o3d_mesh_to_labelmap(meshes_predict, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
         label_image_predict = sitk.GetImageFromArray(labelmap_predict.numpy().astype(np.uint8))
         label_image_predict.CopyInformation(image)
-        sitk.WriteImage(label_image_predict, os.path.join(label_dir, f'{case}_{data_type}_pred_{sequence}.nii.gz'))
+        sitk.WriteImage(label_image_predict, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
         # target labelmap
         labelmap_target = o3d_mesh_to_labelmap(meshes_target, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
         label_image_target = sitk.GetImageFromArray(labelmap_target.numpy().astype(np.uint8))
         label_image_target.CopyInformation(image)
-        sitk.WriteImage(label_image_target, os.path.join(label_dir, f'{case}_{data_type}_targ_{sequence}.nii.gz'))
+        sitk.WriteImage(label_image_target, os.path.join(label_dir, f'{case}_fissures_targ_{sequence}.nii.gz'))
 
         # remember meshes for evaluation
-        if ds.lobes:
-            # convert predicted lobe meshes into fissures
-            # voxelize the mesh first
-            lobes_tensor = torch.zeros_like(lung_mask, dtype=torch.long)
-            coord_grid = torch.meshgrid([torch.arange(s) for s in lobes_tensor.shape])
-            distance_queries = torch.stack([g.flatten() for g in coord_grid], dim=1)
-            for lb, lobe in enumerate(meshes_predict):
-                scene = o3d.t.geometry.RaycastingScene()
-                _ = scene.add_triangles(vertex_positions=np.array(lobe.vertices, dtype=np.float32),
-                                        triangle_indices=np.array(lobe.triangles, dtype=np.uint32))
-                # signed distance computation
-                dist = scene.compute_signed_distance(distance_queries.numpy().astype(np.float32))
-                dist = torch.utils.dlpack.from_dlpack(dist.to_dlpack())
-                dist = dist.view(lobes_tensor.shape)
-
-                # negative distances mean, point is inside watertight mesh
-                lobes_tensor[dist <= 0] = lb+1
-
-            lobes_img = sitk.GetImageFromArray(lobes_tensor.numpy().astype(np.uint8))
-            lobes_img.CopyInformation(image)
-            sitk.WriteImage(lobes_img, os.path.join(label_dir, f'{case}_lobes_pred_{sequence}.nii.gz'))
-
-            # TODO: temporarily computing distances for lobes
-            all_pred_meshes.append(meshes_predict)
-            all_targ_meshes.append(meshes_target)
-
-        else:
-            # fissures predicted directly
-            all_pred_meshes.append(meshes_predict)
-            all_targ_meshes.append(meshes_target)
-
+        all_pred_meshes.append(meshes_predict)
+        all_targ_meshes.append(meshes_target)
         ids.append((case, sequence))
 
     # compute average metrics
