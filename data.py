@@ -208,9 +208,18 @@ class PointDataset(Dataset):
         train_ds = deepcopy(self)
         val_ds = deepcopy(self)
 
+        # check if nnUnet format is used or not
+        nnu = ('_img_' not in split['train'][0])
+
         for i in range(len(self) - 1, -1, -1):
             case, sequence = self.ids[i]
-            id = case + '_img_' + sequence
+            if not nnu:
+                # my own split file creation method
+                id = case + '_img_' + sequence
+            else:
+                # split file from nnunet
+                id = case + '_' + sequence.replace('fixed', 'fix').replace('moving', 'mov')
+
             if id in split['val']:
                 train_ds._pop_item(i)
             elif id in split['train']:
@@ -333,16 +342,21 @@ def save_split_file(split, filepath):
 
 
 if __name__ == '__main__':
-    ds = LungData('/home/kaftan/FissureSegmentation/data/')
-    for i in range(len(ds)):
-        meshes = ds.get_fissure_meshes(i)
-        if meshes is None:
-            continue
-        print()
-        for j, m in enumerate(meshes):
-            cluster, n_tri_per_cluster, cluster_area = m.cluster_connected_triangles()
-            print(f'{ds.get_id(i)} Fissure {j+1} connected components: {len(n_tri_per_cluster)}, areas: {cluster_area}')
-    exit()
-    # res = ds[0]
-    split = create_split(5, ds, '../data/split.np.pkl')
-    split_ld = load_split_file('../data/split.np.pkl')
+    ds = PointDataset(1024)
+    splitfile = load_split_file('/home/kaftan/FissureSegmentation/data/split.np.pkl')
+    for fold in splitfile:
+        train, test = ds.split_data_set(fold)
+
+    # ds = LungData('/home/kaftan/FissureSegmentation/data/')
+    # for i in range(len(ds)):
+    #     meshes = ds.get_fissure_meshes(i)
+    #     if meshes is None:
+    #         continue
+    #     print()
+    #     for j, m in enumerate(meshes):
+    #         cluster, n_tri_per_cluster, cluster_area = m.cluster_connected_triangles()
+    #         print(f'{ds.get_id(i)} Fissure {j+1} connected components: {len(n_tri_per_cluster)}, areas: {cluster_area}')
+    # exit()
+    # # res = ds[0]
+    # split = create_split(5, ds, '../data/split.np.pkl')
+    # split_ld = load_split_file('../data/split.np.pkl')
