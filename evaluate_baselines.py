@@ -130,7 +130,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
 
 def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
-                    mode='surface', show=True, lobes=False):
+                    mode='surface', show=True):
     assert mode in ['surface', 'voxels']
 
     ds = LungData('../data')
@@ -146,7 +146,7 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
         files = sorted(glob(os.path.join(fold_dir, 'validation_raw_postprocessed', '*.nii.gz')))
 
         mesh_dir = os.path.join(fold_dir, 'validation_mesh_reconstructions')
-        plot_dir = os.path.join(fold_dir, 'plots')
+        plot_dir = os.path.join(fold_dir, f'plots_{mode}')
         os.makedirs(mesh_dir, exist_ok=True)
         os.makedirs(plot_dir, exist_ok=True)
 
