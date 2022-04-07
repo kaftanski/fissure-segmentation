@@ -199,24 +199,24 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
         if (plot_folder is not None) or show:
             if ids is not None:
                 case, sequence = ids[i]
-                title_prefix = f'{case}_{sequence} '
+                title_prefix = f'{case}_{sequence}'
             else:
                 title_prefix = f'sample {i}'
 
             if pred_points:
                 all_points = torch.concat(pred_points, dim=0)
                 lbls = torch.concat([torch.ones(len(pts), dtype=torch.long) + p for p, pts in enumerate(pred_points)])
-                visualize_point_cloud(all_points, labels=lbls, title=title_prefix + 'points prediction', show=show,
+                visualize_point_cloud(all_points, labels=lbls, title=title_prefix + ' points prediction', show=show,
                                       savepath=None if plot_folder is None else os.path.join(plot_folder, f'{title_prefix}_point_cloud_pred.png'))
             else:
                 visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
                                   triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
-                                  title=title_prefix + 'surface prediction', show=show,
+                                  title=title_prefix + ' surface prediction', show=show,
                                   savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_pred.png'))
 
             visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_targets],
                               triangles_list=[np.asarray(m.triangles) for m in all_parts_targets],
-                              title=title_prefix + 'surface target', show=show,
+                              title=title_prefix + ' surface target', show=show,
                               savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_targ.png'))
 
     # compute average metrics
