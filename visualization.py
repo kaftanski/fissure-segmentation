@@ -38,14 +38,15 @@ def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: s
         ax.set_title(title)
 
 
-def visualize_point_cloud(points, labels, title='', exclude_background=True):
+def visualize_point_cloud(points, labels, title='', exclude_background=True, show=True, savepath=None):
     """
 
     :param points: point cloud with N points, shape: (Nx3)
     :param labels: label for each point, shape (N)
     :param title: figure title
     :param exclude_background: if true, points with label 0 will not be plotted
-    :return:
+    :param show: switch for calling pyplot show or not
+    :param savepath: if not None, the figure will be saved to this path
     """
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -55,22 +56,36 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True):
         points = points[labels != 0]
         labels = labels[labels != 0]
 
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap='tab10', marker='.')
+    colors = ['r', 'g', 'b', 'y']
+    cmap = ListedColormap(colors[:len(labels.unique())])
+
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap=cmap, marker='.')
     # ax.view_init(elev=100., azim=-60.)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     if title:
         ax.set_title(title)
-    plt.show()
+
+    if savepath is not None:
+        fig.tight_layout()
+        fig.savefig(savepath, bbox_inches='tight', dpi=300)
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
-def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = ''):
+def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
+                      show=True, savepath=None):
     """
 
     :param vertices_list: list of vertices, shape (Vx3) tensors
     :param triangles_list: list of triangles, shape (Tx3) tensors, corresponding to the vertices
     :param title: figure title
+    :param show: switch for calling pyplot show or not
+    :param savepath: if not None, the figure will be saved to this path
     """
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -84,4 +99,12 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
     ax.set_zlabel('Z')
     if title:
         ax.set_title(title)
-    plt.show()
+
+    if savepath is not None:
+        fig.tight_layout()
+        fig.savefig(savepath, bbox_inches='tight', dpi=300)
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)

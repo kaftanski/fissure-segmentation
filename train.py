@@ -129,7 +129,7 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 
         # visualization
         if show and not (epoch + 1) % every_n_epochs:
-            visualize_point_cloud(pts[0].transpose(0, 1), out.argmax(1)[0])
+            visualize_point_cloud(pts[0].transpose(0, 1), out.argmax(1)[0], show=True)
 
     # training plot
     plt.figure()
@@ -173,7 +173,7 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
                          meshes_target: List[List[o3d.geometry.TriangleMesh]],
                          ids: List[Tuple[str, str]] = None,
-                         show: bool = False, spacings=None):
+                         show: bool = False, spacings=None, plot_folder=None):
     # metrics
     # test_dice = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
     avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
@@ -196,7 +196,7 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
             hd95_surface_dist[i, j] += hd95sd
 
         # visualize results
-        if show:
+        if (plot_folder is not None) or show:
             if ids is not None:
                 case, sequence = ids[i]
                 title_prefix = f'{case}_{sequence} '
@@ -206,15 +206,18 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
             if pred_points:
                 all_points = torch.concat(pred_points, dim=0)
                 lbls = torch.concat([torch.ones(len(pts), dtype=torch.long) + p for p, pts in enumerate(pred_points)])
-                visualize_point_cloud(all_points, labels=lbls, title=title_prefix + 'points prediction')
+                visualize_point_cloud(all_points, labels=lbls, title=title_prefix + 'points prediction', show=show,
+                                      savepath=None if plot_folder is None else os.path.join(plot_folder, f'{title_prefix}_point_cloud_pred.png'))
             else:
                 visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
                                   triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
-                                  title=title_prefix + 'surface prediction')
+                                  title=title_prefix + 'surface prediction', show=show,
+                                  savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_pred.png'))
 
             visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_targets],
                               triangles_list=[np.asarray(m.triangles) for m in all_parts_targets],
-                              title=title_prefix + 'surface target')
+                              title=title_prefix + 'surface target', show=show,
+                              savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_targ.png'))
 
     # compute average metrics
     mean_assd = avg_surface_dist.mean(0)
@@ -249,8 +252,10 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
     pred_dir = os.path.join(out_dir, 'test_predictions')
     mesh_dir = os.path.join(pred_dir, 'meshes')
     label_dir = os.path.join(pred_dir, 'labelmaps')
+    plot_dir = os.path.join(pred_dir, 'plots')
     os.makedirs(mesh_dir, exist_ok=True)
     os.makedirs(label_dir, exist_ok=True)
+    os.makedirs(plot_dir, exist_ok=True)
 
     # compute all predictions
     all_pred_meshes = []
@@ -284,9 +289,10 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
         # visualize point clouds
-        if show:
-            visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction')
-            visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target')
+        visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction', show=show,
+                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_pred.png'))
+        visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target', show=show,
+                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_targ.png'))
 
         # POST-PROCESSING prediction
         mask_img = img_ds.get_lung_mask(img_index)
@@ -318,7 +324,6 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         meshes_predict = []
         for j in range(len(meshes_target)):  # excluding background
             label = j+1
-
 
             if not ds.lobes:
                 # using poisson reconstruction with octree-depth 3 because of sparse point cloud
@@ -365,7 +370,8 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
-    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(all_pred_meshes, all_targ_meshes, ids=ids, show=show)
+    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
+        all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
