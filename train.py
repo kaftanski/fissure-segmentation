@@ -406,7 +406,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
     test_dice = torch.zeros(len(split), ds.num_classes)
-    test_assd = torch.zeros(len(split), ds.num_classes-1)
+    test_assd = torch.zeros(len(split), ds.num_classes-1 if not ds.lobes else int(ds.num_classes / 2))
     test_sdsd = torch.zeros_like(test_assd)
     test_hd = torch.zeros_like(test_assd)
     test_hd95 = torch.zeros_like(test_assd)
