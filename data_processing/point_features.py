@@ -45,7 +45,7 @@ def distinctiveness(img, sigma):
     return D.view(1, 1, *D.shape)  # torch image format (NxCxDxHxW)
 
 
-def foerstner_keypoints(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5, distinctiveness_threshold: float = 1e-8, show=False):
+def foerstner_keypoints_wrong(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5, distinctiveness_threshold: float = 1e-8, show=False):
     print('start')
     start = time.time()
 
@@ -218,6 +218,18 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
         mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
         torch.save(mind_features.cpu(), os.path.join(out_dir,
                                                      f'{case}_mind{"_ssc" if ssc else ""}_{sequence}.pth'))
+
+    # # VISUALIZATION
+    # for i in range(-5, 5):
+    #     chosen_slice = img_tensor.squeeze().shape[1] // 2 + i
+    #     plt.imshow(img_tensor.squeeze()[:, chosen_slice].cpu(), 'gray')
+    #     keypoints_slice = kp_cpu[kp_cpu[:, 1] == chosen_slice]
+    #     plt.plot(keypoints_slice[:, 2], keypoints_slice[:, 0], '+')
+    #     plt.gca().invert_yaxis()
+    #     plt.axis('off')
+    #     plt.tight_layout()
+    #     plt.savefig(f'results/EMPIRE02_fixed_keypoints_{i+5}.png', bbox_inches='tight', dpi=300, pad_inches=0)
+    #     plt.show()
 
 
 if __name__ == '__main__':
