@@ -88,7 +88,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
                 verts = np.asarray(prediction.vertices)
 
                 # undo normalization and padding
-                verts = (0.5 * (verts + 1)) * (max(largest_image_shape)-1) + np.asarray([unpad_z, unpad_y, unpad_x])
+                verts = (0.5 * (verts + 1)) * (max(largest_image_shape)-1) + np.asarray([unpad_x, unpad_y, unpad_z])
                 prediction = o3d.geometry.TriangleMesh(vertices=o3d.utility.Vector3dVector(verts),
                                                        triangles=prediction.triangles)
 
