@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import time
 from copy import deepcopy
 from typing import List, Tuple
 import open3d as o3d
@@ -36,6 +37,7 @@ def batch_dice(prediction, target, n_labels):
 
 def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
     print('\nTRAINING MODEL ...\n')
+    start = time.time()
 
     val_split = int(len(ds) * 0.2)
     train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
@@ -130,6 +132,9 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
         # visualization
         if show and not (epoch + 1) % every_n_epochs:
             visualize_point_cloud(pts[0].transpose(0, 1), out.argmax(1)[0], show=True)
+
+    # stop the timer
+    print(f'\nDone. Took {(time.time() - start)/60:.4f} min')
 
     # training plot
     plt.figure()
