@@ -7,7 +7,7 @@ import open3d as o3d
 import torch
 
 from data import LungData
-from data_processing.surface_fitting import poisson_reconstruction
+from data_processing.surface_fitting import poisson_reconstruction, o3d_mesh_to_labelmap
 from train import compute_mesh_metrics, write_results
 from data_processing.find_lobes import lobes_to_fissures
 
@@ -57,6 +57,7 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
         fold_dir = os.path.join(experiment_dir, f'trial_{fold+1}')
         mesh_dir = os.path.join(fold_dir, 'best_performance', 'mesh')
         plot_dir = os.path.join(fold_dir, 'best_performance', 'plots')
+        label_dir = os.path.join(fold_dir, 'best_performance', 'voxels')
         os.makedirs(plot_dir, exist_ok=True)
 
         files_per_fissure = []
@@ -79,6 +80,9 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
             # load v2m predictions
             pred_meshes = [o3d.io.read_triangle_mesh(fn) for fn in files]
 
+            # prepare tensor for voxelization
+            pred_label_maps = []
+
             # prepare undoing of normalization and padding
             img = ds.get_image(img_index)
             shape_unit_spacing = [int(sz * sp) for sz, sp in zip(img.GetSize()[::-1], img.GetSpacing()[::-1])]
@@ -94,8 +98,20 @@ def evaluate_voxel2mesh(experiment_dir="/home/kaftan/FissureSegmentation/voxel2m
 
                 pred_meshes[i] = prediction
 
+                # VOXELIZATION: create labelmap by sampling from mesh, then use hole-filling for inside the object
+                voxelized_pred = o3d_mesh_to_labelmap([prediction], shape=img.GetSize()[::-1], spacing=img.GetSpacing())
+                voxelized_pred_img = sitk.GetImageFromArray(voxelized_pred.numpy().astype(np.uint8))
+                voxelized_pred_img = sitk.BinaryFillhole(voxelized_pred_img)
+                pred_label_maps.append(voxelized_pred_img)
+
+            # save predicted meshes
             all_pred_meshes.append(pred_meshes)
             all_targ_meshes.append(target_meshes)
+
+            # combine voxelized mesh
+            all_label_image = sum((i+1) * lm for i, lm in enumerate(pred_label_maps))
+            all_label_image.CopyInformation(img)
+            sitk.WriteImage(all_label_image, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
@@ -224,10 +240,10 @@ def evaluate_nnunet(result_dir='/home/kaftan/FissureSegmentation/nnUNet_baseline
 
 
 if __name__ == '__main__':
-    # evaluate_voxel2mesh(show=False)
-    evaluate_nnunet(mode='surface', show=False)
-    evaluate_nnunet(mode='voxels', show=False)
-
-    lobes_nnunet = '/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task502_LobesCOPDEMPIRE/nnUNetTrainerV2_200ep__nnUNetPlansv2.1'
-    evaluate_nnunet(lobes_nnunet, mode='surface', show=False)
-    evaluate_nnunet(lobes_nnunet, mode='voxels', show=False)
+    evaluate_voxel2mesh(show=False)
+    # evaluate_nnunet(mode='surface', show=False)
+    # evaluate_nnunet(mode='voxels', show=False)
+    #
+    # lobes_nnunet = '/home/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task502_LobesCOPDEMPIRE/nnUNetTrainerV2_200ep__nnUNetPlansv2.1'
+    # evaluate_nnunet(lobes_nnunet, mode='surface', show=False)
+    # evaluate_nnunet(lobes_nnunet, mode='voxels', show=False)
