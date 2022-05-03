@@ -194,13 +194,14 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
     elif kp_mode == 'noisy':
         # compute keypoints as noisy fissure labels (for testing DGCNN)
 
-        # take all fissure points
-        kp = torch.nonzero(fissures_tensor).float().to(device)
+        # take all fissure points (limit to 20.000 for computational reasons)
+        kp = torch.nonzero(fissures_tensor).float()
+        kp = kp[torch.randperm(len(kp))[:20000]].to(device)
 
         # add some noise to them
         noise = torch.randn_like(kp, dtype=torch.float) * 3
         kp += noise.to(device)
-        kp = kp.long()
+        kp = kp.long()   # TODO: subsampling to get < 20.000 points per point cloud
 
         # prevent index out of bounds
         for d in range(kp.shape[1]):
