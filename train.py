@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 from torch import nn
 from torch.utils.data import random_split, DataLoader
 
-from data import FaustDataset, PointDataset, load_split_file, save_split_file, LungData
+from data import PointDataset, load_split_file, save_split_file, LungData
 from dgcnn import DGCNNSeg
 from metrics import assd, label_mesh_assd
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
@@ -463,7 +463,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
     parser.add_argument('--lr', default=0.001, help='learning rate', type=float)
     parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
-    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'faust', 'lobes'])
+    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'lobes'])
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
     parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
@@ -489,9 +489,6 @@ if __name__ == '__main__':
         print(f'Using point data from {point_dir}')
         features = 'mind' if args.patch else None
         ds = PointDataset(args.pts, folder=point_dir, patch_feat=features, exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
-    elif args.data == 'faust':
-        print(f'Using FAUST data set')
-        ds = FaustDataset(args.pts)
     else:
         print(f'No data set named "{args.data}". Exiting.')
         exit(1)
