@@ -15,6 +15,10 @@ from data import LungData
 from utils import pairwise_dist, filter_1d, smooth
 
 
+KP_MODES = ['foerstner', 'noisy']
+POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
+
+
 def distinctiveness(img, sigma):
     # init 9-stencil filter
     filter_weights = torch.linspace(-1., 1., steps=9).to(img.device)
@@ -151,21 +155,12 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
     return mind
 
 
-def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
+def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
     device = 'cuda:1'
     torch.cuda.empty_cache()
 
-    # hyperparameters keypoints
-    kp_sigma = 0.5
-    threshold = 1e-8
-    nms_kernel = 7
-
-    # hyperparameters for MIND
-    use_mind = True
-    mind_sigma = 0.8
-    delta = 1
-    ssc = False
+    out_dir = os.path.join(out_dir, kp_mode)
 
     # resample all images to unit spacing
     img = resample_equal_spacing(img, target_spacing=1)
@@ -173,25 +168,49 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
     fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
     lobes = resample_equal_spacing(lobes, target_spacing=1, use_nearest_neighbor=True)
 
+    img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
+
     # dilate fissures so that more keypoints get assigned foreground labels
     fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
+    fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
 
-    # dilate lobes to fill gaps from the fissures
+    # dilate lobes to fill gaps from the fissures  # TODO: use lobe filling?
     lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
-    # sitk.WriteImage(lobes_dilated, f'results/{case}_{sequence}_lobesdil.nii.gz')
 
-    # compute förstner keypoints
-    start = time.time()
-    img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
-    kp = foerstner.foerstner_kpts(img_tensor,
-                                  mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(
-                                      0).unsqueeze(0).to(device),
-                                  sigma=kp_sigma, thresh=threshold, d=nms_kernel)
-    print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
+    if kp_mode == 'foerstner':
+        # hyperparameters keypoints
+        kp_sigma = 0.5
+        threshold = 1e-8
+        nms_kernel = 7
+
+        # compute förstner keypoints
+        start = time.time()
+        kp = foerstner.foerstner_kpts(img_tensor,
+                                      mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(
+                                          0).unsqueeze(0).to(device),
+                                      sigma=kp_sigma, thresh=threshold, d=nms_kernel)
+        print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
+
+    elif kp_mode == 'noisy':
+        # compute keypoints as noisy fissure labels (for testing DGCNN)
+
+        # take all fissure points
+        kp = torch.nonzero(fissures_tensor).float().to(device)
+
+        # add some noise to them
+        noise = torch.randn_like(kp, dtype=torch.float) * 3
+        kp += noise.to(device)
+        kp = kp.long()
+
+        # prevent index out of bounds
+        for d in range(kp.shape[1]):
+            kp[:, d] = torch.clamp(kp[:, d], min=0, max=img_tensor.squeeze().shape[d] - 1)
+
+    else:
+        raise ValueError(f'No keypoint-mode named "{kp_mode}".')
 
     # get label for each point
     kp_cpu = kp.cpu()
-    fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
     labels = fissures_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
     torch.save(labels.cpu(), os.path.join(out_dir, f'{case}_fissures_{sequence}.pth'))
     print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
@@ -209,6 +228,11 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
 
     # image patch features
     if use_mind:
+        # hyperparameters
+        mind_sigma = 0.8
+        delta = 1
+        ssc = False
+
         torch.cuda.empty_cache()
         print('\tComputing MIND features')
         # compute mind features for image
@@ -234,7 +258,6 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence):
 
 if __name__ == '__main__':
     data_dir = '/home/kaftan/FissureSegmentation/data'
-    point_dir = '/home/kaftan/FissureSegmentation/point_data'
     ds = LungData(data_dir)
 
     for i in range(len(ds)):
@@ -251,4 +274,4 @@ if __name__ == '__main__':
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
-        compute_point_features(img, fissures, lobes, mask, point_dir, case, sequence)
+        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='noisy')

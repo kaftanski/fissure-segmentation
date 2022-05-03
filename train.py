@@ -19,6 +19,7 @@ from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh
 from data_processing.find_lobes import lobes_to_fissures
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
+from data_processing.point_features import KP_MODES
 
 
 def batch_dice(prediction, target, n_labels):
@@ -464,6 +465,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, help='learning rate', type=float)
     parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
     parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'lobes'])
+    parser.add_argument('--kp_mode', default='foerstner', help='keypoint extraction mode', type=str, choices=KP_MODES)
     parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
     parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
@@ -488,7 +490,8 @@ if __name__ == '__main__':
         point_dir = '../point_data/'
         print(f'Using point data from {point_dir}')
         features = 'mind' if args.patch else None
-        ds = PointDataset(args.pts, folder=point_dir, patch_feat=features, exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
+        ds = PointDataset(args.pts, kp_mode=args.kp_mode, folder=point_dir, patch_feat=features,
+                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
     else:
         print(f'No data set named "{args.data}". Exiting.')
         exit(1)

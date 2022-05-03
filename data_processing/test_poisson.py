@@ -6,7 +6,7 @@ from data import PointDataset, LungData
 from data_processing.surface_fitting import o3d_mesh_to_labelmap, pointcloud_surface_fitting
 from utils import kpts_to_world
 
-ds = PointDataset(1024, exclude_rhf=True)
+ds = PointDataset(1024, 'foerstner', exclude_rhf=True)
 i = 0
 points, _, labels = ds.get_full_pointcloud(i)
 

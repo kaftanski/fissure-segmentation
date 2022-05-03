@@ -153,11 +153,12 @@ class LungData(Dataset):
 
 
 class PointDataset(Dataset):
-    def __init__(self, sample_points, folder='/home/kaftan/FissureSegmentation/point_data/', patch_feat=None, exclude_rhf=False, lobes=False):
+    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/',
+                 patch_feat=None, exclude_rhf=False, lobes=False):
         assert patch_feat in [None, 'mind', 'mind_ssc']
 
-        files = sorted(glob(os.path.join(folder, '*_coords_*')))
-        self.folder = folder
+        files = sorted(glob(os.path.join(folder, kp_mode, '*_coords_*')))
+        self.folder = os.path.join(folder, kp_mode)
         self.exclude_rhf = exclude_rhf
         self.lobes = lobes
         self.sample_points = sample_points
@@ -168,7 +169,7 @@ class PointDataset(Dataset):
         for file in files:
             case, _, sequence = file.split('/')[-1].split('_')
             sequence = sequence.split('.')[0]
-            pts, lbls, lobe_lbl, feat = load_points(folder, case, sequence, patch_feat)
+            pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, patch_feat)
             if lobes:
                 lbls = lobe_lbl
             else:
@@ -342,7 +343,7 @@ def save_split_file(split, filepath):
 
 
 if __name__ == '__main__':
-    ds = PointDataset(1024)
+    ds = PointDataset(1024, 'foerstner')
     splitfile = load_split_file('/home/kaftan/FissureSegmentation/data/split.np.pkl')
     for fold in splitfile:
         train, test = ds.split_data_set(fold)
