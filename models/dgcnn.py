@@ -3,6 +3,8 @@ import time
 import torch
 from torch import nn
 from torch.nn import init
+
+from models.utils import init_weights
 from utils import pairwise_dist
 
 
@@ -213,13 +215,6 @@ class SpatialTransformer(nn.Module):
         self.apply(init_weights)
         init.constant_(self.transform.weight, 0)
         init.eye_(self.transform.bias.view(self.in_features, self.in_features))
-
-
-def init_weights(m):
-    if isinstance(m, (nn.modules.conv._ConvNd, nn.Linear)):
-        nn.init.xavier_normal_(m.weight)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0.0)
 
 
 if __name__ == '__main__':
