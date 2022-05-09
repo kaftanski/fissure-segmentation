@@ -75,14 +75,8 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
     for epoch in range(epochs):
         # TRAINING
         net.train()
-        for pts, feat, lbls in train_dl:
-            inputs = []
-            if use_coords:
-                inputs.append(pts)
-            elif use_features:
-                inputs.append(feat)
-
-            inputs = torch.cat(inputs, dim=1).to(device)
+        for inputs, lbls in train_dl:
+            inputs = inputs.to(device)
             lbls = lbls.to(device)
 
             # forward & backward pass
@@ -98,14 +92,8 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 
         # VALIDATION
         net.eval()
-        for pts, feat, lbls in valid_dl:
-            inputs = []
-            if use_coords:
-                inputs.append(pts)
-            elif use_features:
-                inputs.append(feat)
-
-            inputs = torch.cat(inputs, dim=1).to(device)
+        for inputs, lbls in valid_dl:
+            inputs = inputs.to(device)
             lbls = lbls.to(device)
 
             # forward pass
@@ -132,7 +120,7 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
 
         # visualization
         if show and not (epoch + 1) % every_n_epochs:
-            visualize_point_cloud(pts[0].transpose(0, 1), out.argmax(1)[0], show=True)
+            visualize_point_cloud(inputs[0, :3].transpose(0, 1), out.argmax(1)[0], show=True)
 
     # stop the timer
     print(f'\nDone. Took {(time.time() - start)/60:.4f} min')
@@ -241,7 +229,7 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
 
 
-def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, out_dir, show):
+def test(ds, graph_k, transformer, dynamic, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
     img_ds = LungData('../data/')
@@ -269,14 +257,8 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
     ids = []
     test_dice = torch.zeros(len(ds), ds.num_classes)
     for i in range(len(ds)):
-        pts, feat, lbls = ds.get_full_pointcloud(i)
-        inputs = []
-        if use_coords:
-            inputs.append(pts)
-        elif use_features:
-            inputs.append(feat)
-
-        inputs = torch.cat(inputs, dim=0).unsqueeze(0).to(device)
+        inputs, lbls = ds.get_full_pointcloud(i)
+        inputs = inputs.unsqueeze(0).to(device)
         lbls = lbls.unsqueeze(0).to(device)
 
         with torch.no_grad():
@@ -287,6 +269,7 @@ def test(ds, graph_k, transformer, dynamic, use_coords, use_features, device, ou
         test_dice[i] += batch_dice(labels_pred, lbls, ds.num_classes)
 
         # convert points back to world coordinates
+        pts = ds.get_coords(i)
         case, sequence = ds.ids[i]
         img_index = img_ds.get_index(case, sequence)
         image = img_ds.get_image(img_index)
@@ -426,7 +409,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
             train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, dynamic,
-                                                                                  use_coords, use_features, device, fold_dir, show)
+                                                                                  device, fold_dir, show)
 
         test_dice[fold] += mean_dice
         test_assd[fold] += mean_assd
@@ -490,11 +473,10 @@ if __name__ == '__main__':
         point_dir = '../point_data/'
         print(f'Using point data from {point_dir}')
         features = 'mind' if args.patch else None
-        ds = PointDataset(args.pts, kp_mode=args.kp_mode, folder=point_dir, patch_feat=features,
+        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=features,
                           exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
     else:
-        print(f'No data set named "{args.data}". Exiting.')
-        exit(1)
+        raise ValueError(f'No data set named "{args.data}". Exiting.')
 
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
@@ -510,7 +492,7 @@ if __name__ == '__main__':
     if not args.test_only:
         if args.split is None:
             train(ds, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-            test(ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.output, args.show)
+            test(ds, args.k, args.transformer, not args.static, device, args.output, args.show)
         else:
             cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
 
@@ -524,4 +506,4 @@ if __name__ == '__main__':
             test_folds = [args.fold]
             folder = os.path.join(args.output, f'fold{args.fold}')
             _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            test(test_ds, args.k, args.transformer, not args.static, args.coords, args.patch, device, folder, args.show)
+            test(test_ds, args.k, args.transformer, not args.static, device, folder, args.show)

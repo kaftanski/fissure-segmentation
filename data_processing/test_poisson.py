@@ -8,7 +8,7 @@ from utils import kpts_to_world
 
 ds = PointDataset(1024, 'foerstner', exclude_rhf=True)
 i = 0
-points, _, labels = ds.get_full_pointcloud(i)
+points, labels = ds.get_full_pointcloud(i)
 
 img_ds = LungData('../data/')
 

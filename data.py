@@ -154,11 +154,14 @@ class LungData(Dataset):
 
 class PointDataset(Dataset):
     def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/',
-                 patch_feat=None, exclude_rhf=False, lobes=False):
+                 use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False):
         assert patch_feat in [None, 'mind', 'mind_ssc']
+        if not use_coords:
+            assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 
         files = sorted(glob(os.path.join(folder, kp_mode, '*_coords_*')))
         self.folder = os.path.join(folder, kp_mode)
+        self.use_coords = use_coords
         self.exclude_rhf = exclude_rhf
         self.lobes = lobes
         self.sample_points = sample_points
@@ -187,11 +190,16 @@ class PointDataset(Dataset):
 
     def __getitem__(self, item):
         # randomly sample points
-        pts = self.points[item]
-        lbls = self.labels[item]
         feat = self.features[item]
-        sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        return pts[:, sample], feat[:, sample], lbls[sample]
+        if self.use_coords:
+            pts = self.points[item]
+            x = torch.cat([pts, feat], dim=0)
+        else:
+            x = feat
+
+        lbls = self.labels[item]
+        sample = torch.randperm(x.shape[1])[:self.sample_points]
+        return x[:, sample], lbls[sample]
 
     def __len__(self):
         return len(self.points)
@@ -233,7 +241,14 @@ class PointDataset(Dataset):
         return train_ds, val_ds
 
     def get_full_pointcloud(self, i):
-        return self.points[i], self.features[i], self.labels[i]
+        if self.use_coords:
+            x = torch.cat([self.points[i], self.features[i]], dim=0)
+        else:
+            x = self.features[i]
+        return x, self.labels[i]
+
+    def get_coords(self, i):
+        return self.points[i]
 
     def _pop_item(self, i):
         self.points.pop(i)
