@@ -13,7 +13,7 @@ from torch import nn
 from torch.utils.data import random_split, DataLoader
 
 from data import PointDataset, load_split_file, save_split_file, LungData
-from dgcnn import DGCNNSeg
+from models.dgcnn import DGCNNSeg
 from metrics import assd, label_mesh_assd
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from data_processing.find_lobes import lobes_to_fissures
