@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from torch import nn
 from torch.utils.data import random_split, DataLoader
 
+import model_trainer
 from data import PointDataset, load_split_file, save_split_file, LungData
 from models.dgcnn import DGCNNSeg
 from metrics import assd, label_mesh_assd
@@ -37,111 +38,22 @@ def batch_dice(prediction, target, n_labels):
 
 
 def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
-    print('\nTRAINING MODEL ...\n')
-    start = time.time()
-
-    val_split = int(len(ds) * 0.2)
-    train_ds, valid_ds = random_split(ds, lengths=[len(ds) - val_split, val_split])
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
-    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=False)
-
-    in_features = train_ds[0][0].shape[0]
+    in_features = ds[0][0].shape[0]
 
     # network
     net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
                    spatial_transformer=transformer, dynamic=dynamic)
-    net.to(device)
 
-    # optimizer and loss
-    optimizer = torch.optim.Adam(net.parameters(), lr=learn_rate)  # TODO: weight decay?
+    # loss function
     class_frequency = ds.get_label_frequency()
     class_weights = 1 - class_frequency
     class_weights *= ds.num_classes
     print(f'Class weights: {class_weights.tolist()}')
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
-    # learnrate scheduling  # TODO: try cosine annealing
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=50,
-                                                           threshold=1e-4, cooldown=50, verbose=True)
-
-    # statistic logging
-    train_loss = torch.zeros(epochs)
-    valid_loss = torch.zeros_like(train_loss)
-    train_dice = torch.zeros(epochs, ds.num_classes)
-    valid_dice = torch.zeros_like(train_dice)
-    best_model = None
-    best_epoch = 0
-    every_n_epochs = epochs
-    for epoch in range(epochs):
-        # TRAINING
-        net.train()
-        for inputs, lbls in train_dl:
-            inputs = inputs.to(device)
-            lbls = lbls.to(device)
-
-            # forward & backward pass
-            optimizer.zero_grad()
-            out = net(inputs)
-            loss = criterion(out, lbls)
-            loss.backward()
-            optimizer.step()
-
-            # statistics
-            train_loss[epoch] += loss.item() * len(inputs) / len(train_ds)
-            train_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) * len(inputs) / len(train_ds)
-
-        # VALIDATION
-        net.eval()
-        for inputs, lbls in valid_dl:
-            inputs = inputs.to(device)
-            lbls = lbls.to(device)
-
-            # forward pass
-            with torch.no_grad():
-                out = net(inputs)
-
-            loss = criterion(out, lbls)
-
-            # statistics
-            valid_loss[epoch] += loss.item() / len(valid_dl)
-            valid_dice[epoch] += batch_dice(out.argmax(1), lbls, ds.num_classes) / len(valid_dl)
-
-        # update learnrate
-        scheduler.step(valid_loss[epoch])
-
-        # status output
-        print(f'[{epoch:4}] TRAIN: {train_loss[epoch]:.4f} loss, dice {train_dice[epoch]}, mean {train_dice[epoch, :].mean()}\n'
-              f'      VALID: loss {valid_loss[epoch]:.4f}, dice {valid_dice[epoch]}, mean {valid_dice[epoch, :].mean()}')
-
-        # save best snapshot
-        if valid_dice[epoch, :].mean() >= valid_dice[best_epoch, :].mean():
-            best_model = deepcopy(net.state_dict())
-            best_epoch = epoch
-
-        # visualization
-        if show and not (epoch + 1) % every_n_epochs:
-            visualize_point_cloud(inputs[0, :3].transpose(0, 1), out.argmax(1)[0], show=True)
-
-    # stop the timer
-    print(f'\nDone. Took {(time.time() - start)/60:.4f} min')
-
-    # training plot
-    plt.figure()
-    plt.title(f'Training Progression. Best model from epoch {best_epoch} ({valid_dice[:, :].mean(1)[best_epoch]:.4f} val. dice).')
-    plt.plot(train_loss, c='b', label='train loss')
-    plt.plot(valid_loss, c='r', label='validation loss')
-    plt.plot(valid_dice[:, :].mean(1), c='g', label='mean validation dice')
-    plt.legend()
-    plt.savefig(os.path.join(out_dir, f"training_progression.png"))
-    if show:
-        plt.show()
-    else:
-        plt.close()
-
-    # save best model
-    model_path = os.path.join(out_dir, 'model.pth')
-    print(f'Saving best model from epoch {best_epoch} to path "{model_path}"')
-    torch.save(best_model, model_path)
+    # run training
+    trainer = model_trainer.ModelTrainer(net, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
+    trainer.run(initial_epoch=0)
 
     # save setup
     setup_dict = {
@@ -236,10 +148,12 @@ def test(ds, graph_k, transformer, dynamic, device, out_dir, show):
     in_features = ds[0][0].shape[0]
 
     # load model
-    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-                   spatial_transformer=transformer, dynamic=dynamic)
+    # net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
+    #                spatial_transformer=transformer, dynamic=dynamic)
+    # net.to(device)
+    # net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth'), map_location=device))
+    net = DGCNNSeg.load(os.path.join(out_dir, 'model.pth'), device=device)
     net.to(device)
-    net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth'), map_location=device))
     net.eval()
 
     # directory for output predictions

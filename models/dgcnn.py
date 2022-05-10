@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.nn import init
 
+from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
 from utils import pairwise_dist
 
@@ -61,7 +62,8 @@ def knn(x, k, self_loop=False):
     return idx
 
 
-class DGCNNSeg(nn.Module):
+class DGCNNSeg(LoadableModel):
+    @store_config_args
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
         super(DGCNNSeg, self).__init__()
         self.k = k
