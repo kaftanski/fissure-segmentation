@@ -60,10 +60,10 @@ class ModelTrainer:
         for ep, epoch in enumerate(epochs):
             self.model.train()
             for x_batch, y_batch in self.train_dl:
-                loss, components = self.forward_step(x_batch, y_batch)
+                loss, components = self.forward_step(x_batch, y_batch, train=True)
 
                 if self.training_history == {}:
-                    self.init_history(epochs, loss_term_labels=['total_loss']+components.keys())
+                    self.init_history(epochs, loss_term_labels=['total_loss']+list(components.keys()))
 
                 self.training_history['total_loss'][ep] += loss * len(x_batch) / len(self.train_dl.dataset)
                 for term in components.keys():
@@ -71,7 +71,8 @@ class ModelTrainer:
 
             self.model.eval()
             for x_batch, y_batch in self.valid_dl:
-                loss, components = self.validation_step(x_batch, y_batch)
+                with torch.no_grad():
+                    loss, components = self.forward_step(x_batch, y_batch, train=False)
 
                 self.validation_history['total_loss'][ep] += loss * len(x_batch) / len(self.valid_dl.dataset)
                 for term in components.keys():
@@ -93,21 +94,20 @@ class ModelTrainer:
             self.training_history[term] = torch.zeros(len(epochs))
             self.validation_history[term] = torch.zeros(len(epochs))
 
-    def forward_step(self, x, y):
-        self.optimizer.zero_grad()
-
-        output = self.model(x)
-        loss, components = self.loss_function(output, y)
-        loss.backward()
-        self.optimizer.step()
-
-        return loss.item(), components
-
-    @torch.no_grad()
-    def validation_step(self, x, y):
-        output = self.model(x)
-        loss, components = self.loss_function(output, y)
+    def forward_step(self, x, y, train):
         # TODO: support additional validation metrics
+
+        output = self.model(x.to(self.device))
+        loss = self.loss_function(output, y.to(self.device))
+        if isinstance(loss, tuple):
+            loss, components = loss
+        else:
+            components = {}
+
+        if train:
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
         return loss.item(), components
 
     def after_epoch(self, epoch):
@@ -115,11 +115,11 @@ class ModelTrainer:
         self.scheduler.step(self.validation_history['total_loss'][ep])
 
         # status output
-        print(f'EPOCH {epoch}:')
+        print(f'\nEPOCH {epoch}:')
         print('Training Metrics:')
-        print(' - '.join(f'\t{key}: {self.training_history[key][ep]:.4f}') for key in self.training_history.keys())
+        print(' - '.join(f'\t{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
         print('Validation Metrics:')
-        print(' - '.join(f'\t{key}: {self.validation_history[key][ep]:.4f}') for key in self.validation_history.keys())
+        print(' - '.join(f'\t{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
 
         # save best snapshot  # TODO: allow to specify criterion for best model
         if self.validation_history['total_loss'][ep] <= self.validation_history['total_loss'][self.best_epoch]:
@@ -129,6 +129,8 @@ class ModelTrainer:
         # save checkpoint
         if (epoch + 1) % self.checkpoint_every == 0:
             self.model.save(os.path.join(self.out_dir, 'checkpoints', f'{epoch}.pth'))
+
+        # TODO: add visualization possibility
 
     def finalize(self):
         # stop the timer
