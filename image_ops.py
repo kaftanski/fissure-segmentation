@@ -10,7 +10,7 @@ def resample_equal_spacing(img: sitk.Image, target_spacing: float = 1., use_near
     :return: resampled image
     """
     output_size = [round(size * (spacing/target_spacing)) for size, spacing in zip(img.GetSize(), img.GetSpacing())]
-    return sitk.Resample(img, size=list(output_size), outputSpacing=(1, 1, 1),
+    return sitk.Resample(img, size=list(output_size), outputSpacing=(target_spacing,)*3,
                          interpolator=sitk.sitkNearestNeighbor if use_nearest_neighbor else sitk.sitkLinear)
 
 
