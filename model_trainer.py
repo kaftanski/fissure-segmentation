@@ -65,18 +65,20 @@ class ModelTrainer:
                 if self.training_history == {}:
                     self.init_history(epochs, loss_term_labels=['total_loss']+list(components.keys()))
 
-                self.training_history['total_loss'][ep] += loss * len(x_batch) / len(self.train_dl.dataset)
+                batch_factor = len(x_batch) / (len(self.train_dl.dataset) if not self.train_dl.drop_last else len(self.train_dl) * self.batch_size)
+                self.training_history['total_loss'][ep] += loss * batch_factor
                 for term in components.keys():
-                    self.training_history[term][ep] += components[term] * len(x_batch) / len(self.train_dl.dataset)
+                    self.training_history[term][ep] += components[term] * batch_factor
 
             self.model.eval()
             for x_batch, y_batch in self.valid_dl:
                 with torch.no_grad():
                     loss, components = self.forward_step(x_batch, y_batch, train=False)
 
-                self.validation_history['total_loss'][ep] += loss * len(x_batch) / len(self.valid_dl.dataset)
+                batch_factor = len(x_batch) / (len(self.valid_dl.dataset) if not self.valid_dl.drop_last else len(self.valid_dl) * self.batch_size)
+                self.validation_history['total_loss'][ep] += loss * batch_factor
                 for term in components.keys():
-                    self.validation_history[term][ep] += components[term] * len(x_batch) / len(self.valid_dl.dataset)
+                    self.validation_history[term][ep] += components[term] * batch_factor
 
             self.after_epoch(epoch.item())
 
