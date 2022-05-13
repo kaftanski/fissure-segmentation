@@ -60,25 +60,12 @@ class ModelTrainer:
         for ep, epoch in enumerate(epochs):
             self.model.train()
             for x_batch, y_batch in self.train_dl:
-                loss, components = self.forward_step(x_batch, y_batch, train=True)
-
-                if self.training_history == {}:
-                    self.init_history(epochs, loss_term_labels=['total_loss']+list(components.keys()))
-
-                batch_factor = len(x_batch) / (len(self.train_dl.dataset) if not self.train_dl.drop_last else len(self.train_dl) * self.batch_size)
-                self.training_history['total_loss'][ep] += loss * batch_factor
-                for term in components.keys():
-                    self.training_history[term][ep] += components[term] * batch_factor
+                self.forward_step(x_batch, y_batch, ep, train=True)
 
             self.model.eval()
             for x_batch, y_batch in self.valid_dl:
                 with torch.no_grad():
-                    loss, components = self.forward_step(x_batch, y_batch, train=False)
-
-                batch_factor = len(x_batch) / (len(self.valid_dl.dataset) if not self.valid_dl.drop_last else len(self.valid_dl) * self.batch_size)
-                self.validation_history['total_loss'][ep] += loss * batch_factor
-                for term in components.keys():
-                    self.validation_history[term][ep] += components[term] * batch_factor
+                    self.forward_step(x_batch, y_batch, ep, train=False)
 
             self.after_epoch(epoch.item())
 
@@ -91,15 +78,18 @@ class ModelTrainer:
         self.training_start = time()
         self.model.to(self.device)
 
-    def init_history(self, epochs, loss_term_labels):
+    def init_history(self, loss_term_labels):
         for term in loss_term_labels:
-            self.training_history[term] = torch.zeros(len(epochs))
-            self.validation_history[term] = torch.zeros(len(epochs))
+            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch)
+            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch)
 
-    def forward_step(self, x, y, train):
+    def forward_step(self, x, y, ep, train):
         # TODO: support additional validation metrics
 
+        # forward pass
         output = self.model(x.to(self.device))
+
+        # loss computation
         loss = self.loss_function(output, y.to(self.device))
         if isinstance(loss, tuple):
             loss, components = loss
@@ -107,10 +97,26 @@ class ModelTrainer:
             components = {}
 
         if train:
+            # optimization
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
-        return loss.item(), components
+
+            dl = self.train_dl
+            history = self.training_history
+        else:
+            dl = self.valid_dl
+            history = self.validation_history
+
+        # init history dicts if they are empty
+        if history == {}:
+            self.init_history(loss_term_labels=['total_loss'] + list(components.keys()))
+
+        # save mean batch statistics (weighting based on number of samples, works with or without drop_last in dl)
+        batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
+        history['total_loss'][ep] += loss * batch_factor
+        for term in components.keys():
+            history[term][ep] += components[term] * batch_factor
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
