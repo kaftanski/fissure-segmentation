@@ -137,17 +137,11 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
 
 
-def test(ds, graph_k, transformer, dynamic, device, out_dir, show):
+def test(ds, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
     img_ds = LungData('../data/')
-    in_features = ds[0][0].shape[0]
 
-    # load model
-    # net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-    #                spatial_transformer=transformer, dynamic=dynamic)
-    # net.to(device)
-    # net.load_state_dict(torch.load(os.path.join(out_dir, 'model.pth'), map_location=device))
     net = DGCNNSeg.load(os.path.join(out_dir, 'model.pth'), device=device)
     net.to(device)
     net.eval()
@@ -300,7 +294,8 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir, test_only=False):
+def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate,
+              epochs, show, out_dir, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -318,8 +313,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
             os.makedirs(fold_dir, exist_ok=True)
             train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, graph_k, transformer, dynamic,
-                                                                                  device, fold_dir, show)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, device, fold_dir, show)
 
         test_dice[fold] += mean_dice
         test_assd[fold] += mean_assd
@@ -384,7 +378,7 @@ if __name__ == '__main__':
     if not args.test_only:
         if args.split is None:
             train(ds, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-            test(ds, args.k, args.transformer, not args.static, device, args.output, args.show)
+            test(ds, device, args.output, args.show)
         else:
             cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
 
@@ -398,4 +392,4 @@ if __name__ == '__main__':
             test_folds = [args.fold]
             folder = os.path.join(args.output, f'fold{args.fold}')
             _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            test(test_ds, args.k, args.transformer, not args.static, device, folder, args.show)
+            test(test_ds, device, folder, args.show)
