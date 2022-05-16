@@ -9,11 +9,20 @@ import open3d as o3d
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
+
+from matplotlib import pyplot as plt
+
+from augmentations import image_augmentation
+from image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
 from utils import load_points
 import SimpleITK as sitk
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+
+IMG_MIN = -1000
+IMG_MAX = 1500
 
 
 def _load_files_from_file_list(item, the_list):
@@ -150,6 +159,57 @@ class LungData(Dataset):
 
     def __len__(self):
         return len(self.images)
+
+
+class ImageDataset(LungData):
+    def __init__(self, folder, resample_spacing=1.5, patch_scaling=0.5):
+        super(ImageDataset, self).__init__(folder)
+
+        self.resample_spacing = resample_spacing
+        self.patch_scaling = patch_scaling
+
+        # remove images without fissure label
+        def remove_indices(ls: list, indices):
+            for i in sorted(indices)[::-1]:
+                ls.pop(i)
+
+        to_remove = [i for i in range(len(self.fissures)) if self.fissures[i] is None]
+        for name in dir(self):
+            attr = getattr(self, name)
+            if isinstance(attr, list):
+                remove_indices(attr, to_remove)
+
+    def __getitem__(self, item):
+        img = self.get_image(item)
+        label = self.get_regularized_fissures(item)
+
+        # dilate fissures (so they don't vanish when downsampling)
+        factors = get_resample_factors(label.GetSpacing(), target_spacing=self.resample_spacing)
+        radius = [max(0, round(1/f - 1)) for f in factors]
+        print(radius)
+        label = multiple_objects_morphology(label, radius=radius, mode='dilate')
+
+        # resampling to unit spacing
+        img = resample_equal_spacing(img, target_spacing=self.resample_spacing)
+        label = resample_equal_spacing(label, target_spacing=self.resample_spacing, use_nearest_neighbor=True)
+
+        # to tensor
+        img_array = sitk_image_to_tensor(img).float().unsqueeze(0).unsqueeze(0).numpy()
+        label_array = sitk_image_to_tensor(label).long().unsqueeze(0).unsqueeze(0).numpy()
+
+        img_aug, label_aug = image_augmentation(img_array, label_array, patch_scale=self.patch_scaling)
+        return img_aug, label_aug
+
+
+def preprocessing_generator(dataloader, preproc_fn, **preproc_kwargs):
+    for x_batch, y_batch in dataloader:
+        yield preproc_fn(x_batch, y_batch, **preproc_kwargs)
+
+
+def preprocess(img, label, device):
+    img = (img.float().to(device) + IMG_MIN) / (IMG_MAX - IMG_MIN) * 2 - 1  # get inputs into range [-1, 1]
+    label = label.long().to(device)
+    return img, label
 
 
 class PointDataset(Dataset):
@@ -355,24 +415,3 @@ def load_split_file(filepath):
 def save_split_file(split, filepath):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
-
-
-if __name__ == '__main__':
-    ds = PointDataset(1024, 'foerstner')
-    splitfile = load_split_file('/home/kaftan/FissureSegmentation/data/split.np.pkl')
-    for fold in splitfile:
-        train, test = ds.split_data_set(fold)
-
-    # ds = LungData('/home/kaftan/FissureSegmentation/data/')
-    # for i in range(len(ds)):
-    #     meshes = ds.get_fissure_meshes(i)
-    #     if meshes is None:
-    #         continue
-    #     print()
-    #     for j, m in enumerate(meshes):
-    #         cluster, n_tri_per_cluster, cluster_area = m.cluster_connected_triangles()
-    #         print(f'{ds.get_id(i)} Fissure {j+1} connected components: {len(n_tri_per_cluster)}, areas: {cluster_area}')
-    # exit()
-    # # res = ds[0]
-    # split = create_split(5, ds, '../data/split.np.pkl')
-    # split_ld = load_split_file('../data/split.np.pkl')

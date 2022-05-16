@@ -5,8 +5,10 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
 from numpy.typing import ArrayLike
 
+plt.rcParams['image.cmap'] = 'gray'
 
-def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: str = None, onehot_encoding: bool = False, ax=None):
+
+def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None):
     if ax is None:
         fig = plt.figure()
         ax = fig.gca()
@@ -32,7 +34,7 @@ def visualize_with_overlay(image: np.ndarray, segmentation: np.ndarray, title: s
 
     for i in range(segmentation.shape[-1]):
         ax.imshow(np.ma.masked_where(segmentation[:, :, i] == 0, np.full([*segmentation.shape[:2]], fill_value=255)),
-                   cmap=ListedColormap([colors[i % len(colors)]]), alpha=0.5, interpolation=None)
+                  cmap=ListedColormap([colors[i % len(colors)]]), alpha=alpha, interpolation=None)
 
     if title:
         ax.set_title(title)
