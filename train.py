@@ -1,26 +1,22 @@
-import argparse
 import csv
 import os
-import time
-from copy import deepcopy
 from typing import List, Tuple
-import open3d as o3d
+
 import SimpleITK as sitk
 import numpy as np
+import open3d as o3d
 import torch
-from matplotlib import pyplot as plt
 from torch import nn
-from torch.utils.data import random_split, DataLoader
 
 import model_trainer
+from cli.cl_args import get_dgcnn_train_parser
 from data import PointDataset, load_split_file, save_split_file, LungData
-from models.dgcnn import DGCNNSeg
-from metrics import assd, label_mesh_assd
-from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from data_processing.find_lobes import lobes_to_fissures
+from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
+from metrics import assd, label_mesh_assd
+from models.dgcnn import DGCNNSeg
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
-from data_processing.point_features import KP_MODES
 
 
 def batch_dice(prediction, target, n_labels):
@@ -357,25 +353,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train DGCNN for lung fissure segmentation.')
-    parser.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
-    parser.add_argument('--lr', default=0.001, help='learning rate', type=float)
-    parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
-    parser.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'lobes'])
-    parser.add_argument('--kp_mode', default='foerstner', help='keypoint extraction mode', type=str, choices=KP_MODES)
-    parser.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
-    parser.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
-    parser.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
-    parser.add_argument('--patch', const=True, default=False, help='use image patch around points as features', nargs='?')
-    parser.add_argument('--batch', default=32, help='batch size', type=int)
-    parser.add_argument('--output', default='./results', help='output data path', type=str)
-    parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)', nargs='?')
-    parser.add_argument('--exclude_rhf', const=True, default=False, help='exclude the right horizontal fissure from the model', nargs='?')
-    parser.add_argument('--split', default=None, type=str, help='cross validation split file')
-    parser.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN', nargs='?')
-    parser.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN', nargs='?')
-    parser.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
-    parser.add_argument('--fold', default=None, help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)', type=int)
+    parser = get_dgcnn_train_parser()
     args = parser.parse_args()
     print(args)
 
