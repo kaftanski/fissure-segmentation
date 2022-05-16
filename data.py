@@ -4,6 +4,7 @@ import glob
 import os.path
 import pickle
 import warnings
+from abc import ABC
 
 import open3d as o3d
 from copy import deepcopy
@@ -161,7 +162,45 @@ class LungData(Dataset):
         return len(self.images)
 
 
-class ImageDataset(LungData):
+class SplittableDataset(Dataset, ABC):
+    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+        train_ds = deepcopy(self)
+        val_ds = deepcopy(self)
+
+        # check if nnUnet format is used or not
+        nnu = ('_img_' not in split['train'][0])
+
+        for i in range(len(self) - 1, -1, -1):
+            case, sequence = self.ids[i]
+            if not nnu:
+                # my own split file creation method
+                id = case + '_img_' + sequence
+            else:
+                # split file from nnunet
+                id = case + '_' + sequence.replace('fixed', 'fix').replace('moving', 'mov')
+
+            if id in split['val']:
+                train_ds._pop_item(i)
+            elif id in split['train']:
+                val_ds._pop_item(i)
+            else:
+                warnings.warn(f'Train/Validation split incomplete: instance {id} is contained in neither.')
+                val_ds._pop_item(i)
+                train_ds._pop_item(i)
+
+        return train_ds, val_ds
+
+    def _pop_item(self, i):
+        # pop index from all lists in this dataset
+        for name in dir(self):
+            if '__' in name:
+                continue
+            attr = getattr(self, name)
+            if isinstance(attr, list):
+                attr.pop(i)
+
+
+class ImageDataset(LungData, SplittableDataset):
     def __init__(self, folder, resample_spacing=1.5, patch_scaling=0.5):
         super(ImageDataset, self).__init__(folder)
 
@@ -186,7 +225,7 @@ class ImageDataset(LungData):
         # dilate fissures (so they don't vanish when downsampling)
         factors = get_resample_factors(label.GetSpacing(), target_spacing=self.resample_spacing)
         radius = [max(0, round(1/f - 1)) for f in factors]
-        print(radius)
+        print(radius)  # TODO: find a better way to preserve labels! (maybe through gt meshes)
         label = multiple_objects_morphology(label, radius=radius, mode='dilate')
 
         # resampling to unit spacing
@@ -198,7 +237,7 @@ class ImageDataset(LungData):
         label_array = sitk_image_to_tensor(label).long().unsqueeze(0).unsqueeze(0).numpy()
 
         img_aug, label_aug = image_augmentation(img_array, label_array, patch_scale=self.patch_scaling)
-        return img_aug, label_aug
+        return img_aug, label_aug  # TODO: return pat ids
 
 
 def preprocessing_generator(dataloader, preproc_fn, **preproc_kwargs):
@@ -212,9 +251,9 @@ def preprocess(img, label, device):
     return img, label
 
 
-class PointDataset(Dataset):
-    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/',
-                 use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False):
+class PointDataset(SplittableDataset):
+    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
+                 patch_feat=None, exclude_rhf=False, lobes=False):
         assert patch_feat in [None, 'mind', 'mind_ssc']
         if not use_coords:
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
@@ -273,33 +312,6 @@ class PointDataset(Dataset):
         print(f'Label frequency in point data set: {frequency.tolist()}')
         return frequency
 
-    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
-        train_ds = deepcopy(self)
-        val_ds = deepcopy(self)
-
-        # check if nnUnet format is used or not
-        nnu = ('_img_' not in split['train'][0])
-
-        for i in range(len(self) - 1, -1, -1):
-            case, sequence = self.ids[i]
-            if not nnu:
-                # my own split file creation method
-                id = case + '_img_' + sequence
-            else:
-                # split file from nnunet
-                id = case + '_' + sequence.replace('fixed', 'fix').replace('moving', 'mov')
-
-            if id in split['val']:
-                train_ds._pop_item(i)
-            elif id in split['train']:
-                val_ds._pop_item(i)
-            else:
-                warnings.warn(f'Train/Validation split incomplete: instance {id} is contained in neither.')
-                val_ds._pop_item(i)
-                train_ds._pop_item(i)
-
-        return train_ds, val_ds
-
     def get_full_pointcloud(self, i):
         if self.use_coords:
             x = torch.cat([self.points[i], self.features[i]], dim=0)
@@ -309,12 +321,6 @@ class PointDataset(Dataset):
 
     def get_coords(self, i):
         return self.points[i]
-
-    def _pop_item(self, i):
-        self.points.pop(i)
-        self.labels.pop(i)
-        self.features.pop(i)
-        self.ids.pop(i)
 
 
 class FaustDataset(Dataset):
@@ -415,3 +421,10 @@ def load_split_file(filepath):
 def save_split_file(split, filepath):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
+
+
+if __name__ == '__main__':
+    ds = ImageDataset('../data')
+    splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
+    for fold in splitfile:
+        train, test = ds.split_data_set(fold)
