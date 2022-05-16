@@ -114,7 +114,7 @@ class ModelTrainer:
 
         # save mean batch statistics (weighting based on number of samples, works with or without drop_last in dl)
         batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
-        history['total_loss'][ep] += loss * batch_factor
+        history['total_loss'][ep] += loss.item() * batch_factor
         for term in components.keys():
             history[term][ep] += components[term] * batch_factor
 
