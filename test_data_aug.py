@@ -5,8 +5,8 @@ from image_ops import sitk_image_to_tensor, resample_equal_spacing
 from visualization import visualize_with_overlay
 
 ds = ImageDataset('../data', patch_scaling=0.5)
-test_img = 0
-for i in range(20):
+for i in range(20, len(ds)):
+    test_img = i
     img, label = ds[test_img]
     img = img.squeeze()
     label = label.squeeze()
