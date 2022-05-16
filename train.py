@@ -33,13 +33,7 @@ def batch_dice(prediction, target, n_labels):
     return dice.mean(0).cpu()
 
 
-def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, out_dir):
-    in_features = ds[0][0].shape[0]
-
-    # network
-    net = DGCNNSeg(k=graph_k, in_features=in_features, num_classes=ds.num_classes,
-                   spatial_transformer=transformer, dynamic=dynamic)
-
+def train(model, ds, batch_size, device, learn_rate, epochs, show, out_dir):
     # loss function
     class_frequency = ds.get_label_frequency()
     class_weights = 1 - class_frequency
@@ -48,28 +42,8 @@ def train(ds, batch_size, graph_k, transformer, dynamic, use_coords, use_feature
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     # run training
-    trainer = model_trainer.ModelTrainer(net, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
+    trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
     trainer.run(initial_epoch=0)
-
-    # save setup
-    setup_dict = {
-        'data': ds.folder,
-        'n_points': ds.sample_points,
-        'batch_size': batch_size,
-        'graph_k': graph_k,
-        'use_coords': use_coords,
-        'use_features': use_features,
-        'learn_rate': learn_rate,
-        'epochs': epochs,
-        'exclude_rhf': ds.exclude_rhf,
-        'lobes': ds.lobes,
-        'dgcnn_input_transformer': transformer,
-        'dynamic': dynamic
-    }
-    with open(os.path.join(out_dir, 'setup.csv'), 'w') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
-        writer.writeheader()
-        writer.writerow(setup_dict)
 
 
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
@@ -294,7 +268,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate,
+def cross_val(model, ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate,
               epochs, show, out_dir, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
@@ -311,7 +285,7 @@ def cross_val(ds, split_file, batch_size, graph_k, transformer, dynamic, use_coo
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         if not test_only:
             os.makedirs(fold_dir, exist_ok=True)
-            train(train_ds, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate, epochs, show, fold_dir)
+            train(model, train_ds, batch_size, device, learn_rate, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, device, fold_dir, show)
 
@@ -364,6 +338,13 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
 
+    # setup model
+    in_features = ds[0][0].shape[0]
+
+    # network
+    net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes,
+                   spatial_transformer=args.transformer, dynamic=not args.static)
+
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
         device = f'cuda:{args.gpu}'
@@ -377,19 +358,39 @@ if __name__ == '__main__':
 
     if not args.test_only:
         if args.split is None:
-            train(ds, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+            train(net, ds, args.batch, device, args.lr, args.epochs, args.show, args.output)
             test(ds, device, args.output, args.show)
         else:
-            cross_val(ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
+            cross_val(net, ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            cross_val(ds, split_file, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output, test_only=True)
+            cross_val(net, ds, split_file, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output, test_only=True)
         else:
             # test with the specified fold from the split file
             test_folds = [args.fold]
             folder = os.path.join(args.output, f'fold{args.fold}')
             _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
             test(test_ds, device, folder, args.show)
+
+    # save setup
+    setup_dict = {
+        'data': ds.folder,
+        'n_points': ds.sample_points,
+        'batch_size': args.batch,
+        'graph_k': args.k,
+        'use_coords': args.coords,
+        'use_features': args.patch,
+        'learn_rate': args.lr,
+        'epochs': args.epochs,
+        'exclude_rhf': ds.exclude_rhf,
+        'lobes': ds.lobes,
+        'dgcnn_input_transformer': args.transformer,
+        'dynamic': not args.static
+    }
+    with open(os.path.join(args.output, 'setup.csv'), 'w') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
+        writer.writeheader()
+        writer.writerow(setup_dict)
