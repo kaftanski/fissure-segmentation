@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import SimpleITK as sitk
 import torch
 from torch.nn import functional as F
@@ -22,10 +24,7 @@ def resample_equal_spacing(image: sitk.Image, target_spacing=1.):
     return resampled
 
 
-def image_augmentation(img, seg, patch_scale=0.5):
-    spatial_size = img.shape[2:]
-    patch_size = [int(round(s * patch_scale)) for s in spatial_size]
-
+def image_augmentation(img, seg, patch_size=(128, 128, 128)):
     # minimum distance of the extracted patch center to img border, half of patch size
     # -> therefore patches not outside of image bounds
     patch_center_dist_from_border = [int(p//2) for p in patch_size]
@@ -39,6 +38,8 @@ def image_augmentation(img, seg, patch_scale=0.5):
         random_crop=True)
         ]
     )
+
+    # TODO: maybe add some noise
 
     data_dict = {"data": img, "seg": seg}
     augmented = transforms(**data_dict)

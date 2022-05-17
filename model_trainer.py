@@ -5,17 +5,19 @@ from time import time
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import Dataset, random_split, DataLoader
 
 import models.modelio
+from data import CustomDataset
 
 
 class ModelTrainer:
-    def __init__(self, model: models.modelio.LoadableModel, train_ds: Dataset, loss_function, learning_rate: float, batch_size: int, device: str,
+    def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, learning_rate: float, batch_size: int, device: str,
                  epochs: int, out_dir: str, show: bool):
 
         self.model = model
-        self.ds = train_ds
+        self.ds = ds
         self.batch_size = batch_size
         self.device = device
         self.epochs = epochs
@@ -38,9 +40,17 @@ class ModelTrainer:
         # create data loaders
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
         val_split = int(len(self.ds) * 0.2)
-        train_ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
-        self.train_dl = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True)
-        self.valid_dl = DataLoader(valid_ds, batch_size=self.batch_size, shuffle=False)
+        ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
+        num_workers = 4
+        self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
+                                   num_workers=num_workers, pin_memory=True,  # more efficient data loading
+                                   collate_fn=self.ds.get_batch_collate_fn(), drop_last=True)
+        self.valid_dl = DataLoader(valid_ds, batch_size=self.batch_size, shuffle=False,
+                                   num_workers=num_workers, pin_memory=True,  # more efficient data loading
+                                   collate_fn=self.ds.get_batch_collate_fn())
+
+        # automatic mixed precision
+        self.scaler = GradScaler()
 
         # history
         self.training_history = {}
@@ -50,6 +60,7 @@ class ModelTrainer:
 
         # timer
         self.training_start = 0
+        self.epoch_start = 0
 
     def run(self, initial_epoch=0):
         self.initial_epoch = initial_epoch
@@ -58,6 +69,8 @@ class ModelTrainer:
 
         epochs = torch.arange(self.initial_epoch, self.epochs)
         for ep, epoch in enumerate(epochs):
+            self.epoch_start = time()
+
             self.model.train()
             for x_batch, y_batch in self.train_dl:
                 self.forward_step(x_batch, y_batch, ep, train=True)
@@ -86,20 +99,26 @@ class ModelTrainer:
     def forward_step(self, x, y, ep, train):
         # TODO: support additional validation metrics
 
-        # forward pass
-        output = self.model(x.to(self.device))
+        with autocast():
+            # forward pass
+            output = self.model(x.to(self.device))
 
-        # loss computation
-        loss = self.loss_function(output, y.to(self.device))
+            # loss computation
+            loss = self.loss_function(output, y.to(self.device))
+
         if isinstance(loss, tuple):
             loss, components = loss
         else:
             components = {}
 
         if train:
-            # optimization
-            loss.backward()
-            self.optimizer.step()
+            # optimization with mixed precision
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+
+            # Updates the scale for next iteration.
+            self.scaler.update()
+
             self.optimizer.zero_grad()
 
             dl = self.train_dl
@@ -123,11 +142,9 @@ class ModelTrainer:
         self.scheduler.step(self.validation_history['total_loss'][ep])
 
         # status output
-        print(f'\nEPOCH {epoch}:')
-        print('Training Metrics:')
-        print(' - '.join(f'\t{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
-        print('Validation Metrics:')
-        print(' - '.join(f'\t{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
+        print(f'\nEPOCH {epoch} ({time() - self.epoch_start:.4f} seconds)')
+        print('\t[train]', ' - '.join(f'{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
+        print('\t[valid]', ' - '.join(f'{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
 
         # save best snapshot  # TODO: allow to specify criterion for best model
         if self.validation_history['total_loss'][ep] <= self.validation_history['total_loss'][self.best_epoch]:

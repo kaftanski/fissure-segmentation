@@ -47,3 +47,8 @@ def get_dgcnn_train_parser():
                         nargs='?')
 
     return parser
+
+
+def get_seg_cnn_train_parser():
+    parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
+    return parser

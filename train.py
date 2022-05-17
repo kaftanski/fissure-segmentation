@@ -35,11 +35,10 @@ def batch_dice(prediction, target, n_labels):
 
 def train(model, ds, batch_size, device, learn_rate, epochs, show, out_dir):
     # loss function
-    class_frequency = ds.get_label_frequency()
-    class_weights = 1 - class_frequency
-    class_weights *= ds.num_classes
-    print(f'Class weights: {class_weights.tolist()}')
-    criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+    class_weights = ds.get_class_weights()
+    if class_weights is not None:
+        class_weights = class_weights.to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
@@ -268,8 +267,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(model, ds, split_file, batch_size, graph_k, transformer, dynamic, use_coords, use_features, device, learn_rate,
-              epochs, show, out_dir, test_only=False):
+def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, show, out_dir, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -320,6 +318,38 @@ def cross_val(model, ds, split_file, batch_size, graph_k, transformer, dynamic, 
     write_results(os.path.join(out_dir, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
+def run(ds, model, args):
+    # set the device
+    if args.gpu in range(torch.cuda.device_count()):
+        device = f'cuda:{args.gpu}'
+        print(f"Using device: {device}")
+    else:
+        device = 'cpu'
+        print(f'Requested GPU with index {args.gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
+
+    # setup directories
+    os.makedirs(args.output, exist_ok=True)
+
+    if not args.test_only:
+        if args.split is None:
+            train(model, ds, args.batch, device, args.lr, args.epochs, args.show, args.output)
+            test(ds, device, args.output, args.show)
+        else:
+            cross_val(model, ds, args.split, args.batch, device, args.lr, args.epochs, args.show, args.output)
+
+    else:
+        split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
+        if args.fold is None:
+            # test with all folds
+            cross_val(model, ds, split_file, args.batch, device, args.lr, args.epochs, args.show, args.output,
+                      test_only=True)
+        else:
+            # test with the specified fold from the split file
+            folder = os.path.join(args.output, f'fold{args.fold}')
+            _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
+            test(test_ds, device, folder, args.show)
+
+
 if __name__ == '__main__':
     parser = get_dgcnn_train_parser()
     args = parser.parse_args()
@@ -340,40 +370,11 @@ if __name__ == '__main__':
 
     # setup model
     in_features = ds[0][0].shape[0]
-
-    # network
     net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes,
                    spatial_transformer=args.transformer, dynamic=not args.static)
 
-    # set the device
-    if args.gpu in range(torch.cuda.device_count()):
-        device = f'cuda:{args.gpu}'
-        print(f"Using device: {device}")
-    else:
-        device = 'cpu'
-        print(f'Requested GPU with index {args.gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
-
-    # setup directories
-    os.makedirs(args.output, exist_ok=True)
-
-    if not args.test_only:
-        if args.split is None:
-            train(net, ds, args.batch, device, args.lr, args.epochs, args.show, args.output)
-            test(ds, device, args.output, args.show)
-        else:
-            cross_val(net, ds, args.split, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output)
-
-    else:
-        split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
-        if args.fold is None:
-            # test with all folds
-            cross_val(net, ds, split_file, args.batch, args.k, args.transformer, not args.static, args.coords, args.patch, device, args.lr, args.epochs, args.show, args.output, test_only=True)
-        else:
-            # test with the specified fold from the split file
-            test_folds = [args.fold]
-            folder = os.path.join(args.output, f'fold{args.fold}')
-            _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            test(test_ds, device, folder, args.show)
+    # run the chosen configuration
+    run(ds, net, args)
 
     # save setup
     setup_dict = {

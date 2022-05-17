@@ -4,13 +4,14 @@ import glob
 import os.path
 import pickle
 import warnings
-from abc import ABC
+from abc import ABC, abstractmethod
 
 import open3d as o3d
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
 
+from batchgenerators.augmentations.utils import center_crop_3D_image
 from matplotlib import pyplot as plt
 
 from augmentations import image_augmentation
@@ -162,7 +163,15 @@ class LungData(Dataset):
         return len(self.images)
 
 
-class SplittableDataset(Dataset, ABC):
+class CustomDataset(Dataset, ABC):
+    @abstractmethod
+    def get_class_weights(self):
+        pass
+
+    @abstractmethod
+    def get_batch_collate_fn(self):
+        pass
+
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds = deepcopy(self)
         val_ds = deepcopy(self)
@@ -200,12 +209,13 @@ class SplittableDataset(Dataset, ABC):
                 attr.pop(i)
 
 
-class ImageDataset(LungData, SplittableDataset):
-    def __init__(self, folder, resample_spacing=1.5, patch_scaling=0.5):
+class ImageDataset(LungData, CustomDataset):
+    def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False):
         super(ImageDataset, self).__init__(folder)
 
         self.resample_spacing = resample_spacing
-        self.patch_scaling = patch_scaling
+        self.patch_size = patch_size
+        self.exclude_rhf = exclude_rhf
 
         # remove images without fissure label
         def remove_indices(ls: list, indices):
@@ -218,9 +228,18 @@ class ImageDataset(LungData, SplittableDataset):
             if isinstance(attr, list):
                 remove_indices(attr, to_remove)
 
+        # set number of classes
+        self.num_classes = 3 if exclude_rhf else 4
+
     def __getitem__(self, item):
         img = self.get_image(item)
         label = self.get_regularized_fissures(item)
+
+        # change the right horizontal fissure to background, if it is to be excluded
+        if self.exclude_rhf:
+            change_label_filter = sitk.ChangeLabelImageFilter()
+            change_label_filter.SetChangeMap({3: 0})
+            label = change_label_filter.Execute(label)
 
         # dilate fissures (so they don't vanish when downsampling)
         factors = get_resample_factors(label.GetSpacing(), target_spacing=self.resample_spacing)
@@ -236,8 +255,36 @@ class ImageDataset(LungData, SplittableDataset):
         img_array = sitk_image_to_tensor(img).float().unsqueeze(0).unsqueeze(0).numpy()
         label_array = sitk_image_to_tensor(label).long().unsqueeze(0).unsqueeze(0).numpy()
 
-        img_aug, label_aug = image_augmentation(img_array, label_array, patch_scale=self.patch_scaling)
-        return img_aug, label_aug  # TODO: return pat ids
+        img_aug, label_aug = image_augmentation(img_array, label_array, patch_size=self.patch_size)
+        return img_aug.squeeze(), label_aug.squeeze()  # TODO: return pat ids
+
+    def get_class_weights(self):
+        return None
+
+    def get_batch_collate_fn(self):
+        # def collate_fn(list_of_samples):
+        #     shapes = torch.zeros(len(list_of_samples), 3, dtype=torch.long)
+        #     for i, (img, label) in enumerate(list_of_samples):
+        #         shapes[i] = torch.tensor(img.shape[-3:])
+        #
+        #     median_shape, _ = torch.median(shapes, dim=0)
+        #
+        #     img_batch = []
+        #     label_batch = []
+        #     for img, label in list_of_samples:
+        #         img = center_crop_3D_image(img, tuple(median_shape))
+        #         label = center_crop_3D_image(label, tuple(median_shape))
+        #
+        #         img_batch.append(img)
+        #         label_batch.append(label)
+        #
+        #     # convert lists of arrays to one array, makes conversion to tensor faster
+        #     img_batch = np.array(img_batch)
+        #     label_batch = np.array(label_batch)
+        #
+        #     return torch.from_numpy(img_batch).unsqueeze(1), torch.from_numpy(label_batch).long()
+
+        return None  # collate_fn
 
 
 def preprocessing_generator(dataloader, preproc_fn, **preproc_kwargs):
@@ -251,7 +298,7 @@ def preprocess(img, label, device):
     return img, label
 
 
-class PointDataset(SplittableDataset):
+class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False):
         assert patch_feat in [None, 'mind', 'mind_ssc']
@@ -303,14 +350,23 @@ class PointDataset(SplittableDataset):
     def __len__(self):
         return len(self.points)
 
-    def get_label_frequency(self):
+    def get_class_weights(self):
         frequency = torch.zeros(self.num_classes)
         for lbl in self.labels:
             for c in range(self.num_classes):
                 frequency[c] += torch.sum(lbl == c)
         frequency /= frequency.sum()
         print(f'Label frequency in point data set: {frequency.tolist()}')
-        return frequency
+
+        class_weights = 1 - frequency
+        class_weights *= self.num_classes
+        print(f'Class weights: {class_weights.tolist()}')
+
+        return class_weights
+
+    def get_batch_collate_fn(self):
+        # point data needs no special collate function, the point sampling is already handled in __get_item__
+        return None
 
     def get_full_pointcloud(self, i):
         if self.use_coords:

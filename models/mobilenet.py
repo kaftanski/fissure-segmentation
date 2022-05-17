@@ -1,6 +1,7 @@
 # Mobile-Net with depth-separable convolutions and residual connections
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 
 class ResBlock(torch.nn.Module):
@@ -21,7 +22,7 @@ class MobileNet3D(nn.Module):
         out_channels = torch.Tensor([16, 24, 24, 32, 32, 32, 64, 64]).long()
         mid_stride = torch.Tensor([1, 1, 1, 1, 1, 2, 1, 1])
 
-        self.layers = nn.ModuleList([nn.Identity()])
+        layers = [nn.Identity()]
         for i in range(len(in_channels)):
             inc = int(in_channels[i])
             midc = int(mid_channels[i])
@@ -34,17 +35,21 @@ class MobileNet3D(nn.Module):
             if (i == 0):
                 layer[0] = nn.Conv3d(inc, midc, 3, padding=1, stride=2, bias=False)
             if ((inc == outc) & (strd == 1)):
-                self.layers.append(ResBlock(layer))
+                layers.append(ResBlock(layer))
             else:
-                self.layers.append(layer)
+                layers.append(layer)
+
+        self.layers = nn.Sequential(*layers)
 
         # init weights
         self._init_weights()
 
     def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
+        x = checkpoint(self.layers[:2], x)
+        x2 = x
+
+        x2 = self.layers[2:](x2)
+        return x, x2
 
     def _init_weights(self):
         # weight initialization
@@ -59,3 +64,9 @@ class MobileNet3D(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.zeros_(m.bias)
+
+
+if __name__ == '__main__':
+    import torchinfo
+    m = MobileNet3D()
+    torchinfo.summary(m, (1, 1, 128, 128, 128))
