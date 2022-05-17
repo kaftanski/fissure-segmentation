@@ -244,7 +244,7 @@ class ImageDataset(LungData, CustomDataset):
         # dilate fissures (so they don't vanish when downsampling)
         factors = get_resample_factors(label.GetSpacing(), target_spacing=self.resample_spacing)
         radius = [max(0, round(1/f - 1)) for f in factors]
-        print(radius)  # TODO: find a better way to preserve labels! (maybe through gt meshes)
+        # print(radius)  # TODO: find a better way to preserve labels! (maybe through gt meshes)
         label = multiple_objects_morphology(label, radius=radius, mode='dilate')
 
         # resampling to unit spacing
@@ -262,29 +262,29 @@ class ImageDataset(LungData, CustomDataset):
         return None
 
     def get_batch_collate_fn(self):
-        # def collate_fn(list_of_samples):
-        #     shapes = torch.zeros(len(list_of_samples), 3, dtype=torch.long)
-        #     for i, (img, label) in enumerate(list_of_samples):
-        #         shapes[i] = torch.tensor(img.shape[-3:])
-        #
-        #     median_shape, _ = torch.median(shapes, dim=0)
-        #
-        #     img_batch = []
-        #     label_batch = []
-        #     for img, label in list_of_samples:
-        #         img = center_crop_3D_image(img, tuple(median_shape))
-        #         label = center_crop_3D_image(label, tuple(median_shape))
-        #
-        #         img_batch.append(img)
-        #         label_batch.append(label)
-        #
-        #     # convert lists of arrays to one array, makes conversion to tensor faster
-        #     img_batch = np.array(img_batch)
-        #     label_batch = np.array(label_batch)
-        #
-        #     return torch.from_numpy(img_batch).unsqueeze(1), torch.from_numpy(label_batch).long()
+        def collate_fn(list_of_samples):
+            # shapes = torch.zeros(len(list_of_samples), 3, dtype=torch.long)
+            # for i, (img, label) in enumerate(list_of_samples):
+            #     shapes[i] = torch.tensor(img.shape[-3:])
+            #
+            # median_shape, _ = torch.median(shapes, dim=0)
 
-        return None  # collate_fn
+            img_batch = []
+            label_batch = []
+            for img, label in list_of_samples:
+                # img = center_crop_3D_image(img, tuple(median_shape))
+                # label = center_crop_3D_image(label, tuple(median_shape))
+
+                img_batch.append(img)
+                label_batch.append(label)
+
+            # convert lists of arrays to one array, makes conversion to tensor faster
+            img_batch = np.array(img_batch)
+            label_batch = np.array(label_batch)
+
+            return torch.from_numpy(img_batch).unsqueeze(1), torch.from_numpy(label_batch).long()
+
+        return collate_fn
 
 
 def preprocessing_generator(dataloader, preproc_fn, **preproc_kwargs):
