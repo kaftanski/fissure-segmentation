@@ -426,6 +426,8 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     :param scale: scale, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :return:
     """
+    assert np.prod(points.shape) > 0, 'Error: Tried to reconstruct mesh from empty point cloud!'
+
     # convert to open3d point cloud object
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
