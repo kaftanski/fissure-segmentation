@@ -267,7 +267,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
 
 
-def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, show, out_dir, test_only=False):
+def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -285,7 +285,7 @@ def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, sho
             os.makedirs(fold_dir, exist_ok=True)
             train(model, train_ds, batch_size, device, learn_rate, epochs, show, fold_dir)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test(val_ds, device, fold_dir, show)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
 
         test_dice[fold] += mean_dice
         test_assd[fold] += mean_assd
@@ -318,7 +318,7 @@ def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, sho
     write_results(os.path.join(out_dir, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
-def run(ds, model, args):
+def run(ds, model, test_fn, args):
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
         device = f'cuda:{args.gpu}'
@@ -333,21 +333,21 @@ def run(ds, model, args):
     if not args.test_only:
         if args.split is None:
             train(model, ds, args.batch, device, args.lr, args.epochs, args.show, args.output)
-            test(ds, device, args.output, args.show)
+            test_fn(ds, device, args.output, args.show)
         else:
-            cross_val(model, ds, args.split, args.batch, device, args.lr, args.epochs, args.show, args.output)
+            cross_val(model, ds, args.split, args.batch, device, args.lr, args.epochs, args.show, args.output, test_fn)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            cross_val(model, ds, split_file, args.batch, device, args.lr, args.epochs, args.show, args.output,
+            cross_val(model, ds, split_file, args.batch, device, args.lr, args.epochs, args.show, args.output, test_fn,
                       test_only=True)
         else:
             # test with the specified fold from the split file
             folder = os.path.join(args.output, f'fold{args.fold}')
             _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            test(test_ds, device, folder, args.show)
+            test_fn(test_ds, device, folder, args.show)
 
 
 if __name__ == '__main__':
@@ -374,7 +374,7 @@ if __name__ == '__main__':
                    spatial_transformer=args.transformer, dynamic=not args.static)
 
     # run the chosen configuration
-    run(ds, net, args)
+    run(ds, net, test, args)
 
     # save setup
     setup_dict = {

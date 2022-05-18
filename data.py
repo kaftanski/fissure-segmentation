@@ -56,7 +56,6 @@ def _load_files_from_file_list(item, the_list):
 
 class LungData(Dataset):
     def __init__(self, folder):
-        super(LungData, self).__init__()
         self.images = sorted(glob(os.path.join(folder, '*_img_*.nii.gz')))
         self.lung_masks = sorted(glob(os.path.join(folder, '*_mask_*.nii.gz')))
         self.landmarks = []
@@ -164,6 +163,9 @@ class LungData(Dataset):
 
 
 class CustomDataset(Dataset, ABC):
+    def __init__(self, do_augmentation):
+        self.do_augmentation = do_augmentation
+
     @abstractmethod
     def get_class_weights(self):
         pass
@@ -197,6 +199,7 @@ class CustomDataset(Dataset, ABC):
                 val_ds._pop_item(i)
                 train_ds._pop_item(i)
 
+        val_ds.do_augmentation = False
         return train_ds, val_ds
 
     def _pop_item(self, i):
@@ -210,12 +213,14 @@ class CustomDataset(Dataset, ABC):
 
 
 class ImageDataset(LungData, CustomDataset):
-    def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False):
-        super(ImageDataset, self).__init__(folder)
+    def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False, do_augmentation=True):
+        LungData.__init__(self, folder)
+        CustomDataset.__init__(self, do_augmentation)
 
         self.resample_spacing = resample_spacing
         self.patch_size = patch_size
         self.exclude_rhf = exclude_rhf
+        self.do_augmentation = do_augmentation
 
         # remove images without fissure label
         def remove_indices(ls: list, indices):
@@ -255,8 +260,9 @@ class ImageDataset(LungData, CustomDataset):
         img_array = sitk_image_to_tensor(img).float().unsqueeze(0).unsqueeze(0).numpy()
         label_array = sitk_image_to_tensor(label).long().unsqueeze(0).unsqueeze(0).numpy()
 
-        img_aug, label_aug = image_augmentation(img_array, label_array, patch_size=self.patch_size)
-        return img_aug.squeeze(), label_aug.squeeze()  # TODO: return pat ids
+        if self.do_augmentation:
+            img_array, label_array = image_augmentation(img_array, label_array, patch_size=self.patch_size)
+        return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
 
     def get_class_weights(self):
         return None
@@ -301,6 +307,9 @@ def preprocess(img, label, device):
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False):
+
+        super(PointDataset, self).__init__(do_augmentation=False)
+
         assert patch_feat in [None, 'mind', 'mind_ssc']
         if not use_coords:
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
