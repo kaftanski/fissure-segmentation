@@ -5,8 +5,8 @@ import torch
 
 from data_processing.find_lobes import lobes_to_fissures
 from data import LungData
-from metrics import label_label_assd
-from train import write_results, batch_dice
+from metrics import label_label_assd, batch_dice
+from train import write_results
 
 ds = LungData('../data')
 

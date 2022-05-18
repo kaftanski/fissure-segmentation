@@ -6,7 +6,8 @@ from cli.cl_args import get_seg_cnn_train_parser
 from data import ImageDataset
 from image_ops import write_image, tensor_to_sitk_image
 from models.seg_cnn import MobileNetASPP
-from train import run, batch_dice, compute_mesh_metrics, write_results
+from train import run, compute_mesh_metrics, write_results
+from metrics import batch_dice
 
 
 def test(ds, device, out_dir, show):

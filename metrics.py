@@ -104,3 +104,17 @@ if __name__ == '__main__':
     vy = torch.randn(16, 160, 3)
     ty = torch.randint(160, (16, 180, 3))
     print(batch_assd(vx, tx, vy, ty))
+
+
+def batch_dice(prediction, target, n_labels):
+    labels = torch.arange(n_labels)
+    dice = torch.zeros(prediction.shape[0], n_labels).to(prediction.device)
+
+    pred_flat = prediction.flatten(start_dim=1)
+    targ_flat = target.flatten(start_dim=1)
+    for l in labels:
+        label_pred = pred_flat == l
+        label_target = targ_flat == l
+        dice[:, l] = 2 * (label_pred * label_target).sum(-1) / (label_pred.sum(-1) + label_target.sum(-1) + 1e-8)
+
+    return dice.mean(0).cpu()

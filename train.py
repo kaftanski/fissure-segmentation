@@ -13,24 +13,10 @@ from cli.cl_args import get_dgcnn_train_parser
 from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
-from metrics import assd, label_mesh_assd
+from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
-
-
-def batch_dice(prediction, target, n_labels):
-    labels = torch.arange(n_labels)
-    dice = torch.zeros(prediction.shape[0], n_labels).to(prediction.device)
-
-    pred_flat = prediction.flatten(start_dim=1)
-    targ_flat = target.flatten(start_dim=1)
-    for l in labels:
-        label_pred = pred_flat == l
-        label_target = targ_flat == l
-        dice[:, l] = 2 * (label_pred * label_target).sum(-1) / (label_pred.sum(-1) + label_target.sum(-1) + 1e-8)
-
-    return dice.mean(0).cpu()
 
 
 def train(model, ds, batch_size, device, learn_rate, epochs, show, out_dir):
