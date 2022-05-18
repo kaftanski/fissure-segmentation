@@ -45,3 +45,26 @@ def multiple_objects_morphology(labelmap: sitk.Image, radius: Union[int, Sequenc
 def sitk_image_to_tensor(img: sitk.Image):
     tensor_image = torch.tensor(sitk.GetArrayFromImage(img).squeeze())
     return tensor_image
+
+
+def tensor_to_sitk_image(tensor: torch.Tensor, meta_src_img: sitk.Image = None):
+    """
+    :param tensor: tensor to convert to image
+    :param meta_src_img: if provided, the image will copy the metadata from this image
+    """
+    tensor = tensor.detach().cpu().squeeze()
+    img = sitk.GetImageFromArray(tensor.numpy())
+    if meta_src_img is not None:
+        img.CopyInformation(meta_src_img)
+
+    return img
+
+
+def write_image(img: torch.Tensor, filename: str, meta_src_img: sitk.Image = None):
+    """
+    :param img: image to save
+    :param filename: output filename
+    :param meta_src_img: if provided, the image will copy the metadata from this image
+    """
+    img = tensor_to_sitk_image(img, meta_src_img=meta_src_img)
+    sitk.WriteImage(img, filename)
