@@ -69,7 +69,7 @@ class MobileNetASPP(LoadableModel):
 
                     output[..., start_x:start_x+patch_size[0],
                            start_y:start_y+patch_size[1],
-                           start_z:start_z+patch_size[2]] += self(img_patch)
+                           start_z:start_z+patch_size[2]] += F.softmax(self(img_patch), dim=1)
 
         return F.softmax(output, dim=1)
 
