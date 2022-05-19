@@ -1,13 +1,15 @@
 import os
+
 import SimpleITK as sitk
+import matplotlib.pyplot as plt
 import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
 from data import ImageDataset
-from image_ops import write_image, tensor_to_sitk_image
-from models.seg_cnn import MobileNetASPP
-from train import run, compute_mesh_metrics, write_results
+from image_ops import tensor_to_sitk_image
 from metrics import batch_dice
+from models.seg_cnn import MobileNetASPP
+from train import run, write_results
 
 
 def test(ds, device, out_dir, show):
@@ -32,6 +34,7 @@ def test(ds, device, out_dir, show):
     ids = []
     test_dice = torch.zeros(len(ds), ds.num_classes)
 
+    recall_thresholds = torch.linspace(0.1, 0.9, steps=9)
     for i in range(len(ds)):
         case, sequence = ds.get_id(i)
 
@@ -50,11 +53,28 @@ def test(ds, device, out_dir, show):
         label_pred_img = sitk.Resample(label_pred_img, referenceImage=label_img, interpolator=sitk.sitkNearestNeighbor)
         sitk.WriteImage(label_pred_img, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
+        # measure precision and recall at different softmax thresholds
+        for thresh in recall_thresholds:
+            # TODO: train network on binary labels
+            fissure_points = torch.zeros_like(label_pred)
+            for lbl in range(1, ds.num_classes):
+                fissure_points = torch.logical_or(fissure_points, softmax_pred[:, lbl] > thresh)
+                plt.figure()
+                plt.imshow(fissure_points[0, :, :, fissure_points.shape[-1]//2].cpu(), cmap='gray')
+                plt.show()
+
     # compute average metrics
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
-    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics([[]], [[]])
+    mean_assd = torch.zeros(len(ds), ds.num_classes-1)
+    std_assd = torch.zeros_like(mean_assd)
+    mean_sdsd = torch.zeros_like(mean_assd)
+    std_sdsd = torch.zeros_like(mean_assd)
+    mean_hd = torch.zeros_like(mean_assd)
+    std_hd = torch.zeros_like(mean_assd)
+    mean_hd95 = torch.zeros_like(mean_assd)
+    std_hd95 = torch.zeros_like(mean_assd)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
