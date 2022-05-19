@@ -98,14 +98,6 @@ def batch_assd(verts_x: torch.Tensor, faces_x: torch.Tensor, verts_y: torch.Tens
     return mean.mean(), std.mean(), hd.mean(), hd95.mean()
 
 
-if __name__ == '__main__':
-    vx = torch.randn(16, 100, 3)
-    tx = torch.randint(100, (16, 200, 3))
-    vy = torch.randn(16, 160, 3)
-    ty = torch.randint(160, (16, 180, 3))
-    print(batch_assd(vx, tx, vy, ty))
-
-
 def batch_dice(prediction, target, n_labels):
     labels = torch.arange(n_labels)
     dice = torch.zeros(prediction.shape[0], n_labels).to(prediction.device)
@@ -118,3 +110,23 @@ def batch_dice(prediction, target, n_labels):
         dice[:, l] = 2 * (label_pred * label_target).sum(-1) / (label_pred.sum(-1) + label_target.sum(-1) + 1e-8)
 
     return dice.mean(0).cpu()
+
+
+def binary_recall(prediction, target):
+    binary_pred = (prediction != 0).flatten(start_dim=1)
+    binary_targ = (target != 0).flatten(start_dim=1)
+    return (binary_pred * binary_targ).sum(-1) / binary_targ.sum(-1)
+
+
+def binary_precision(prediction, target):
+    binary_pred = (prediction != 0).flatten(start_dim=1)
+    binary_targ = (target != 0).flatten(start_dim=1)
+    return (binary_pred * binary_targ).sum(-1) / binary_pred.sum(-1)
+
+
+if __name__ == '__main__':
+    vx = torch.randn(16, 100, 3)
+    tx = torch.randint(100, (16, 200, 3))
+    vy = torch.randn(16, 160, 3)
+    ty = torch.randint(160, (16, 180, 3))
+    print(batch_assd(vx, tx, vy, ty))
