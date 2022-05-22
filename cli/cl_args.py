@@ -22,6 +22,8 @@ def add_data_parameters(parser):
     parser.add_argument('--fold', default=None,
                         help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)',
                         type=int)
+    parser.add_argument('--binary', const=True, default=False, nargs='?',
+                        help='make classification problem binary (only train with fissure/non-fissure labels)')
 
 
 def get_generic_parser(description):
