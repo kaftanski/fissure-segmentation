@@ -42,9 +42,10 @@ class ModelTrainer:
         val_split = int(len(self.ds) * 0.2)
         ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
         num_workers = 4
+        drop_last = len(ds) // 2 >= self.batch_size
         self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading
-                                   collate_fn=self.ds.get_batch_collate_fn(), drop_last=True)
+                                   collate_fn=self.ds.get_batch_collate_fn(), drop_last=drop_last)
         self.valid_dl = DataLoader(valid_ds, batch_size=self.batch_size, shuffle=False,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading
                                    collate_fn=self.ds.get_batch_collate_fn())
