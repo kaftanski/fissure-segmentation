@@ -163,8 +163,10 @@ class LungData(Dataset):
 
 
 class CustomDataset(Dataset, ABC):
-    def __init__(self, do_augmentation):
+    def __init__(self, exclude_rhf, do_augmentation, binary):
+        self.exclude_rhf = exclude_rhf
         self.do_augmentation = do_augmentation
+        self.binary = binary
 
     @abstractmethod
     def get_class_weights(self):
@@ -213,14 +215,13 @@ class CustomDataset(Dataset, ABC):
 
 
 class ImageDataset(LungData, CustomDataset):
-    def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False, do_augmentation=True):
+    def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False,
+                 do_augmentation=True, binary=False):
         LungData.__init__(self, folder)
-        CustomDataset.__init__(self, do_augmentation)
+        CustomDataset.__init__(self, exclude_rhf, do_augmentation, binary)
 
         self.resample_spacing = resample_spacing
         self.patch_size = patch_size
-        self.exclude_rhf = exclude_rhf
-        self.do_augmentation = do_augmentation
 
         # remove images without fissure label
         def remove_indices(ls: list, indices):
@@ -234,16 +235,26 @@ class ImageDataset(LungData, CustomDataset):
                 remove_indices(attr, to_remove)
 
         # set number of classes
-        self.num_classes = 3 if exclude_rhf else 4
+        if self.binary:
+            self.num_classes = 2
+        else:
+            self.num_classes = 3 if exclude_rhf else 4
 
     def __getitem__(self, item):
         img = self.get_image(item)
         label = self.get_regularized_fissures(item)
 
+        # change all labels to 1, if binary segmentation is desired
+        change_map = {}
+        if self.binary:
+            for lbl in range(1, 4):
+                change_map[lbl] = 1
         # change the right horizontal fissure to background, if it is to be excluded
         if self.exclude_rhf:
+            change_map[3] = 0
+        if change_map:
             change_label_filter = sitk.ChangeLabelImageFilter()
-            change_label_filter.SetChangeMap({3: 0})
+            change_label_filter.SetChangeMap(change_map)
             label = change_label_filter.Execute(label)
 
         # dilate fissures (so they don't vanish when downsampling)
@@ -262,6 +273,10 @@ class ImageDataset(LungData, CustomDataset):
 
         if self.do_augmentation:
             img_array, label_array = image_augmentation(img_array, label_array, patch_size=self.patch_size)
+
+        # get inputs into range [-1, 1]
+        img_array = (img_array + IMG_MIN) / (IMG_MAX - IMG_MIN) * 2 - 1
+
         return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
 
     def get_class_weights(self):
@@ -306,9 +321,9 @@ def preprocess(img, label, device):
 
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
-                 patch_feat=None, exclude_rhf=False, lobes=False):
+                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False):
 
-        super(PointDataset, self).__init__(do_augmentation=False)
+        super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=False, binary=binary)
 
         assert patch_feat in [None, 'mind', 'mind_ssc']
         if not use_coords:
@@ -317,7 +332,6 @@ class PointDataset(CustomDataset):
         files = sorted(glob(os.path.join(folder, kp_mode, '*_coords_*')))
         self.folder = os.path.join(folder, kp_mode)
         self.use_coords = use_coords
-        self.exclude_rhf = exclude_rhf
         self.lobes = lobes
         self.sample_points = sample_points
         self.ids = []
@@ -333,6 +347,8 @@ class PointDataset(CustomDataset):
             else:
                 if exclude_rhf:
                     lbls[lbls == 3] = 0
+            if self.binary:
+                lbls[lbls != 0] = 1
             self.points.append(pts)
             self.labels.append(lbls)
             if feat is not None:
