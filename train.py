@@ -350,7 +350,7 @@ if __name__ == '__main__':
         print(f'Using point data from {point_dir}')
         features = 'mind' if args.patch else None
         ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=features,
-                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes')
+                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
 
