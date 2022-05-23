@@ -136,7 +136,7 @@ class ModelTrainer:
         batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
         history['total_loss'][ep] += loss.item() * batch_factor
         for term in components.keys():
-            history[term][ep] += components[term] * batch_factor
+            history[term][ep] += components[term].item() * batch_factor
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
@@ -144,8 +144,8 @@ class ModelTrainer:
 
         # status output
         print(f'\nEPOCH {epoch} ({time() - self.epoch_start:.4f} seconds)')
-        print('\t[train]', ' - '.join(f'{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
-        print('\t[valid]', ' - '.join(f'{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
+        print('\t[train]', ' -- '.join(f'{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
+        print('\t[valid]', ' -- '.join(f'{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
 
         # save best snapshot  # TODO: allow to specify criterion for best model
         if self.validation_history['total_loss'][ep] <= self.validation_history['total_loss'][self.best_epoch]:

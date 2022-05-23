@@ -13,6 +13,7 @@ from cli.cl_args import get_dgcnn_train_parser
 from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
+from losses.combine_loss import assemble_segmentation_loss_function
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
@@ -20,11 +21,12 @@ from visualization import visualize_point_cloud, visualize_trimesh
 
 
 def train(model, ds, batch_size, device, learn_rate, epochs, show, out_dir):
-    # loss function
+    # set up loss function
     class_weights = ds.get_class_weights()
     if class_weights is not None:
         class_weights = class_weights.to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    # criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = assemble_segmentation_loss_function(class_weights)
 
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
