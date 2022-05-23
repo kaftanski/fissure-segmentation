@@ -41,8 +41,7 @@ class MobileNetASPP(LoadableModel):
         patch_starts = []
         for i, (dim, patch) in enumerate(zip(img.shape[2:], patch_size)):
             if patch >= dim:
-                # prevent patch size exceeding image bounds
-                patch_size[i] = dim
+                # patch size exceeding image bounds (img will be padded later)
                 patch_starts.append([0])
             else:
                 steps = math.ceil((dim - patch*min_overlap) / (patch - patch * min_overlap))
@@ -67,14 +66,53 @@ class MobileNetASPP(LoadableModel):
                                     start_y:start_y+patch_size[1],
                                     start_z:start_z+patch_size[2]]
 
+                    before_padding = img_patch.shape[2:]
+                    img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size,
+                                                    pad_value=-1)  # hard-coded for CT background
+                    out_patch = F.softmax(self(img_patch), dim=1)
+                    out_patch = maybe_crop_after_padding(out_patch, before_padding)
+
                     output[..., start_x:start_x+patch_size[0],
                            start_y:start_y+patch_size[1],
-                           start_z:start_z+patch_size[2]] += F.softmax(self(img_patch), dim=1)
+                           start_z:start_z+patch_size[2]] += out_patch
 
+        # TODO: gaussian importance weighting (?)
         return F.softmax(output, dim=1)
 
 
-# TODO: inference from patches (stitched together overlapping patches, with gaussian weighting a la nnUnet)
+def get_necessary_padding(img_dimensions, out_shape):
+    pad = []
+    for dim in range(len(out_shape)-1, -1, -1):
+        residual = out_shape[dim] - img_dimensions[dim]
+        if residual > 0:
+            pad.append(residual // 2 + (1 if residual / 2 - residual // 2 == 0.5 else 0))
+            pad.append(residual // 2)
+        else:
+            pad.extend([0, 0])
+
+    if all(p == 0 for p in pad):
+        return None
+    else:
+        return pad
+
+
+def maybe_pad_img_patch(img, patch_shape, pad_value=-1):
+    pad = get_necessary_padding(img.shape[2:], patch_shape)
+    if pad is not None:
+        img = F.pad(img, pad, mode='constant', value=pad_value)
+    return img
+
+
+def maybe_crop_after_padding(img, orig_dimensions):
+    pad = get_necessary_padding(img_dimensions=orig_dimensions, out_shape=img.shape[2:])
+    if pad is not None:
+        pad = pad[::-1]
+        crop = []
+        for dim, padded in enumerate(img.shape[2:]):
+            p2, p1 = pad[dim*2:dim*2+2]
+            crop.append(slice(p1, padded-p2))
+        img = img[2*[slice(None)] + crop]
+    return img
 
 
 if __name__ == '__main__':
