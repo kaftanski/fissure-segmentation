@@ -42,7 +42,8 @@ def test(ds, device, out_dir, show):
         img, label = ds[i]
         img, label = ds.get_batch_collate_fn()([(img, label)])
         with torch.no_grad():
-            softmax_pred = model.predict_all_patches(img.to(device), patch_size=(128, 128, 128), min_overlap=0.25)
+            softmax_pred = model.predict_all_patches(img.to(device), patch_size=(128, 128, 128),
+                                                     min_overlap=0.5, use_gaussian=True)
         label_pred = torch.argmax(softmax_pred, dim=1)
         label = label.to(device)
         test_dice[i] += batch_dice(label_pred, label, n_labels=model.num_classes).squeeze().cpu()
@@ -102,5 +103,3 @@ if __name__ == '__main__':
     model = MobileNetASPP(num_classes=ds.num_classes)
 
     run(ds, model, test, args)
-
-    # TODO: loss function L_CE+DICE

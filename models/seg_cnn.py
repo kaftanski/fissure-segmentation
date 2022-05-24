@@ -1,11 +1,14 @@
+import math
+import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
+from scipy.ndimage.filters import gaussian_filter
+from torch import nn
+from torch.utils.checkpoint import checkpoint
+
 from models.aspp_3d import ASPP
 from models.mobilenet import MobileNet3D
 from models.modelio import LoadableModel, store_config_args
-from torch.utils.checkpoint import checkpoint
-import math
 
 
 class MobileNetASPP(LoadableModel):
@@ -21,6 +24,8 @@ class MobileNetASPP(LoadableModel):
                                   nn.Conv3d(64, 64, 3, groups=1, padding=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
                                   nn.Conv3d(64, self.num_classes, 1))
 
+        self.gaussian_weight_map = None
+
     def forward(self, x):
         if self.training:
             # necessary for running backwards through checkpointing
@@ -33,7 +38,7 @@ class MobileNetASPP(LoadableModel):
         output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
         return output
 
-    def predict_all_patches(self, img, patch_size, min_overlap=0.25):
+    def predict_all_patches(self, img, patch_size, min_overlap=0.5, use_gaussian=False):
         assert len(img.shape)-2 == len(patch_size)
         assert 0 <= min_overlap < 1
 
@@ -69,14 +74,39 @@ class MobileNetASPP(LoadableModel):
                     before_padding = img_patch.shape[2:]
                     img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size)
                     out_patch = F.softmax(self(img_patch), dim=1)
-                    out_patch = maybe_crop_after_padding(out_patch, before_padding)
 
+                    if use_gaussian:
+                        # gaussian importance weighting
+                        out_patch *= self._get_gaussian(patch_size, img.device, sigma_scale=1/4.)
+
+                    out_patch = maybe_crop_after_padding(out_patch, before_padding)
                     output[..., start_x:start_x+patch_size[0],
                            start_y:start_y+patch_size[1],
                            start_z:start_z+patch_size[2]] += out_patch
 
-        # TODO: gaussian importance weighting (?)
         return F.softmax(output, dim=1)
+
+    def _get_gaussian(self, patch_size, device, sigma_scale=1/8.):
+        if self.gaussian_weight_map is None or \
+                any(shape != patch for shape, patch in zip(self.gaussian_weight_map.shape[2:], patch_size)):
+
+            weight_map = np.zeros(patch_size)
+            center_coord = tuple(p//2 for p in patch_size)
+            weight_map[center_coord] = 1
+            # gaussian smoothing of the dirac impulse
+            # weight_map = smooth(weight_map, sigmas=[p * sigma_scale for p in patch_size])
+            weight_map = gaussian_filter(weight_map, sigma=[p * sigma_scale for p in patch_size], order=0,
+                                         mode='constant', cval=0)
+
+            # prevent NaNs by converting zero values
+            weight_map[weight_map == 0] = weight_map[weight_map != 0].min()
+
+            self.gaussian_weight_map = torch.from_numpy(weight_map).unsqueeze(0).unsqueeze(0).to(device)
+
+        elif self.gaussian_weight_map.device != torch.device(device):
+            self.gaussian_weight_map = self.gaussian_weight_map.to(device)
+
+        return self.gaussian_weight_map
 
 
 def get_necessary_padding(img_dimensions, out_shape):
