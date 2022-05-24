@@ -67,8 +67,7 @@ class MobileNetASPP(LoadableModel):
                                     start_z:start_z+patch_size[2]]
 
                     before_padding = img_patch.shape[2:]
-                    img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size,
-                                                    pad_value=-1)  # hard-coded for CT background
+                    img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size)
                     out_patch = F.softmax(self(img_patch), dim=1)
                     out_patch = maybe_crop_after_padding(out_patch, before_padding)
 
@@ -96,10 +95,10 @@ def get_necessary_padding(img_dimensions, out_shape):
         return pad
 
 
-def maybe_pad_img_patch(img, patch_shape, pad_value=-1):
+def maybe_pad_img_patch(img, patch_shape):
     pad = get_necessary_padding(img.shape[2:], patch_shape)
     if pad is not None:
-        img = F.pad(img, pad, mode='constant', value=pad_value)
+        img = F.pad(img, pad, mode='replicate')
     return img
 
 
