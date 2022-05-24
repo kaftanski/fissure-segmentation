@@ -236,7 +236,7 @@ def test(ds, device, out_dir, show):
     return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
 
 
-def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95):
+def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, **additional_metrics):
     with open(filepath, 'w') as csv_file:
         writer = csv.writer(csv_file)
         if mean_dice is not None:
@@ -253,6 +253,9 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD'] + [d.item() for d in std_hd] + [std_hd.mean().item()])
         writer.writerow(['Mean HD95'] + [d.item() for d in mean_hd95] + [mean_hd95.mean().item()])
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
+        writer.writerow([])
+        for key, value in additional_metrics.items():
+            writer.writerow([key, value])
 
 
 def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):

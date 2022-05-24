@@ -58,17 +58,21 @@ def test(ds, device, out_dir, show):
 
         # measure precision and recall at different softmax thresholds
         for thresh in recall_thresholds:
-            # TODO: train network on binary labels
             fissure_points = torch.zeros_like(label_pred).to(device)
             for lbl in range(1, model.num_classes):
                 fissure_points = torch.logical_or(fissure_points, softmax_pred[:, lbl] > thresh)
+
+            if not torch.all(fissure_points):
+                print(f'Threshold for point cloud: {thresh.item()}')
                 if show:
                     plt.figure()
-                    plt.imshow(fissure_points[0, :, :, fissure_points.shape[-1]//2].cpu(), cmap='gray')
+                    plt.imshow(fissure_points[0, :, fissure_points.shape[-1]//2].cpu(), cmap='gray', vmin=0, vmax=1)
+                    plt.title(f'Fissure points thresholded at: {thresh.item()}')
                     plt.show()
 
-            test_recall[i] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
-            test_precision[i] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
+                test_recall[i] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
+                test_precision[i] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
+                break
 
     # compute average metrics
     mean_dice = test_dice.mean(0)
@@ -90,7 +94,8 @@ def test(ds, device, out_dir, show):
 
     # output file
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
-                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95,
+                  mean_recall=test_recall.mean(), mean_precision=test_precision.mean())
 
     return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
 
