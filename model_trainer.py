@@ -2,6 +2,7 @@ import os
 from copy import deepcopy
 from time import time
 
+import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -31,8 +32,10 @@ class ModelTrainer:
 
         # setup optimization
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8, patience=50,
-                                                                    threshold=1e-4, cooldown=50, verbose=True)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
+                                                                    patience=math.ceil(0.05*epochs),
+                                                                    threshold=1e-4, cooldown=math.ceil(0.05*epochs),
+                                                                    verbose=True)
 
         # loss function
         self.loss_function = loss_function
