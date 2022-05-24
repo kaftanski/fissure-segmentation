@@ -63,13 +63,18 @@ class MobileNetASPP(LoadableModel):
 
         # extract the patches and forward them through the network
         output = torch.zeros(img.shape[0], self.num_classes, *img.shape[2:], device=img.device)
+        output_normalization_map = torch.zeros_like(output, device=img.device)
         for start_x in patch_starts[0]:
             for start_y in patch_starts[1]:
                 for start_z in patch_starts[2]:
                     print(f'Computing patch starting at ({start_x}, {start_y}, {start_z})')
-                    img_patch = img[..., start_x:start_x+patch_size[0],
-                                    start_y:start_y+patch_size[1],
-                                    start_z:start_z+patch_size[2]]
+
+                    patch_region = (slice(None), slice(None),
+                                    slice(start_x, start_x+patch_size[0]),
+                                    slice(start_y, start_y+patch_size[1]),
+                                    slice(start_z, start_z+patch_size[2]))
+
+                    img_patch = img[patch_region]
 
                     before_padding = img_patch.shape[2:]
                     img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size)
@@ -77,13 +82,16 @@ class MobileNetASPP(LoadableModel):
 
                     if use_gaussian:
                         # gaussian importance weighting
-                        out_patch *= self._get_gaussian(patch_size, img.device, sigma_scale=1/4.)
+                        gaussian_map = self._get_gaussian(patch_size, img.device, sigma_scale=1/4.)
+                        out_patch *= gaussian_map
+                        output_normalization_map[patch_region] += gaussian_map
+                    else:
+                        output_normalization_map[patch_region] += 1
 
                     out_patch = maybe_crop_after_padding(out_patch, before_padding)
-                    output[..., start_x:start_x+patch_size[0],
-                           start_y:start_y+patch_size[1],
-                           start_z:start_z+patch_size[2]] += out_patch
+                    output[patch_region] += out_patch
 
+        output /= output_normalization_map
         return F.softmax(output, dim=1)
 
     def _get_gaussian(self, patch_size, device, sigma_scale=1/8.):
