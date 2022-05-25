@@ -5,7 +5,7 @@ import torch
 from torch.nn import functional as F
 from image_ops import sitk_image_to_tensor, get_resample_factors
 from batchgenerators.transforms.abstract_transforms import Compose
-from batchgenerators.transforms.spatial_transforms import SpatialTransform
+from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 
 
 def spacing_resampling_matrix(input_size, input_spacing, target_spacing=1.):
@@ -29,15 +29,16 @@ def image_augmentation(img, seg, patch_size=(128, 128, 128)):
     # -> therefore patches not outside of image bounds
     patch_center_dist_from_border = [int(p//2) for p in patch_size]
 
-    transforms = Compose([SpatialTransform(
-        patch_size=patch_size,
-        patch_center_dist_from_border=patch_center_dist_from_border,
-        do_elastic_deform=True, alpha=(0., 1000.),
-        do_rotation=True, angle_x=(-0.3, 0.3), angle_y=(-0.3, 0.3), angle_z=(-0.3, 0.3),  # rotation angle in radian
-        do_scale=True, scale=(0.8, 1.2),
-        random_crop=True)
-        ]
-    )
+    transforms = Compose([
+        SpatialTransform(
+            patch_size=patch_size,
+            patch_center_dist_from_border=patch_center_dist_from_border,
+            do_elastic_deform=True, alpha=(0., 1000.),
+            do_rotation=True, angle_x=(-0.3, 0.3), angle_y=(-0.3, 0.3), angle_z=(-0.3, 0.3),  # rotation angle in radian
+            do_scale=True, scale=(0.8, 1.2),
+            random_crop=True),
+        MirrorTransform(p_per_sample=0.7)  # 70% chance for mirroring, then 50% for each axis
+    ])
 
     # TODO: maybe add some noise
 
