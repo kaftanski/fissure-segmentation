@@ -84,7 +84,7 @@ class MobileNetASPP(LoadableModel):
                         # gaussian importance weighting
                         gaussian_map = self._get_gaussian(patch_size, img.device, sigma_scale=1/4.)
                         out_patch *= gaussian_map
-                        output_normalization_map[patch_region] += gaussian_map
+                        output_normalization_map[patch_region] += maybe_crop_after_padding(gaussian_map, before_padding)
                     else:
                         output_normalization_map[patch_region] += 1
 
