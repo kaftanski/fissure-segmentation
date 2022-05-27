@@ -167,14 +167,17 @@ class ModelTrainer:
         print(f'\nDone. Took {total_train_time_in_s / 60:.4f} min')
 
         # training plot
-        plt.figure()
-        plt.title(f'Training Progression. Best model from epoch {self.best_epoch}.')
-        for key, values in self.training_history.items():
-            plt.plot(np.arange(self.initial_epoch, self.epochs), values, label=f'training {key}')
-        for key, values in self.validation_history.items():
-            plt.plot(np.arange(self.initial_epoch, self.epochs), values, label=f'validation {key}')
-        plt.legend()
-        plt.savefig(os.path.join(self.out_dir, f"training_progression.png"), dpi=300)
+        fig_width, fig_height = plt.rcParams.get('figure.figsize')
+        fig, ax = plt.subplots(len(self.training_history.keys()), 1,
+                               figsize=(fig_width, len(self.training_history.keys()) * fig_height))
+        fig.suptitle(f'Training Progression. Best model from epoch {self.best_epoch}.')
+        for i, key in enumerate(self.training_history.keys()):
+            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.training_history[key], label=f'training', c='b')
+            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.validation_history[key], label=f'validation', c='r')
+            ax[i].set_ylabel(key)
+            ax[i].legend()
+        ax[-1].set_xlabel('epoch')
+        fig.savefig(os.path.join(self.out_dir, f"training_progression.png"), dpi=300)
         if self.show:
             plt.show()
         else:
