@@ -1,5 +1,6 @@
 import argparse
 from data_processing.point_features import KP_MODES
+from losses.access_losses import Losses
 
 
 def add_training_parameters(parser):
@@ -11,6 +12,9 @@ def add_training_parameters(parser):
     parser.add_argument('--output', default='./results', help='output data path', type=str)
     parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
                         nargs='?')
+    parser.add_argument('--loss', help='loss function for training. "nnunet" is cross entropy + DICE loss, '
+                                       '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
+                        type=str, choices=Losses.list())
 
 
 def add_data_parameters(parser):

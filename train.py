@@ -13,20 +13,20 @@ from cli.cl_args import get_dgcnn_train_parser
 from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
-from losses.combine_loss import assemble_segmentation_loss_function
+from losses.access_losses import get_loss_fn
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
 
 
-def train(model, ds, batch_size, device, learn_rate, epochs, show, out_dir):
+def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir):
     # set up loss function
     class_weights = ds.get_class_weights()
     if class_weights is not None:
         class_weights = class_weights.to(device)
-    # criterion = nn.CrossEntropyLoss(weight=class_weights)
-    criterion = assemble_segmentation_loss_function(class_weights)
+
+    criterion = get_loss_fn(loss, class_weights)
 
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
@@ -267,7 +267,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
             writer.writerow([key, value])
 
 
-def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):
+def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -283,7 +283,7 @@ def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, sho
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         if not test_only:
             os.makedirs(fold_dir, exist_ok=True)
-            train(model, train_ds, batch_size, device, learn_rate, epochs, show, fold_dir)
+            train(model, train_ds, batch_size, loss, device, learn_rate, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
 
@@ -338,16 +338,16 @@ def run(ds, model, test_fn, args):
 
     if not args.test_only:
         if args.split is None:
-            train(model, ds, args.batch, device, args.lr, args.epochs, args.show, args.output)
+            train(model, ds, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output)
             test_fn(ds, device, args.output, args.show)
         else:
-            cross_val(model, ds, args.split, args.batch, device, args.lr, args.epochs, args.show, args.output, test_fn)
+            cross_val(model, ds, args.split, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output, test_fn)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            cross_val(model, ds, split_file, args.batch, device, args.lr, args.epochs, args.show, args.output, test_fn,
+            cross_val(model, ds, split_file, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output, test_fn,
                       test_only=True)
         else:
             # test with the specified fold from the split file
