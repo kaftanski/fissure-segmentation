@@ -2,22 +2,30 @@ import os
 
 import SimpleITK as sitk
 import matplotlib.pyplot as plt
+import open3d as o3d
 import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
 from data import ImageDataset
-from image_ops import tensor_to_sitk_image
+from data_processing.surface_fitting import poisson_reconstruction
+from image_ops import write_image
 from metrics import batch_dice, binary_recall, binary_precision
 from models.seg_cnn import MobileNetASPP
-from train import run, write_results
+from train import run, write_results, compute_mesh_metrics
+from utils import binary_to_fissure_segmentation
+from visualization import visualize_with_overlay
 
 
-def test(ds, device, out_dir, show):
+def test(ds: ImageDataset, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
     model = MobileNetASPP.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
+
+    # get the non-binarized labels from the dataset
+    dataset_binary = ds.binary
+    ds.binary = False
 
     # directory for output predictions
     pred_dir = os.path.join(out_dir, 'test_predictions')
@@ -29,32 +37,46 @@ def test(ds, device, out_dir, show):
     os.makedirs(plot_dir, exist_ok=True)
 
     # compute all predictions
+    num_classes = 3 if ds.exclude_rhf else 4
+
     all_pred_meshes = []
     all_targ_meshes = []
     ids = []
-    test_dice = torch.zeros(len(ds), model.num_classes)
+    test_dice = torch.zeros(len(ds), num_classes)
     test_recall = torch.zeros(len(ds))
     test_precision = torch.zeros_like(test_recall)
     recall_thresholds = torch.linspace(0.1, 0.9, steps=9)
     for i in range(len(ds)):
         case, sequence = ds.get_id(i)
-
+        ids.append((case, sequence))
+        # TODO: train with more dilation? for better recall
         img, label = ds[i]
         img, label = ds.get_batch_collate_fn()([(img, label)])
         with torch.no_grad():
             softmax_pred = model.predict_all_patches(img.to(device), patch_size=(128, 128, 128),
                                                      min_overlap=0.5, use_gaussian=True)
         label_pred = torch.argmax(softmax_pred, dim=1)
+
+        lung_mask = ds.get_lung_mask(i)
+        if model.num_classes == 2:  # binary prediction
+            # reconstruct left/right fissure
+            label_pred = binary_to_fissure_segmentation(label_pred, lung_mask, resample_spacing=ds.resample_spacing)
+
         label = label.to(device)
-        test_dice[i] += batch_dice(label_pred, label, n_labels=model.num_classes).squeeze().cpu()
+        test_dice[i] += batch_dice(label_pred, label, n_labels=num_classes).squeeze().cpu()
         print(case, sequence, 'DICE:', test_dice[i])
 
         # write prediction as image
         label_img = ds.get_fissures(i)
-        label_pred_img = tensor_to_sitk_image(label_pred)
-        label_pred_img.SetSpacing((ds.resample_spacing,)*3)
-        label_pred_img = sitk.Resample(label_pred_img, referenceImage=label_img, interpolator=sitk.sitkNearestNeighbor)
-        sitk.WriteImage(label_pred_img, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
+        label_pred_img = write_image(
+            label_pred, filename=os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'),
+            meta_src_img=label_img, undo_resample_spacing=ds.resample_spacing, interpolator=sitk.sitkNearestNeighbor)
+
+        # visualize a slice
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        fig.suptitle(f'{case} {sequence} (3D CNN prediction)')
+        visualize_with_overlay(img.squeeze()[:, img.shape[-2]//2], label_pred.squeeze()[:, img.shape[-2]//2],
+                               title='Predicted fissure segmentation', ax=ax[0])
 
         # measure precision and recall at different softmax thresholds
         for thresh in recall_thresholds:
@@ -64,28 +86,45 @@ def test(ds, device, out_dir, show):
 
             if not torch.all(fissure_points):
                 print(f'Threshold for point cloud: {thresh.item()}')
+                visualize_with_overlay(img.squeeze()[:, img.shape[-2]//2], fissure_points[0, :, fissure_points.shape[-2]//2],
+                                       title=f'Fissure points thresholded at {thresh.item():.1f}', ax=ax[1])
                 if show:
-                    plt.figure()
-                    plt.imshow(fissure_points[0, :, fissure_points.shape[-1]//2].cpu(), cmap='gray', vmin=0, vmax=1)
-                    plt.title(f'Fissure points thresholded at: {thresh.item()}')
                     plt.show()
 
                 test_recall[i] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
                 test_precision[i] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
+
+                write_image(fissure_points.long(),
+                            filename=os.path.join(label_dir, f'{case}_fissures_thresh_{sequence}.nii.gz'),
+                            meta_src_img=label_img, undo_resample_spacing=ds.resample_spacing,
+                            interpolator=sitk.sitkNearestNeighbor)
+
+                # TODO: measure with non-dilated fissures
+                # TODO: test-time aug mirroring (for more uncertainty)
                 break
+
+        fig.savefig(os.path.join(plot_dir, f'{case}_fissures_pred_{sequence}.png'), bbox_inches='tight', dpi=300)
+
+        # reconstruct meshes from predicted labelmap
+        _, predicted_meshes = poisson_reconstruction(label_pred_img, lung_mask)
+        for j, m in enumerate(predicted_meshes):
+            # save reconstructed mesh
+            o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{j + 1}_{sequence}.obj'), m)
+
+        # remember meshes for evaluation
+        meshes_target = ds.get_fissure_meshes(i)[:2 if ds.exclude_rhf else 3]
+        all_targ_meshes.append(meshes_target)
+        all_pred_meshes.append(predicted_meshes)
+
+    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
+        all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
+
+    # restore previous setting
+    ds.binary = dataset_binary
 
     # compute average metrics
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
-
-    mean_assd = torch.zeros(model.num_classes-1)
-    std_assd = torch.zeros_like(mean_assd)
-    mean_sdsd = torch.zeros_like(mean_assd)
-    std_sdsd = torch.zeros_like(mean_assd)
-    mean_hd = torch.zeros_like(mean_assd)
-    std_hd = torch.zeros_like(mean_assd)
-    mean_hd95 = torch.zeros_like(mean_assd)
-    std_hd95 = torch.zeros_like(mean_assd)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')

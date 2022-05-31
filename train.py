@@ -39,24 +39,33 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
                          show: bool = False, spacings=None, plot_folder=None):
     # metrics
     # test_dice = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
-    avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
+    avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_target[0]))
     std_surface_dist = torch.zeros_like(avg_surface_dist)
     hd_surface_dist = torch.zeros_like(avg_surface_dist)
     hd95_surface_dist = torch.zeros_like(avg_surface_dist)
 
     for i, (all_parts_predictions, all_parts_targets) in enumerate(zip(meshes_predict, meshes_target)):
         pred_points = []
-        for j, (pred_part, targ_part) in enumerate(zip(all_parts_predictions, all_parts_targets)):
-            if isinstance(pred_part, torch.Tensor):
-                asd, sdsd, hdsd, hd95sd, points = label_mesh_assd(pred_part, targ_part, spacing=spacings[i])
-                pred_points.append(points)
-            else:
-                asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
+        for j, targ_part in enumerate(all_parts_targets):
+            try:
+                pred_part = all_parts_predictions[j]
+                if isinstance(pred_part, torch.Tensor):
+                    asd, sdsd, hdsd, hd95sd, points = label_mesh_assd(pred_part, targ_part, spacing=spacings[i])
+                    pred_points.append(points)
+                else:
+                    asd, sdsd, hdsd, hd95sd = assd(pred_part, targ_part)
 
-            avg_surface_dist[i, j] += asd
-            std_surface_dist[i, j] += sdsd
-            hd_surface_dist[i, j] += hdsd
-            hd95_surface_dist[i, j] += hd95sd
+                avg_surface_dist[i, j] += asd
+                std_surface_dist[i, j] += sdsd
+                hd_surface_dist[i, j] += hdsd
+                hd95_surface_dist[i, j] += hd95sd
+
+            except IndexError:
+                print(f'Fissure {j+1} is missing from prediction.')
+                avg_surface_dist[i, j] += float('inf')
+                std_surface_dist[i, j] += float('inf')
+                hd_surface_dist[i, j] += float('inf')
+                hd95_surface_dist[i, j] += float('inf')
 
         # visualize results
         if (plot_folder is not None) or show:
@@ -262,11 +271,11 @@ def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, sho
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
-    test_dice = torch.zeros(len(split), ds.num_classes)
-    test_assd = torch.zeros(len(split), ds.num_classes-1 if not ds.lobes else int(ds.num_classes / 2))
-    test_sdsd = torch.zeros_like(test_assd)
-    test_hd = torch.zeros_like(test_assd)
-    test_hd95 = torch.zeros_like(test_assd)
+    test_dice = []
+    test_assd = []
+    test_sdsd = []
+    test_hd = []
+    test_hd95 = []
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
@@ -278,13 +287,19 @@ def cross_val(model, ds, split_file, batch_size, device, learn_rate, epochs, sho
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
 
-        test_dice[fold] += mean_dice
-        test_assd[fold] += mean_assd
-        test_sdsd[fold] += mean_sdsd
-        test_hd[fold] += mean_hd
-        test_hd95[fold] += mean_hd95
+        test_dice.append(mean_dice)
+        test_assd.append(mean_assd)
+        test_sdsd.append(mean_sdsd)
+        test_hd.append(mean_hd)
+        test_hd95.append(mean_hd95)
 
         # TODO: compute confusion matrix
+
+    test_dice = torch.stack(test_dice, dim=0)
+    test_assd = torch.stack(test_assd, dim=0)
+    test_sdsd = torch.stack(test_sdsd, dim=0)
+    test_hd = torch.stack(test_hd, dim=0)
+    test_hd95 = torch.stack(test_hd95, dim=0)
 
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
