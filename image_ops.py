@@ -63,11 +63,25 @@ def tensor_to_sitk_image(tensor: torch.Tensor, meta_src_img: sitk.Image = None):
     return img
 
 
-def write_image(img: torch.Tensor, filename: str, meta_src_img: sitk.Image = None):
+def write_image(img: torch.Tensor, filename: str, meta_src_img: sitk.Image = None,
+                undo_resample_spacing: float = None, interpolator=None):
     """
     :param img: image to save
     :param filename: output filename
     :param meta_src_img: if provided, the image will copy the metadata from this image
+    :param undo_resample_spacing: isotropic spacing that the img has been resampled to (compared to meta_src_img)
+    :param interpolator: sitk interpolation mode for undoing the resampling
     """
-    img = tensor_to_sitk_image(img, meta_src_img=meta_src_img)
+    img = tensor_to_sitk_image(img, meta_src_img=None)
+
+    if undo_resample_spacing is not None:
+        img.SetSpacing((undo_resample_spacing,) * 3)
+        img = sitk.Resample(img, referenceImage=meta_src_img,
+                            interpolator=interpolator if interpolator is not None else sitk.sitkLinear)
+
+    if meta_src_img is not None:
+        img.CopyInformation(meta_src_img)
+
     sitk.WriteImage(img, filename)
+    return img
+
