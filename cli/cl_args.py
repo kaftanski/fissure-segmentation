@@ -10,13 +10,21 @@ def add_training_parameters(parser):
     group.add_argument('--lr', default=0.001, help='learning rate', type=float)
     group.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
     group.add_argument('--batch', default=32, help='batch size', type=int)
-    group.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
     group.add_argument('--output', default='./results', help='output data path', type=str)
     group.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
                        nargs='?')
     group.add_argument('--loss', help='loss function for training. "nnunet" is cross entropy + DICE loss, '
                                        '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
                        type=str, choices=Losses.list())
+
+
+def add_test_parameters(parser):
+    group = parser.add_argument_group('Testing Parameters')
+
+    group.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
+    group.add_argument('--fold', default=None, type=int,
+                       help='specify if only one fold should be evaluated '
+                            '(needs to be in range of folds in the split file)')
 
 
 def add_data_parameters(parser):
@@ -27,9 +35,6 @@ def add_data_parameters(parser):
     group.add_argument('--exclude_rhf', const=True, default=False,
                        help='exclude the right horizontal fissure from the model', nargs='?')
     group.add_argument('--split', default=None, type=str, help='cross validation split file')
-    group.add_argument('--fold', default=None,
-                       help='specify if only one fold should be evaluated (needs to be in range of folds in the split file)',
-                       type=int)
     group.add_argument('--binary', const=True, default=False, nargs='?',
                        help='make classification problem binary (only train with fissure/non-fissure labels)')
 
@@ -39,6 +44,7 @@ def get_generic_parser(description):
 
     add_training_parameters(parser)
     add_data_parameters(parser)
+    add_test_parameters(parser)
 
     return parser
 
