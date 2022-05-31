@@ -43,7 +43,10 @@ def multiple_objects_morphology(labelmap: sitk.Image, radius: Union[int, Sequenc
 
 
 def sitk_image_to_tensor(img: sitk.Image):
-    tensor_image = torch.tensor(sitk.GetArrayFromImage(img).squeeze())
+    image_array = sitk.GetArrayFromImage(img)
+    if image_array.dtype == np.uint32:
+        image_array = image_array.astype(int)
+    tensor_image = torch.tensor(image_array.squeeze())
     return tensor_image
 
 
