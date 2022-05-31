@@ -166,10 +166,18 @@ class ModelTrainer:
         total_train_time_in_s = time() - self.training_start
         print(f'\nDone. Took {total_train_time_in_s / 60:.4f} min')
 
+        # save best model
+        model_path = os.path.join(self.out_dir, 'model.pth')
+        print(f'Saving best model from epoch {self.best_epoch} to path "{model_path}"')
+        self.model.load_state_dict(self.best_model)
+        self.model.save(model_path)
+
         # training plot
         fig_width, fig_height = plt.rcParams.get('figure.figsize')
         fig, ax = plt.subplots(len(self.training_history.keys()), 1,
                                figsize=(fig_width, len(self.training_history.keys()) * fig_height))
+        if len(self.training_history.keys()) == 1:
+            ax = [ax]
         fig.suptitle(f'Training Progression. Best model from epoch {self.best_epoch}.')
         for i, key in enumerate(self.training_history.keys()):
             ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.training_history[key], label=f'training', c='b')
@@ -182,9 +190,3 @@ class ModelTrainer:
             plt.show()
         else:
             plt.close()
-
-        # save best model
-        model_path = os.path.join(self.out_dir, 'model.pth')
-        print(f'Saving best model from epoch {self.best_epoch} to path "{model_path}"')
-        self.model.load_state_dict(self.best_model)
-        self.model.save(model_path)
