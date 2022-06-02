@@ -264,7 +264,10 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
         writer.writerow([])
         for key, value in additional_metrics.items():
-            writer.writerow([key, value])
+            if isinstance(value, torch.Tensor):
+                writer.writerow([key] + [v.item() for v in value])
+            else:
+                writer.writerow([key, value])
 
 
 def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):
