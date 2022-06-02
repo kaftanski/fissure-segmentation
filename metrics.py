@@ -115,13 +115,13 @@ def batch_dice(prediction, target, n_labels):
 def binary_recall(prediction, target):
     binary_pred = (prediction != 0).flatten(start_dim=1)
     binary_targ = (target != 0).flatten(start_dim=1)
-    return (binary_pred * binary_targ).sum(-1) / (binary_targ.sum(-1) + 1e-8)
+    return ((binary_pred * binary_targ).sum(-1) + 1e-8) / (binary_targ.sum(-1) + 1e-8)
 
 
 def binary_precision(prediction, target):
     binary_pred = (prediction != 0).flatten(start_dim=1)
     binary_targ = (target != 0).flatten(start_dim=1)
-    return (binary_pred * binary_targ).sum(-1) / (binary_pred.sum(-1) + 1e-8)
+    return ((binary_pred * binary_targ).sum(-1) + 1e-8) / (binary_pred.sum(-1) + 1e-8)
 
 
 if __name__ == '__main__':
