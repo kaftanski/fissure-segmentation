@@ -6,6 +6,7 @@ import open3d as o3d
 import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
+from cli.cli_utils import load_args_for_testing, store_args
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from image_ops import write_image
@@ -93,7 +94,7 @@ def test(ds: ImageDataset, device, out_dir, show):
 
                 test_recall[i] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
                 test_precision[i] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
-
+                print(f'Recall: {test_recall[i].item():.4f}, Precision: {test_precision[i].item():.4f}')
                 write_image(fissure_points.long(),
                             filename=os.path.join(label_dir, f'{case}_fissures_thresh_{sequence}.nii.gz'),
                             meta_src_img=label_img, undo_resample_spacing=ds.resample_spacing,
@@ -142,6 +143,11 @@ def test(ds: ImageDataset, device, out_dir, show):
 if __name__ == '__main__':
     parser = get_seg_cnn_train_parser()
     args = parser.parse_args()
+
+    if args.test_only:
+        args = load_args_for_testing(from_dir=args.output, current_args=args)
+    else:
+        store_args(args=args, out_dir=args.output)
 
     ds = ImageDataset('../data', exclude_rhf=args.exclude_rhf, binary=args.binary)
     model = MobileNetASPP(num_classes=ds.num_classes)

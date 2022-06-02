@@ -8,11 +8,7 @@ def add_training_parameters(parser):
 
     group.add_argument('--epochs', default=1000, help='max. number of epochs', type=int)
     group.add_argument('--lr', default=0.001, help='learning rate', type=float)
-    group.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
     group.add_argument('--batch', default=32, help='batch size', type=int)
-    group.add_argument('--output', default='./results', help='output data path', type=str)
-    group.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
-                       nargs='?')
     group.add_argument('--loss', help='loss function for training. "nnunet" is cross entropy + DICE loss, '
                                        '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
                        type=str, choices=Losses.list())
@@ -41,6 +37,11 @@ def add_data_parameters(parser):
 
 def get_generic_parser(description):
     parser = argparse.ArgumentParser(description=description)
+
+    parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
+    parser.add_argument('--output', default='./results', help='output data path', type=str)
+    parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
+                        nargs='?')
 
     add_training_parameters(parser)
     add_data_parameters(parser)
