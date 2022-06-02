@@ -38,7 +38,7 @@ class MobileNetASPP(LoadableModel):
         output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
         return output
 
-    def predict_all_patches(self, img, patch_size, min_overlap=0.5, use_gaussian=False):
+    def predict_all_patches(self, img, patch_size=(128, 128, 128), min_overlap=0.5, use_gaussian=True):
         assert len(img.shape)-2 == len(patch_size)
         assert 0 <= min_overlap < 1
 
