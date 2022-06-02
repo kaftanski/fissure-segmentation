@@ -16,15 +16,14 @@ def load_args_for_testing(from_dir, current_args):
         store_args(current_args, from_dir)
         return current_args
 
-    parser = ArgumentParser()
-    args_from_file = parser.parse_args()
     with open(args_file, 'r') as f:
-        args_from_file.__dict__ = json.load(f)
+        args_from_file = json.load(f)
 
     # set the arguments that should be overwritten from the test call
-    args_from_file.test_only = current_args.test_only
-    args_from_file.show = current_args.show
-    args_from_file.gpu = current_args.gpu
-    args_from_file.fold = current_args.fold
+    args_from_file['test_only'] = current_args.test_only
+    args_from_file['show'] = current_args.show
+    args_from_file['gpu'] = current_args.gpu
+    args_from_file['fold'] = current_args.fold
 
-    return args_from_file
+    current_args.__dict__ = args_from_file
+    return current_args
