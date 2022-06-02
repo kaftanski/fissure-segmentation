@@ -129,7 +129,7 @@ def kpts_to_world(kpts_pt, shape, align_corners=None):
 
 def mask_to_points(mask: torch.Tensor, spacing: Sequence[float] = (1., 1., 1.)):
     points_img = torch.nonzero(mask).flip(-1)
-    points_world = points_img * torch.tensor(spacing)
+    points_world = points_img * torch.tensor(spacing, device=mask.device)
     return points_world
 
 

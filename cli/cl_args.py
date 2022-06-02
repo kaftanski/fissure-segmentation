@@ -1,5 +1,5 @@
 import argparse
-from data_processing.point_features import KP_MODES
+from data_processing.keypoint_extraction import KP_MODES
 from losses.access_losses import Losses
 
 

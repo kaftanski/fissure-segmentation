@@ -4,8 +4,8 @@ import time
 from torch import nn
 
 import utils
+from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
 from image_ops import resample_equal_spacing, multiple_objects_morphology
-import foerstner
 import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
@@ -14,8 +14,6 @@ from matplotlib import pyplot as plt
 from data import LungData
 from utils import pairwise_dist, filter_1d, smooth
 
-
-KP_MODES = ['foerstner', 'noisy']
 POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
 
 
@@ -157,10 +155,12 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
 
 def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
-    device = 'cuda:1'
+    device = 'cuda:0'
     torch.cuda.empty_cache()
 
     out_dir = os.path.join(out_dir, kp_mode)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
 
     # resample all images to unit spacing
     img = resample_equal_spacing(img, target_spacing=1)
@@ -178,34 +178,13 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
     lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
 
     if kp_mode == 'foerstner':
-        # hyperparameters keypoints
-        kp_sigma = 0.5
-        threshold = 1e-8
-        nms_kernel = 7
-
-        # compute förstner keypoints
-        start = time.time()
-        kp = foerstner.foerstner_kpts(img_tensor,
-                                      mask=torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(
-                                          0).unsqueeze(0).to(device),
-                                      sigma=kp_sigma, thresh=threshold, d=nms_kernel)
-        print(f'\tFound {kp.shape[0]} keypoints (took {time.time() - start:.4f})')
+        kp = get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7)
 
     elif kp_mode == 'noisy':
-        # compute keypoints as noisy fissure labels (for testing DGCNN)
+        kp = get_noisy_keypoints(fissures_tensor, device)
 
-        # take all fissure points (limit to 20.000 for computational reasons)
-        kp = torch.nonzero(fissures_tensor).float()
-        kp = kp[torch.randperm(len(kp))[:20000]].to(device)
-
-        # add some noise to them
-        noise = torch.randn_like(kp, dtype=torch.float) * 3
-        kp += noise.to(device)
-        kp = kp.long()   # TODO: subsampling to get < 20.000 points per point cloud
-
-        # prevent index out of bounds
-        for d in range(kp.shape[1]):
-            kp[:, d] = torch.clamp(kp[:, d], min=0, max=img_tensor.squeeze().shape[d] - 1)
+    elif kp_mode == 'cnn':
+        kp = get_cnn_keypoints(cv_dir='results/binary_3DCNN_cv', case=case, sequence=sequence,device=device)
 
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
@@ -275,4 +254,4 @@ if __name__ == '__main__':
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
-        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='noisy')
+        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='cnn')
