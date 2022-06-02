@@ -46,7 +46,9 @@ def test(ds: ImageDataset, device, out_dir, show):
     test_dice = torch.zeros(len(ds), num_classes)
     test_recall = torch.zeros(len(ds))
     test_precision = torch.zeros_like(test_recall)
-    recall_thresholds = torch.linspace(0.1, 0.9, steps=9)
+    softmax_thresholds = torch.linspace(0, 1, steps=21)
+    recall_per_threshold = torch.zeros(len(ds), len(softmax_thresholds))
+    precision_per_threshold = torch.zeros_like(recall_per_threshold)
     for i in range(len(ds)):
         case, sequence = ds.get_id(i)
         ids.append((case, sequence))
@@ -80,21 +82,32 @@ def test(ds: ImageDataset, device, out_dir, show):
                                title='Predicted fissure segmentation', ax=ax[0])
 
         # measure precision and recall at different softmax thresholds
-        for thresh in recall_thresholds:
-            fissure_points = torch.zeros_like(label_pred).to(device)
+        threshold_found = False
+        for t, thresh in enumerate(softmax_thresholds):
+            fissure_points = torch.zeros_like(label_pred, device=device)
             for lbl in range(1, model.num_classes):
                 fissure_points = torch.logical_or(fissure_points, softmax_pred[:, lbl] > thresh)
 
-            if not torch.all(fissure_points):
+            recall_per_threshold[i, t] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
+            precision_per_threshold[i, t] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
+
+            # use the lowest threshold where not all pixels are background
+            if not threshold_found and not torch.all(fissure_points):
                 print(f'Threshold for point cloud: {thresh.item()}')
-                visualize_with_overlay(img.squeeze()[:, img.shape[-2]//2], fissure_points[0, :, fissure_points.shape[-2]//2],
+                threshold_found = True
+
+                # visualize the positive fissure points
+                visualize_with_overlay(img.squeeze()[:, img.shape[-2]//2],
+                                       fissure_points[0, :, fissure_points.shape[-2]//2],
                                        title=f'Fissure points thresholded at {thresh.item():.1f}', ax=ax[1])
                 if show:
                     plt.show()
 
-                test_recall[i] = binary_recall(prediction=fissure_points, target=label).squeeze().cpu()
-                test_precision[i] = binary_precision(prediction=fissure_points, target=label).squeeze().cpu()
+                # save the metrics and the image
+                test_recall[i] = recall_per_threshold[i, t]
+                test_precision[i] = precision_per_threshold[i, t]
                 print(f'Recall: {test_recall[i].item():.4f}, Precision: {test_precision[i].item():.4f}')
+
                 write_image(fissure_points.long(),
                             filename=os.path.join(label_dir, f'{case}_fissures_thresh_{sequence}.nii.gz'),
                             meta_src_img=label_img, undo_resample_spacing=ds.resample_spacing,
@@ -102,9 +115,9 @@ def test(ds: ImageDataset, device, out_dir, show):
 
                 # TODO: measure with non-dilated fissures
                 # TODO: test-time aug mirroring (for more uncertainty)
-                break
 
-        fig.savefig(os.path.join(plot_dir, f'{case}_fissures_pred_{sequence}.png'), bbox_inches='tight', dpi=300)
+        fig.savefig(os.path.join(out_dir, f'{case}_fissures_pred_{sequence}.png'), bbox_inches='tight', dpi=300)
+        plt.close(fig)
 
         # reconstruct meshes from predicted labelmap
         _, predicted_meshes = poisson_reconstruction(label_pred_img, lung_mask)
@@ -132,10 +145,28 @@ def test(ds: ImageDataset, device, out_dir, show):
     print(f'Mean recall: {test_recall.mean()}')
     print(f'Mean precision: {test_precision.mean()}')
 
+    # plot mean precision-recall curve
+    mean_recall_per_threshold = recall_per_threshold.mean(0)
+    mean_precision_per_threshold = precision_per_threshold.mean(0)
+    print('Softmax Thresholds used:', softmax_thresholds)
+    print('Mean recall per threshold:', mean_recall_per_threshold)
+    print('Mean precision per threshold:', mean_precision_per_threshold)
+    plt.figure()
+    plt.plot(mean_recall_per_threshold, mean_precision_per_threshold)
+    plt.title('Mean Precision-Recall Curve for Binary Fissure Points\n(measured at different softmax-thresholds)')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.savefig(os.path.join(plot_dir, f'precision_recall.png'), bbox_inches='tight', dpi=300)
+    if show:
+        plt.show()
+    plt.close()
+
     # output file
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95,
-                  mean_recall=test_recall.mean(), mean_precision=test_precision.mean())
+                  mean_recall=test_recall.mean(), mean_precision=test_precision.mean(),
+                  softmax_thresholds=softmax_thresholds, mean_recall_per_threshold=mean_recall_per_threshold,
+                  mean_precision_per_threshold=mean_precision_per_threshold)
 
     return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
 
