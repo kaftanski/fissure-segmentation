@@ -322,6 +322,10 @@ class PointDataset(CustomDataset):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=False, binary=binary)
 
+        if lobes and binary:
+            raise NotImplementedError(
+                'Binary prediction for lobe labels is not implemented. Use fissure data or remove the binary option.')
+
         assert patch_feat in [None, 'mind', 'mind_ssc']
         if not use_coords:
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
@@ -344,8 +348,6 @@ class PointDataset(CustomDataset):
             else:
                 if exclude_rhf:
                     lbls[lbls == 3] = 0
-            if self.binary:
-                lbls[lbls != 0] = 1
             self.points.append(pts)
             self.labels.append(lbls)
             if feat is not None:
@@ -354,7 +356,7 @@ class PointDataset(CustomDataset):
                 self.features.append(torch.empty(0, pts.shape[1]))
             self.ids.append((case, sequence))
 
-        self.num_classes = max(len(torch.unique(lbl)) for lbl in self.labels)
+        self.num_classes = 2 if self.binary else max(len(torch.unique(lbl)) for lbl in self.labels)
 
     def __getitem__(self, item):
         # randomly sample points
@@ -366,6 +368,8 @@ class PointDataset(CustomDataset):
             x = feat
 
         lbls = self.labels[item]
+        if self.binary:
+            lbls[lbls != 0] = 1
         sample = torch.randperm(x.shape[1])[:self.sample_points]
         return x[:, sample], lbls[sample]
 

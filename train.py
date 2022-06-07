@@ -116,6 +116,10 @@ def test(ds, device, out_dir, show):
     net.to(device)
     net.eval()
 
+    # get the non-binarized labels from the dataset
+    dataset_binary = ds.binary
+    ds.binary = False
+
     # directory for output predictions
     pred_dir = os.path.join(out_dir, 'test_predictions')
     mesh_dir = os.path.join(pred_dir, 'meshes')
@@ -138,9 +142,7 @@ def test(ds, device, out_dir, show):
         with torch.no_grad():
             out = net(inputs)
 
-        # compute point dice score
         labels_pred = out.argmax(1)
-        test_dice[i] += batch_dice(labels_pred, lbls, ds.num_classes)
 
         # convert points back to world coordinates
         pts = ds.get_coords(i)
@@ -150,12 +152,6 @@ def test(ds, device, out_dir, show):
         spacing = torch.tensor(image.GetSpacing(), device=device)
         shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing.flip(0)
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
-
-        # visualize point clouds
-        visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction', show=show,
-                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_pred.png'))
-        visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target', show=show,
-                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_targ.png'))
 
         # POST-PROCESSING prediction
         mask_img = img_ds.get_lung_mask(img_index)
@@ -182,6 +178,27 @@ def test(ds, device, out_dir, show):
 
         else:
             meshes_target = img_ds.get_fissure_meshes(img_index)[:2 if ds.exclude_rhf else 3]
+
+            if net.num_classes == 2:  # binary prediction
+                # voxelize point labels
+                fissure_tensor = torch.zeros_like(mask_tensor, dtype=torch.long, device=labels_pred.device)
+                pts_index = (pts / spacing).flip(-1).round().long()
+                fissure_tensor[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]] = labels_pred.squeeze()
+
+                # infer right/left fissure labels from lung mask
+                fissure_tensor = binary_to_fissure_segmentation(fissure_tensor, lung_mask=mask_img)
+
+                # assign labels to points
+                labels_pred = fissure_tensor[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]].unsqueeze(0)
+
+        # visualize point clouds
+        visualize_point_cloud(pts, labels_pred.squeeze(), title=f'{case}_{sequence} point cloud prediction', show=show,
+                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_pred.png'))
+        visualize_point_cloud(pts, lbls.squeeze(), title=f'{case}_{sequence} point cloud target', show=show,
+                              savepath=os.path.join(plot_dir, f'{case}_{sequence}_point_cloud_targ.png'))
+
+        # compute point dice score
+        test_dice[i] += batch_dice(labels_pred, lbls, ds.num_classes)
 
         # mesh fitting for each label
         meshes_predict = []
@@ -228,6 +245,9 @@ def test(ds, device, out_dir, show):
         all_pred_meshes.append(meshes_predict)
         all_targ_meshes.append(meshes_target)
         ids.append((case, sequence))
+
+    # restore previous setting
+    ds.binary = dataset_binary
 
     # compute average metrics
     mean_dice = test_dice.mean(0)
