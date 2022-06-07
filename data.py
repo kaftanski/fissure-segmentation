@@ -368,10 +368,12 @@ class PointDataset(CustomDataset):
             x = feat
 
         lbls = self.labels[item]
-        if self.binary:
-            lbls[lbls != 0] = 1
         sample = torch.randperm(x.shape[1])[:self.sample_points]
-        return x[:, sample], lbls[sample]
+
+        if self.binary:
+            return x[:, sample], lbls[sample] != 0
+        else:
+            return x[:, sample], lbls[sample]
 
     def __len__(self):
         return len(self.points)
@@ -399,7 +401,12 @@ class PointDataset(CustomDataset):
             x = torch.cat([self.points[i], self.features[i]], dim=0)
         else:
             x = self.features[i]
-        return x, self.labels[i]
+
+        lbls = self.labels[i]
+        if self.binary:
+            lbls[lbls != 0] = 1
+
+        return x, lbls
 
     def get_coords(self, i):
         return self.points[i]
