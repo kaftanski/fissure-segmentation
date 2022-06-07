@@ -92,8 +92,6 @@ class LungData(Dataset):
             meshlist = sorted(glob(os.path.join(folder, f'{case}_mesh_{sequence}', f'{case}_lobe*_{sequence}.obj')))
             self.lobe_meshes.append(meshlist if meshlist else None)
 
-        self.num_classes = 4
-
     def get_image(self, item):
         return _load_files_from_file_list(item, self.images)
 
