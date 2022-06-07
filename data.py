@@ -231,11 +231,12 @@ class ImageDataset(LungData, CustomDataset):
             if isinstance(attr, list):
                 remove_indices(attr, to_remove)
 
-        # set number of classes
+    @property
+    def num_classes(self):
         if self.binary:
-            self.num_classes = 2
+            return 2
         else:
-            self.num_classes = 3 if exclude_rhf else 4
+            return 3 if self.exclude_rhf else 4
 
     def __getitem__(self, item):
         img = self.get_image(item)
@@ -356,7 +357,9 @@ class PointDataset(CustomDataset):
                 self.features.append(torch.empty(0, pts.shape[1]))
             self.ids.append((case, sequence))
 
-        self.num_classes = 2 if self.binary else max(len(torch.unique(lbl)) for lbl in self.labels)
+    @property
+    def num_classes(self):
+        return 2 if self.binary else max(len(torch.unique(lbl)) for lbl in self.labels)
 
     def __getitem__(self, item):
         # randomly sample points

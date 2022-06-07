@@ -38,12 +38,10 @@ def test(ds: ImageDataset, device, out_dir, show):
     os.makedirs(plot_dir, exist_ok=True)
 
     # compute all predictions
-    num_classes = 3 if ds.exclude_rhf else 4
-
     all_pred_meshes = []
     all_targ_meshes = []
     ids = []
-    test_dice = torch.zeros(len(ds), num_classes)
+    test_dice = torch.zeros(len(ds), ds.num_classes)
     test_recall = torch.zeros(len(ds))
     test_precision = torch.zeros_like(test_recall)
     softmax_thresholds = torch.linspace(0, 1, steps=21)
@@ -66,7 +64,7 @@ def test(ds: ImageDataset, device, out_dir, show):
             label_pred = binary_to_fissure_segmentation(label_pred, lung_mask, resample_spacing=ds.resample_spacing)
 
         label = label.to(device)
-        test_dice[i] += batch_dice(label_pred, label, n_labels=num_classes).squeeze().cpu()
+        test_dice[i] += batch_dice(label_pred, label, n_labels=ds.num_classes).squeeze().cpu()
         print(case, sequence, 'DICE:', test_dice[i])
 
         # write prediction as image
