@@ -1,9 +1,7 @@
-from typing import Sequence
-
 import SimpleITK as sitk
 import torch
 from torch.nn import functional as F
-from image_ops import sitk_image_to_tensor, get_resample_factors
+from utils.image_ops import sitk_image_to_tensor, get_resample_factors
 from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 

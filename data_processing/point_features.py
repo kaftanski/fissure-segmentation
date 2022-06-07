@@ -5,7 +5,7 @@ from torch import nn
 
 import utils
 from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
-from image_ops import resample_equal_spacing, multiple_objects_morphology
+from utils.image_ops import resample_equal_spacing, multiple_objects_morphology
 import SimpleITK as sitk
 import torch
 import torch.nn.functional as F

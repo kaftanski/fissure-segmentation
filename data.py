@@ -11,11 +11,8 @@ from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
 
-from batchgenerators.augmentations.utils import center_crop_3D_image
-from matplotlib import pyplot as plt
-
 from augmentations import image_augmentation
-from image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
+from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
 from utils import load_points
 import SimpleITK as sitk
 import numpy as np

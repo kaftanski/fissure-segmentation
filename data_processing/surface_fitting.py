@@ -3,29 +3,25 @@ from typing import Sequence, Tuple, List
 from utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
 import pytorch3d.structures
 from numpy.typing import ArrayLike
-from pytorch3d.vis import plotly_vis
 import SimpleITK as sitk
 import math
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import vtk
 from mpl_toolkits.mplot3d import Axes3D
 from pytorch3d.loss import (
     chamfer_distance,
     mesh_edge_loss,
     mesh_laplacian_smoothing,
-    mesh_normal_consistency, point_mesh_face_distance,
-)
+    mesh_normal_consistency, )
 from pytorch3d.ops import sample_points_from_meshes
-from pytorch3d.structures import Meshes, Pointclouds
+from pytorch3d.structures import Meshes
 from skimage.measure import marching_cubes
 from torch import nn
 from tqdm import tqdm
 
 import data
-import image_ops
 from data import image2tensor
 import open3d as o3d
 

@@ -9,7 +9,7 @@ from cli.cl_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
-from image_ops import write_image
+from utils.image_ops import write_image
 from metrics import batch_dice, binary_recall, binary_precision
 from models.seg_cnn import MobileNetASPP
 from train import run, write_results, compute_mesh_metrics

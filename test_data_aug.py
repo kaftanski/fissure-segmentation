@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 
 from data import ImageDataset
-from image_ops import sitk_image_to_tensor, resample_equal_spacing
+from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from visualization import visualize_with_overlay
 
 ds = ImageDataset('../data', patch_scaling=0.5)
