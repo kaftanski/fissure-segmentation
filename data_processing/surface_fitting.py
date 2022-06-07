@@ -1,6 +1,6 @@
 import os
 from typing import Sequence, Tuple, List
-from utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
+from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
 import pytorch3d.structures
 from numpy.typing import ArrayLike
 import SimpleITK as sitk

@@ -1,6 +1,5 @@
 import json
 import os
-from argparse import ArgumentParser
 
 
 def store_args(args, out_dir):

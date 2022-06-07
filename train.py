@@ -6,7 +6,6 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
-from torch import nn
 
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
@@ -16,7 +15,8 @@ from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh
 from losses.access_losses import get_loss_fn
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
-from utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
+from utils.fissure_utils import binary_to_fissure_segmentation
+from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
 from visualization import visualize_point_cloud, visualize_trimesh
 
 

@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch.cuda.amp import GradScaler, autocast
-from torch.utils.data import Dataset, random_split, DataLoader
+from torch.utils.data import random_split, DataLoader
 
 import models.modelio
 from data import CustomDataset

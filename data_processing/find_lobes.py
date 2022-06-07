@@ -1,17 +1,16 @@
 import os.path
-import open3d as o3d
-from matplotlib import pyplot as plt
-from skimage.measure import marching_cubes
-from torch.nn import functional as F
-import SimpleITK as sitk
-import numpy as np
 from typing import Tuple, List
 
+import SimpleITK as sitk
+import numpy as np
+import open3d as o3d
 import torch
+from skimage.measure import marching_cubes
+from torch.nn import functional as F
 
 from data import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
-from utils import create_o3d_mesh
+from utils.utils import create_o3d_mesh
 from visualization import visualize_trimesh
 
 

@@ -4,7 +4,7 @@ from typing import Sequence
 import open3d as o3d
 import torch
 
-from utils import mask_to_points
+from utils.utils import mask_to_points
 from data_processing.surface_fitting import point_surface_distance
 
 

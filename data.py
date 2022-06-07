@@ -13,7 +13,7 @@ from typing import OrderedDict
 
 from augmentations import image_augmentation
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
-from utils import load_points
+from utils.utils import load_points
 import SimpleITK as sitk
 import numpy as np
 import torch

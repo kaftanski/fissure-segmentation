@@ -6,7 +6,7 @@ from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
-from utils import pairwise_dist
+from utils.utils import pairwise_dist
 
 
 def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None) -> torch.Tensor:

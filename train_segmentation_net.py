@@ -13,7 +13,7 @@ from utils.image_ops import write_image
 from metrics import batch_dice, binary_recall, binary_precision
 from models.seg_cnn import MobileNetASPP
 from train import run, write_results, compute_mesh_metrics
-from utils import binary_to_fissure_segmentation
+from utils.fissure_utils import binary_to_fissure_segmentation
 from visualization import visualize_with_overlay
 
 

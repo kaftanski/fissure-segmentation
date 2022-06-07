@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from data import LungData
-from utils import pairwise_dist, filter_1d, smooth
+from utils.utils import pairwise_dist, filter_1d, smooth
 
 POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
 
