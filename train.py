@@ -9,6 +9,7 @@ import torch
 
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
+from cli.cli_utils import load_args_for_testing, store_args
 from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
@@ -382,6 +383,12 @@ def run(ds, model, test_fn, args):
 if __name__ == '__main__':
     parser = get_dgcnn_train_parser()
     args = parser.parse_args()
+
+    if args.test_only:
+        args = load_args_for_testing(from_dir=args.output, current_args=args)
+    else:
+        store_args(args=args, out_dir=args.output)
+
     print(args)
 
     # load data
