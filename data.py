@@ -374,7 +374,7 @@ class PointDataset(CustomDataset):
         sample = torch.randperm(x.shape[1])[:self.sample_points]
 
         if self.binary:
-            return x[:, sample], lbls[sample] != 0
+            return x[:, sample], (lbls[sample] != 0).long()
         else:
             return x[:, sample], lbls[sample]
 
