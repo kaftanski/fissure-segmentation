@@ -54,6 +54,9 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
         if any(case in name and sequence_temp in name for name in fold['val']):
             fold_nr = i
 
+    if fold_nr is None:
+        raise ValueError(f'ID {case}_{sequence} is not present in any cross-validation test split (directory: {cv_dir})')
+
     model = MobileNetASPP.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
     model.eval()
     model.to(device)

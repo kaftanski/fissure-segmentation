@@ -3,7 +3,6 @@ import time
 
 from torch import nn
 
-import utils
 from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology
 import SimpleITK as sitk
@@ -12,7 +11,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from data import LungData
-from utils.utils import pairwise_dist, filter_1d, smooth
+from utils.utils import pairwise_dist, filter_1d, smooth, kpts_to_grid
 
 POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
 
@@ -155,7 +154,7 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
 
 def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
-    device = 'cuda:0'
+    device = 'cuda:1'
     torch.cuda.empty_cache()
 
     out_dir = os.path.join(out_dir, kp_mode)
@@ -202,8 +201,8 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
 
     # coordinate features: transform indices into physical points
     spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-    points = utils.kpts_to_grid((kp * spacing).flip(-1), torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
-                                align_corners=True).transpose(0, 1)
+    points = kpts_to_grid((kp * spacing).flip(-1), torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
+                          align_corners=True).transpose(0, 1)
     torch.save(points.cpu(), os.path.join(out_dir, f'{case}_coords_{sequence}.pth'))
 
     # image patch features
