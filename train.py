@@ -207,9 +207,15 @@ def test(ds, device, out_dir, show):
             label = j+1
 
             if not ds.lobes:
-                # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                if ds.kp_mode == 'cnn':
+                    # point cloud contains more foreground points because of pre-seg CNN
+                    depth = 6
+                else:
+                    # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                    depth = 3
+
                 mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
-                                                          depth=3)
+                                                          depth=depth)
             else:
                 # extract the fissure points from labelmap
                 fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,

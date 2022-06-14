@@ -330,6 +330,7 @@ class PointDataset(CustomDataset):
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 
         files = sorted(glob(os.path.join(folder, kp_mode, '*_coords_*')))
+        self.kp_mode = kp_mode
         self.folder = os.path.join(folder, kp_mode)
         self.use_coords = use_coords
         self.lobes = lobes
