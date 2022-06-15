@@ -210,7 +210,7 @@ class SpatialTransformer(nn.Module):
         transform_mat = transform_mat.view(x.shape[0], self.in_features, self.in_features)
         coords = coords.transpose(2, 1)
         coords = torch.bmm(coords, transform_mat)  # transform coords
-        x[:, :self.in_features] = coords.transpose(2, 1)
+        x = torch.cat([coords.transpose(2, 1), x[:, self.in_features:]], dim=1)
         return x
 
     def init_weights(self):
