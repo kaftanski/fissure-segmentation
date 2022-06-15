@@ -140,13 +140,22 @@ def test(ds, device, out_dir, show):
         inputs = inputs.unsqueeze(0).to(device)
         lbls = lbls.unsqueeze(0).to(device)
 
+        n_subsets = inputs.shape[-1] // ds.sample_points
+        predictions = []
+        perm = torch.randperm(inputs.shape[-1], device=device)
+        inputs = inputs[..., perm[:n_subsets*ds.sample_points]]
+        lbls = lbls[..., perm[:n_subsets*ds.sample_points]]
         with torch.no_grad():
-            out = net(inputs)
+            for j in range(n_subsets):
+                subset = slice(j*ds.sample_points, (j+1)*ds.sample_points)
+                out = net(inputs[..., subset])
+                predictions.append(out)
 
+        out = torch.concat(predictions, dim=-1)
         labels_pred = out.argmax(1)
 
         # convert points back to world coordinates
-        pts = ds.get_coords(i)
+        pts = inputs[0, :3]  # coords are the first 3 features
         case, sequence = ds.ids[i]
         img_index = img_ds.get_index(case, sequence)
         image = img_ds.get_image(img_index)
