@@ -56,13 +56,15 @@ def get_dgcnn_train_parser():
     group = parser.add_argument_group('DGCNN parameters')
     group.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     group.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
-    group.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
+    group.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?', required=True)
     group.add_argument('--patch', const=True, default=False, help='use image patch around points as features',
                        nargs='?')
     group.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN',
                        nargs='?')
     group.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN',
                        nargs='?')
+    group.add_argument('--img_feat_extractor', const=True, default=False,
+                       help='use an extra image feature extraction module', nargs='?')
 
     return parser
 

@@ -64,11 +64,20 @@ def knn(x, k, self_loop=False):
 
 class DGCNNSeg(LoadableModel):
     @store_config_args
-    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
         super(DGCNNSeg, self).__init__()
         self.k = k
         self.num_classes = num_classes
         self.dynamic = dynamic
+
+        if image_feat_module:
+            if in_features < 4:
+                raise ValueError('Number of In-Features for DGCNN too low if you want to use the image feature module! '
+                                 'Need at 3, as the first 3 are assumed to be the point coordinates.')
+            self.image_feature_module = ImageFeatures(in_channels=in_features-3, out_channels=(6, 12))
+            in_features = 3 + 12
+        else:
+            self.image_feature_module = None
 
         if spatial_transformer:
             self.spatial_transformer = SpatialTransformer(k)
@@ -105,6 +114,10 @@ class DGCNNSeg(LoadableModel):
         """
         # compute static kNN graph based on coordinates if net is not supposed to be dynamic
         knn_graph = None if self.dynamic else knn(x[:, :3], self.k, self_loop=False)
+
+        # extract image features for points
+        if self.image_feature_module is not None:
+            x = self.image_feature_module(x)
 
         # transform point cloud into canonical space
         if self.spatial_transformer is not None:
@@ -159,30 +172,6 @@ class EdgeConv(nn.Module):
         return x
 
 
-class SharedFullyConnected(nn.Module):
-    def __init__(self, in_features, out_features, dim=2):
-        super(SharedFullyConnected, self).__init__()
-
-        if dim == 1:
-            conv_layer = nn.Conv1d
-            norm_layer = nn.BatchNorm1d
-        elif dim == 2:
-            conv_layer = nn.Conv2d
-            norm_layer = nn.BatchNorm2d
-        else:
-            conv_layer = nn.Conv3d
-            norm_layer = nn.BatchNorm3d
-
-        self.layers = nn.Sequential(
-            conv_layer(in_features, out_features, kernel_size=1, bias=False),
-            norm_layer(out_features),
-            nn.LeakyReLU(negative_slope=0.2)  # TODO: test lighter slope
-        )
-
-    def forward(self, x):
-        return self.layers(x)
-
-
 class SpatialTransformer(nn.Module):
     def __init__(self, k):
         super(SpatialTransformer, self).__init__()
@@ -217,6 +206,65 @@ class SpatialTransformer(nn.Module):
         self.apply(init_weights)
         init.constant_(self.transform.weight, 0)
         init.eye_(self.transform.bias.view(self.in_features, self.in_features))
+
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size=3, stride=1, bias=False, padding=True, dim=2,
+                 negative_slope=1e-2):
+        super(ConvBlock, self).__init__()
+
+        if dim == 1:
+            conv_layer = nn.Conv1d
+            norm_layer = nn.BatchNorm1d
+        elif dim == 2:
+            conv_layer = nn.Conv2d
+            norm_layer = nn.BatchNorm2d
+        elif dim == 3:
+            conv_layer = nn.Conv3d
+            norm_layer = nn.BatchNorm3d
+        else:
+            raise ValueError(f'There is no Conv layer for dimensionality {dim}.')
+
+        self.layers = nn.Sequential(
+            conv_layer(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=bias,
+                       stride=stride, padding=(kernel_size//2) if padding else 0),
+            norm_layer(num_features=out_channels),
+            nn.LeakyReLU(negative_slope=negative_slope)
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class SharedFullyConnected(ConvBlock):
+    def __init__(self, in_features, out_features, dim=2):
+        super(SharedFullyConnected, self).__init__(
+            in_features, out_features, dim=dim,
+            kernel_size=1, padding=False, bias=False,
+            negative_slope=0.2)  # TODO: test lighter slope
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class ImageFeatures(nn.Module):
+    def __init__(self, in_channels=6, out_channels=(6, 12), kernel_size=1):
+        super(ImageFeatures, self).__init__()
+
+        self.layers = nn.ModuleList()
+        in_ch = [in_channels, *out_channels[:-1]]
+        for i, o in zip(in_ch, out_channels):
+            self.layers.append(ConvBlock(in_channels=i, out_channels=o, kernel_size=kernel_size, dim=1))
+
+    def forward(self, x):
+        # only use the non-coordinate features (i.e. the channels after the first 3!)
+        feat = torch.clone(x[:, 3:])
+
+        for layer in self.layers:
+            feat = layer(feat)
+
+        x = torch.concat([x[:, :3], feat], dim=1)
+        return x
 
 
 if __name__ == '__main__':
