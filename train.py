@@ -17,7 +17,8 @@ from losses.access_losses import get_loss_fn
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from utils.fissure_utils import binary_to_fissure_segmentation
-from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points
+from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
+    points_to_label_map
 from visualization import visualize_point_cloud, visualize_trimesh
 
 
@@ -182,9 +183,7 @@ def test(ds, device, out_dir, show):
 
             if net.num_classes == 2:  # binary prediction
                 # voxelize point labels
-                fissure_tensor = torch.zeros_like(mask_tensor, dtype=torch.long, device=labels_pred.device)
-                pts_index = (pts / spacing).flip(-1).round().long()
-                fissure_tensor[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]] = labels_pred.squeeze()
+                fissure_tensor, pts_index = points_to_label_map(pts, labels_pred.squeeze(), mask_tensor.shape, spacing=image.GetSpacing())
 
                 # infer right/left fissure labels from lung mask
                 fissure_tensor = binary_to_fissure_segmentation(fissure_tensor, lung_mask=mask_img)

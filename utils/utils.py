@@ -176,3 +176,27 @@ def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: boo
 
     triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
     mesh.remove_triangles_by_mask(triangles_to_remove)
+
+
+def points_to_label_map(pts, labels, out_shape, spacing):
+    """
+
+    :param pts_index: in xyz format and in world coordinates (with the given spacing)
+    :param labels: label for each point
+    :param out_shape: in zyx format
+    :param spacing: in xyz dimension
+    :return: labelmap tensor
+    """
+    # transform points into pixel coordinates
+    pts_index = pts / torch.tensor([spacing], device=pts.device)
+    pts_index = pts_index.flip(-1).round().long()
+
+    # prevent index out of bounds
+    for d in range(len(out_shape)):
+        pts_index[:, d] = torch.clamp(pts_index[:, d], min=0, max=out_shape[d] - 1)
+
+    # create tensor
+    label_map = torch.zeros(out_shape, dtype=labels.dtype, device=labels.device)
+    label_map[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]] = labels.squeeze()
+
+    return label_map, pts_index
