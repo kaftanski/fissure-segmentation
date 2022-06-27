@@ -7,6 +7,7 @@ from torch.nn import init
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
 from utils.utils import pairwise_dist
+from torch.nn import functional as F
 
 
 def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None) -> torch.Tensor:
@@ -137,6 +138,23 @@ class DGCNNSeg(LoadableModel):
         x = self.segmentation(x)
 
         return x
+
+    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        softmax_accumulation = torch.zeros(pc.shape[0], self.num_classes, *pc.shape[2:], device=pc.device)
+        for r in range(n_runs_min):
+            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
+            softmax_accumulation[..., perm] += F.softmax(self(pc[..., perm]), dim=1)
+
+        # look if there are points that have been left out
+        left_out_pts = softmax_accumulation.sum(1) == 0
+        while torch.any(left_out_pts):
+            print(f'After {n_runs_min} runs, {left_out_pts.sum()} points have not been seen yet.')
+            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
+            softmax_accumulation[..., perm] += F.softmax(self(pc[..., perm]), dim=0)
+            n_runs_min += 1
+            left_out_pts = softmax_accumulation.sum(1) == 0
+
+        return F.softmax(softmax_accumulation, dim=1)
 
 
 class EdgeConv(nn.Module):
