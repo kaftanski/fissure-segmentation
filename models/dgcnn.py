@@ -1,4 +1,5 @@
 import time
+import warnings
 
 import torch
 from torch import nn
@@ -140,19 +141,28 @@ class DGCNNSeg(LoadableModel):
         return x
 
     def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        n_leftover_runs = n_runs_min // 5
+        n_initial_runs = n_runs_min - n_leftover_runs
         softmax_accumulation = torch.zeros(pc.shape[0], self.num_classes, *pc.shape[2:], device=pc.device)
-        for r in range(n_runs_min):
+        for r in range(n_initial_runs):
             perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
             softmax_accumulation[..., perm] += F.softmax(self(pc[..., perm]), dim=1)
 
         # look if there are points that have been left out
-        left_out_pts = softmax_accumulation.sum(1) == 0
-        while torch.any(left_out_pts):
-            print(f'After {n_runs_min} runs, {left_out_pts.sum()} points have not been seen yet.')
-            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
-            softmax_accumulation[..., perm] += F.softmax(self(pc[..., perm]), dim=0)
-            n_runs_min += 1
-            left_out_pts = softmax_accumulation.sum(1) == 0
+        left_out_pts = torch.nonzero(softmax_accumulation.sum(1) == 0)[..., 1]
+        other_pts = torch.nonzero(softmax_accumulation.sum(1))[..., 1]
+        print(f'After {n_initial_runs} runs, {left_out_pts.shape[0]} points have not been seen yet.')
+        point_mix = sample_points // 2
+        fill_out_num = sample_points - point_mix
+        perm = torch.randperm(n_leftover_runs*point_mix, device=pc.device) % len(left_out_pts)
+        for r in range(n_leftover_runs):
+            lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
+            other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
+            pts = torch.cat((lo_pts, other), dim=0)
+            softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=0)
+
+        if (softmax_accumulation.sum(1) == 0).sum() != 0:
+            warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
 
         return F.softmax(softmax_accumulation, dim=1)
 
