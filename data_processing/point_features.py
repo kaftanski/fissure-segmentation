@@ -83,14 +83,14 @@ def foerstner_keypoints_wrong(img: torch.Tensor, roi: torch.Tensor, sigma: float
     return keypoints_masked
 
 
-def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True):
+def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = True):
     """ Modality independent neighborhood descriptors (MIND) with 6-neighborhood.
         Source: https://pubmed.ncbi.nlm.nih.gov/21995071/
         Optionally using self-similarity context (SSC, http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf)
         From: , implementation by Lasse Hansen.
 
     :param img: image (-batch) to compute features for. Shape (B x 1 x D x H x W)
-    :param delta: neighborhood kernel dilation
+    :param dilation: neighborhood kernel dilation
     :param sigma: noise estimate, used for gaussian filter
     :param ssc: compute features from self-similarity context (SSD between pairs in 6-NH with distance sqrt(2))
     :return: image with MIND features. Shape (B x 12 x D x H x W)
@@ -132,11 +132,10 @@ def mind(img: torch.Tensor, delta: int = 1, sigma: float = 0.8, ssc: bool = True
         mshift2[six_neighbourhood[:, 0], six_neighbourhood[:, 1], six_neighbourhood[:, 2]] = 1
         mshift2 = mshift2.unsqueeze(1).to(device)
 
-    rpad = nn.ReplicationPad3d(delta)
+    rpad = nn.ReplicationPad3d(dilation)
 
     # compute patch-ssd
-    mind = smooth(((F.conv3d(rpad(img), mshift1, dilation=delta) - F.conv3d(rpad(img), mshift2, dilation=delta)) ** 2),
-                  sigma)
+    mind = smooth(((F.conv3d(rpad(img), mshift1, dilation=dilation) - F.conv3d(rpad(img), mshift2, dilation=dilation)) ** 2), sigma)
 
     # MIND equation
     mind = mind - torch.min(mind, 1, keepdim=True)[0]
@@ -183,7 +182,7 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
         kp = get_noisy_keypoints(fissures_tensor, device)
 
     elif kp_mode == 'cnn':
-        kp = get_cnn_keypoints(cv_dir='results/binary_3DCNN_cv', case=case, sequence=sequence,device=device)
+        kp = get_cnn_keypoints(cv_dir='results/recall_loss', case=case, sequence=sequence, device=device)
 
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
@@ -215,7 +214,7 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
         torch.cuda.empty_cache()
         print('\tComputing MIND features')
         # compute mind features for image
-        mind_features = mind(img_tensor, sigma=mind_sigma, delta=delta, ssc=ssc)
+        mind_features = mind(img_tensor, sigma=mind_sigma, dilation=delta, ssc=ssc)
 
         # extract features for keypoints
         mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
