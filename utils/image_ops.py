@@ -46,7 +46,7 @@ def sitk_image_to_tensor(img: sitk.Image):
     image_array = sitk.GetArrayFromImage(img)
     if image_array.dtype == np.uint32 or image_array.dtype == np.uint16:
         image_array = image_array.astype(int)
-    tensor_image = torch.tensor(image_array.squeeze())
+    tensor_image = torch.from_numpy(image_array.squeeze())
     return tensor_image
 
 
