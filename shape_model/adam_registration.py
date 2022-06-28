@@ -63,7 +63,7 @@ def get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_f
 
 def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file,
                       moving_fissures_file, fixed_lobes_file, moving_lobes_file, warped_file, disp_file, case_number,
-                      device):
+                      device, affine_pre_reg=None):
 
     mind_fix, mind_mov, img_fix, img_mov, mask_fix, mask_mov, lobes_fix, lobes_mov, fissures_fix, fissures_mov = \
         get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file, moving_fissures_file,
@@ -90,10 +90,16 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
     feat_fix = torch.cat([labels_fix.to(device).half(), mind_fix.to(device).half()], dim=1)
     feat_mov = torch.cat([labels_mov.to(device).half(), mind_mov.to(device).half()], dim=1)
 
-    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).to(device), (1, 1, H // GRID_SP, W // GRID_SP, D // GRID_SP),
-                          align_corners=False)
+    # setup the grid to optimize
+    id_grid = F.affine_grid(torch.eye(3, 4).unsqueeze(0).to(device), (1, 1, H // GRID_SP, W // GRID_SP, D // GRID_SP),
+                            align_corners=False)
     reg_net = nn.Sequential(nn.Conv3d(3, 1, (H // GRID_SP, W // GRID_SP, D // GRID_SP), bias=False))
-    reg_net[0].weight.data[:] = torch.clone(grid0.permute(0, 4, 1, 2, 3)).float().cpu().data
+    if affine_pre_reg is None:
+        grid0 = torch.clone(id_grid)
+    else:
+        grid0 = F.affine_grid(affine_pre_reg.unsqueeze(0).to(device), (1, 1, H // GRID_SP, W // GRID_SP, D // GRID_SP),
+                              align_corners=False)
+    reg_net[0].weight.data[:] = grid0.permute(0, 4, 1, 2, 3).float().cpu().data
     reg_net.to(device)
     optimizer = torch.optim.Adam(reg_net.parameters(), lr=1)
 
@@ -108,7 +114,7 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
                    lambda_weight * ((disp_sample[0, :, :, 1:] - disp_sample[0, :, :, :-1]) ** 2).mean()
         scale = torch.tensor([(H // GRID_SP - 1) / 2, (W // GRID_SP - 1) / 2, (D // GRID_SP - 1) / 2]).to(
             device).unsqueeze(0)
-        grid_disp = grid0.view(-1, 3).to(device).float() + ((disp_sample.view(-1, 3)) / scale).flip(1).float()
+        grid_disp = id_grid.view(-1, 3).to(device).float() + ((disp_sample.view(-1, 3)) / scale).flip(1).float()
         patch_mov_sampled = F.grid_sample(feat_mov.float(),
                                           grid_disp.view(1, H // GRID_SP, W // GRID_SP, D // GRID_SP, 3).to(device),
                                           align_corners=False, mode='bilinear')  # ,padding_mode='border')
