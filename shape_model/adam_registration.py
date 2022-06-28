@@ -13,23 +13,26 @@ from utils.image_ops import tensor_to_sitk_image, sitk_image_to_tensor, resample
 GRID_SP = 2
 
 
-def get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, device):
+def get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file, moving_fissures_file,
+             fixed_lobes_file, moving_lobes_file, device):
     spacing = 1
 
-    img_fix = sitk_image_to_tensor(
-        resample_equal_spacing(sitk.ReadImage(fixed_file), spacing)).float().unsqueeze(0).unsqueeze(0)
-    img_mov = sitk_image_to_tensor(
-        resample_equal_spacing(sitk.ReadImage(moving_file), spacing)).float().unsqueeze(0).unsqueeze(0)
+    def process(file_path, spacing=spacing, is_label=False):
+        return sitk_image_to_tensor(
+                    resample_equal_spacing(sitk.ReadImage(file_path), spacing, use_nearest_neighbor=is_label)
+               ).float().unsqueeze(0).unsqueeze(0)
 
-    mask_fix = sitk_image_to_tensor(
-        resample_equal_spacing(
-            sitk.ReadImage(fixed_mask_file), spacing, use_nearest_neighbor=True)
-    ).float().unsqueeze(0).unsqueeze(0)
+    img_fix = process(fixed_file)
+    img_mov = process(moving_file)
 
-    mask_mov = sitk_image_to_tensor(
-        resample_equal_spacing(
-            sitk.ReadImage(moving_mask_file), spacing, use_nearest_neighbor=True)
-    ).float().unsqueeze(0).unsqueeze(0)
+    mask_fix = process(fixed_mask_file, is_label=True)
+    mask_mov = process(moving_mask_file, is_label=True)
+
+    lobes_fix = process(fixed_lobes_file, is_label=True)
+    lobes_mov = process(moving_lobes_file, is_label=True)
+
+    fissures_fix = process(fixed_fissures_file, is_label=True)
+    fissures_mov = process(moving_fissures_file, is_label=True)
 
     img_fix += 1000  # important that scans are in HU
     img_mov += 1000
@@ -55,14 +58,16 @@ def get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, device)
     #
     # plt.show()
 
-    return mind_fix, mind_mov, img_fix, img_mov, mask_fix, mask_mov
+    return mind_fix, mind_mov, img_fix, img_mov, mask_fix, mask_mov, lobes_fix, lobes_mov, fissures_fix, fissures_mov
 
 
-def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file, warped_file, disp_file, case_number, device):
-    grid_sp = 2
+def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file,
+                      moving_fissures_file, fixed_lobes_file, moving_lobes_file, warped_file, disp_file, case_number,
+                      device):
 
-    mind_fix, mind_mov, img_fix, img_mov, mask_fix, mask_mov = get_data(
-        fixed_file, moving_file, fixed_mask_file, moving_mask_file, device)
+    mind_fix, mind_mov, img_fix, img_mov, mask_fix, mask_mov, lobes_fix, lobes_mov, fissures_fix, fissures_mov = \
+        get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file, moving_fissures_file,
+                 fixed_lobes_file, moving_lobes_file, device)
 
     # generate random keypoints (TODO: why?)
     keypts_rand = 2 * torch.rand(2048 * 24, 3).to(device) - 1
@@ -73,12 +78,21 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
     H, W, D = img_fix.shape[2:]
     t0 = time.time()
 
-    mind_fix = mind_fix.to(device).half()
-    mind_mov = mind_mov.to(device).half()
+    # combine labels
+    labels_mov = lobes_mov + torch.where(fissures_mov != 0, fissures_mov + lobes_mov.max(), fissures_mov)
+    labels_fix = lobes_fix + torch.where(fissures_fix != 0, fissures_fix + lobes_fix.max(), fissures_fix)
+    labels_mov = F.one_hot(labels_mov.long()).transpose(-1, 1).squeeze(-1).float()
+    labels_fix = F.one_hot(labels_fix.long()).transpose(-1, 1).squeeze(-1).float()
+    labels_fix = F.interpolate(labels_fix, size=(H // GRID_SP, W // GRID_SP, D // GRID_SP), mode='nearest')
+    labels_mov = F.interpolate(labels_mov, size=(H // GRID_SP, W // GRID_SP, D // GRID_SP), mode='nearest')
 
-    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).to(device), (1, 1, H // grid_sp, W // grid_sp, D // grid_sp),
+    # assemble features
+    feat_fix = torch.cat([labels_fix.to(device).half(), mind_fix.to(device).half()], dim=1)
+    feat_mov = torch.cat([labels_mov.to(device).half(), mind_mov.to(device).half()], dim=1)
+
+    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).to(device), (1, 1, H // GRID_SP, W // GRID_SP, D // GRID_SP),
                           align_corners=False)
-    reg_net = nn.Sequential(nn.Conv3d(3, 1, (H // grid_sp, W // grid_sp, D // grid_sp), bias=False))
+    reg_net = nn.Sequential(nn.Conv3d(3, 1, (H // GRID_SP, W // GRID_SP, D // GRID_SP), bias=False))
     reg_net[0].weight.data[:] = torch.clone(grid0.permute(0, 4, 1, 2, 3)).float().cpu().data
     reg_net.to(device)
     optimizer = torch.optim.Adam(reg_net.parameters(), lr=1)
@@ -92,24 +106,22 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
         reg_loss = lambda_weight * ((disp_sample[0, :, 1:, :] - disp_sample[0, :, :-1, :]) ** 2).mean() + \
                    lambda_weight * ((disp_sample[0, 1:, :, :] - disp_sample[0, :-1, :, :]) ** 2).mean() + \
                    lambda_weight * ((disp_sample[0, :, :, 1:] - disp_sample[0, :, :, :-1]) ** 2).mean()
-        scale = torch.tensor([(H // grid_sp - 1) / 2, (W // grid_sp - 1) / 2, (D // grid_sp - 1) / 2]).to(
+        scale = torch.tensor([(H // GRID_SP - 1) / 2, (W // GRID_SP - 1) / 2, (D // GRID_SP - 1) / 2]).to(
             device).unsqueeze(0)
         grid_disp = grid0.view(-1, 3).to(device).float() + ((disp_sample.view(-1, 3)) / scale).flip(1).float()
-        patch_mov_sampled = F.grid_sample(mind_mov.float(),
-                                          grid_disp.view(1, H // grid_sp, W // grid_sp, D // grid_sp, 3).to(device),
+        patch_mov_sampled = F.grid_sample(feat_mov.float(),
+                                          grid_disp.view(1, H // GRID_SP, W // GRID_SP, D // GRID_SP, 3).to(device),
                                           align_corners=False, mode='bilinear')  # ,padding_mode='border')
-        sampled_cost = (patch_mov_sampled - mind_fix).pow(2).mean(1) * 12
+        sampled_cost = (patch_mov_sampled - feat_fix).pow(2).mean(1) * 12
         loss = sampled_cost.mean()
         (loss + reg_loss).backward()
         optimizer.step()
 
-        # TODO: segmentation loss
-
     fitted_grid = disp_sample.permute(0, 4, 1, 2, 3).detach()
-    disp_hr = F.interpolate(fitted_grid * grid_sp, size=(H, W, D), mode='trilinear', align_corners=False)
+    disp_hr = F.interpolate(fitted_grid * GRID_SP, size=(H, W, D), mode='trilinear', align_corners=False)
 
-    disp_smooth = F.avg_pool3d(F.avg_pool3d(F.avg_pool3d(disp_hr, 3, padding=1, stride=1),
-                                            3, padding=1, stride=1), 3, padding=1, stride=1)
+    disp_smooth = F.avg_pool3d(F.avg_pool3d(F.avg_pool3d(
+        disp_hr, 3, padding=1, stride=1), 3, padding=1, stride=1), 3, padding=1, stride=1)
 
     disp_hr = torch.flip(disp_smooth / torch.tensor([H - 1, W - 1, D - 1]).view(1, 3, 1, 1, 1).to(device) * 2, [1])
 
@@ -140,11 +152,14 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
             1).sqrt()
         print('DIRlab COPD #', case_number, 'TRE before (mm)', '%0.3f' % (tre_before.mean().item()),
               'TRE after (mm)', '%0.3f' % (tre_after.mean().item()))
-    warped = F.grid_sample(img_mov.view(1, 1, H, W, D), disp_hr.cpu().permute(0, 2, 3, 4, 1) +
-                           F.affine_grid(torch.eye(3, 4).unsqueeze(0), (1, 1, H, W, D), align_corners=False),
+    id_grid_fullres = F.affine_grid(torch.eye(3, 4).unsqueeze(0), (1, 1, H, W, D), align_corners=False)
+    warped = F.grid_sample(img_mov.view(1, 1, H, W, D), disp_hr.cpu().permute(0, 2, 3, 4, 1) + id_grid_fullres,
                            align_corners=False).cpu()
+    warped_fissures = F.grid_sample(fissures_fix.view(1, 1, H, W, D), disp_hr.cpu().permute(0, 2, 3, 4, 1) + id_grid_fullres,
+                                    align_corners=False, mode='nearest').cpu()
     if warped_file is not None:
         sitk.WriteImage(tensor_to_sitk_image(warped - 1000), warped_file)  # TODO: figure out spacing
+        sitk.WriteImage(tensor_to_sitk_image(warped_fissures.long()), warped_file.replace('.nii.gz', '_fissures.nii.gz'))
         # nib.save(nib.Nifti1Image((warped - 1000).data.squeeze().numpy(), np.diag([1.75, 1.25, 1.75, 1])), warped_file)
 
     if (warped_file is None) & (disp_file is None):
@@ -172,4 +187,8 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--case_number', required=False, help="DIRlab COPD case number (for TRE)")
     parser.add_argument('-D', '--device', required=False, help="pytorch device to compute on", default="cuda:3")
 
-    adam_registration(**vars(parser.parse_args()))
+    args = parser.parse_args()
+    adam_registration(fixed_fissures_file=args.fixed_file.replace('img', 'fissures_poisson'),
+                      moving_fissures_file=args.moving_file.replace('img', 'fissures_poisson'),
+                      fixed_lobes_file=args.fixed_file.replace('img', 'lobes'),
+                      moving_lobes_file=args.moving_file.replace('img', 'lobes'), **vars(args))
