@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 
 def pairwise_dist(x):
-    """ distance from each point in x to itself and others
+    """ squared euclidean distance from each point in x to itself and others
 
     :param x: point cloud batch of shape (B x N x 3)
     :return: distance matrix of shape (B x N x N)
@@ -23,7 +23,7 @@ def pairwise_dist(x):
 
 
 def pairwise_dist2(x, y):
-    """ distance from each point in x to its corresponding point in y
+    """ squared euclidean distance from each point in x to its corresponding point in y
 
     :param x: point cloud batch of shape (B x N x 3)
     :param y: point cloud batch of shape (B x N x 3)
