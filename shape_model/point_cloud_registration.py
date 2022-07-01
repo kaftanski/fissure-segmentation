@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Union, Iterable
 
 import matplotlib.pyplot as plt
@@ -18,13 +17,18 @@ def visualize(title, X, Y, ax):
     ax.text2D(0.87, 0.92, title,
               horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize='x-large')
     ax.legend(loc='upper left', fontsize='x-large')
-    # plt.draw()
-    # plt.pause(0.001)
 
 
 def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
              moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
-             n_sample_points=2048):
+             n_sample_points=512):
+    """ Cave: meshes should be in world coordinates (or at least with an isotropic spacing)
+
+    :param fixed_meshes:
+    :param moving_meshes:
+    :param n_sample_points:
+    :return:
+    """
 
     if type(fixed_meshes) != type(moving_meshes):
         raise ValueError(f'Type mismatch between fixed_meshes ({type(fixed_meshes)}) and moving_meshes ({type(moving_meshes)})')
@@ -33,6 +37,7 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
         fixed_meshes = [fixed_meshes]
         moving_meshes = [moving_meshes]
 
+    # TODO: joint registration of left/right fissure
     for fixed, moving in zip(fixed_meshes, moving_meshes):
         fixed_pc = fixed.sample_points_poisson_disk(number_of_points=n_sample_points)
         moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points)
@@ -44,8 +49,10 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
         affine_prereg, affine_params = affine.register()
 
         deformable = pycpd.DeformableRegistration(X=fixed_pc_np, Y=affine_prereg,
-                                                  alpha=2, beta=2)  # TODO: what are these parameters?
-        deformed_pc, (trf_G, trf_W) = deformable.register()
+            alpha=0.001,  # trade-off between regularization/smoothness (>1) and point fit (<1)
+            beta=2)  # gaussian kernel width of the regularization kernel
+        deformed_pc_np, (trf_G, trf_W) = deformable.register()
+        displacements = np.matmul(trf_G, trf_W)
 
         fig = plt.figure()
         ax1 = fig.add_subplot(131, projection='3d')
@@ -54,14 +61,22 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
 
         visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
         visualize('Affine', fixed_pc_np, affine_prereg, ax2)
-        visualize('Defomable', fixed_pc_np, deformed_pc, ax3)
+        visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
         plt.show()
+
+        deformed_pc = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(deformed_pc_np.astype(np.float32)))
+        reg_result = o3d.pipelines.registration.evaluate_registration(source=deformed_pc, target=fixed_pc,
+                                                                      max_correspondence_distance=10)  # TODO: heuristic
+        print(reg_result)
+
+        reg_result_icp = o3d.pipelines.registration.registration_icp(source=deformed_pc, target=fixed_pc,
+                                                                     max_correspondence_distance=10)
 
 
 if __name__ == '__main__':
     ds = ImageDataset("../data", do_augmentation=False)
 
-    for f, m in itertools.product(range(len(ds)), range(len(ds))):
+    for f, m in itertools.product(range(len(ds)), range(len(ds)), disable=True):
         if f == m:
             continue
 
