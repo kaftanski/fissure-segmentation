@@ -1,3 +1,5 @@
+import csv
+import os.path
 from typing import Union, Iterable
 
 import math
@@ -12,7 +14,7 @@ from torch.nn import functional as F
 
 from data import ImageDataset
 from metrics import point_surface_distance
-from visualization import visualize_point_cloud, visualize_trimesh, trimesh_on_axis, point_cloud_on_axis
+from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
 class TPS:
@@ -94,7 +96,7 @@ def visualize(title, X, Y, ax):
 
 def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
              moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
-             img_shape, n_sample_points=512):
+             img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
     """ Cave: meshes should be in world coordinates (or at least with an isotropic spacing)
 
     :param fixed_meshes:
@@ -110,6 +112,11 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
     if not isinstance(fixed_meshes, Iterable):
         fixed_meshes = [fixed_meshes]
         moving_meshes = [moving_meshes]
+
+    new_moving_pcs = []
+    mean_p2m = []
+    std_p2m = []
+    hd_p2m = []
 
     # TODO: joint registration of left/right fissure
     for fixed, moving in zip(fixed_meshes, moving_meshes):
@@ -158,44 +165,95 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
         new_moving_pc_np_not_affine = np.matmul((new_moving_pc_np - affine_translation)[:, None, :],
                                                 affine_inverse[None, :, :]).squeeze()
 
-        # VISUALIZATION
-        # show registration steps
-        fig = plt.figure()
-        ax1 = fig.add_subplot(131, projection='3d')
-        ax2 = fig.add_subplot(132, projection='3d')
-        ax3 = fig.add_subplot(133, projection='3d')
+        # switch to use the affine registered PCs or from the original space
+        if undo_affine_reg:
+            new_moving_pcs.append(new_moving_pc_np_not_affine)
+        else:
+            new_moving_pcs.append(new_moving_pc_np)
 
-        visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
-        visualize('Affine', fixed_pc_np, affine_prereg, ax2)
-        visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
+        if show:
+            # VISUALIZATION
+            # show registration steps
+            fig = plt.figure()
+            ax1 = fig.add_subplot(131, projection='3d')
+            ax2 = fig.add_subplot(132, projection='3d')
+            ax3 = fig.add_subplot(133, projection='3d')
 
-        # visualize sampling and back-transformation
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        visualize('fixed-sampled_disp', new_moving_pc_np, affine_prereg, ax)  # TODO: possibly undo affine reg
+            visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
+            visualize('Affine', fixed_pc_np, affine_prereg, ax2)
+            visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        point_cloud_on_axis(ax, new_moving_pc_np_not_affine, c='r', cmap=None, title='sampled from fixed')
-        trimesh_on_axis(ax, np.asarray(moving.vertices), np.asarray(moving.triangles), color='b', title='sampled from fixed', alpha=0.5)
-        plt.show()
+            # visualize sampling and back-transformation
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            visualize('fixed-sampled_disp', new_moving_pc_np, affine_prereg, ax)  # TODO: possibly undo affine reg
+
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            point_cloud_on_axis(ax, new_moving_pc_np_not_affine, c='r', cmap=None, title='sampled from fixed')
+            trimesh_on_axis(ax, np.asarray(moving.vertices), np.asarray(moving.triangles), color='b', title='sampled from fixed', alpha=0.5)
+            plt.show()
 
         # EVALUATION: compute surface distance between sampled moving and GT mesh!
         dist_moved = point_surface_distance(query_points=new_moving_pc_np_not_affine, trg_points=moving.vertices,
                                             trg_tris=moving.triangles)
-        print(f'Point Cloud distance to GT mesh: {dist_moved.mean().item():.4f} +- {dist_moved.std().item():.4f}')
+        p2m = dist_moved.mean()
+        std = dist_moved.std()
+        hd = dist_moved.max()
+        print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
+        mean_p2m.append(p2m)
+        std_p2m.append(std)
+        hd_p2m.append(hd)
+
+    new_moving_pcs = np.stack(new_moving_pcs, axis=0)
+    return new_moving_pcs, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
 
 
 if __name__ == '__main__':
+    out_path = 'results/corresponding_points'
+    os.makedirs(out_path, exist_ok=True)
+    undo_affine = True
+
     ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
 
-    for f, m in itertools.product(range(len(ds)), range(len(ds)), disable=True):
+    corresponding_points = []
+
+    mean_p2m = []
+    std_p2m = []
+    hd_p2m = []
+
+    f = 0
+    sequence = ds.get_id(f)[1]
+    assert sequence == 'fixed'
+    fixed_meshes = ds.get_fissure_meshes(f)
+    img_fixed, _ = ds[f]
+    for m in range(len(ds)):
         if f == m:
             continue
 
-        if not ds.get_id(f)[1] == ds.get_id(m)[1] == 'fixed':
+        if not ds.get_id(m)[1] == sequence:
             # use inhale scans for now only
             continue
 
-        img_fixed, _ = ds[f]
-        register(ds.get_fissure_meshes(f), ds.get_fissure_meshes(m), img_shape=img_fixed.shape)
+        corr_points, evaluation = register(ds.get_fissure_meshes(f), ds.get_fissure_meshes(m),
+                                           img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
+
+        corresponding_points.append(corr_points)
+        mean_p2m.append(evaluation['mean'])
+        std_p2m.append(evaluation['std'])
+        hd_p2m.append(evaluation['hd'])
+
+        np.save(os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts'), corr_points)
+
+    mean_p2m = torch.stack(mean_p2m)
+    std_p2m = torch.stack(std_p2m)
+    hd_p2m = torch.stack(hd_p2m)
+    print('\n====== RESULTS ======')
+    print(f'P2M distance: {mean_p2m.mean(0)} +- {std_p2m.mean(0)} (Hausdorff: {hd_p2m.mean(0)}')
+    with open(os.path.join(out_path, 'results.csv'), 'w') as csv_results_file:
+        writer = csv.writer(csv_results_file)
+        writer.writerow(['Affine-Pre-Reg', str(not undo_affine)])
+        writer.writerow(['Object'] + [str(i+1) for i in range(mean_p2m.shape[1])] + ['mean'])
+        writer.writerow(['mean p2m'] + [v.item() for v in mean_p2m.mean(0)] + [mean_p2m.mean().item()])
+        writer.writerow(['std p2m'] + [v.item() for v in std_p2m.mean(0)] + [std_p2m.mean().item()])
+        writer.writerow(['hd p2m'] + [v.item() for v in hd_p2m.mean(0)] + [hd_p2m.mean().item()])
