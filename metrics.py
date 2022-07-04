@@ -3,9 +3,9 @@ from typing import Sequence
 
 import open3d as o3d
 import torch
+from numpy.typing import ArrayLike
 
 from utils.utils import mask_to_points
-from data_processing.surface_fitting import point_surface_distance
 
 
 def assd(mesh_x: o3d.geometry.TriangleMesh, mesh_y: o3d.geometry.TriangleMesh):
@@ -130,3 +130,20 @@ if __name__ == '__main__':
     vy = torch.randn(16, 160, 3)
     ty = torch.randint(160, (16, 180, 3))
     print(batch_assd(vx, tx, vy, ty))
+
+
+def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> torch.Tensor:
+    """ Parallel unsigned distance computation from N query points to a target triangle mesh using Open3d.
+
+    :param query_points: query points for distance computation. ArrayLike of shape (Nx3)
+    :param trg_points: vertices of the target mesh. ArrayLike of shape (Vx3)
+    :param trg_tris: shared edge triangle index list of the target mesh. ArrayLike of shape (Tx3)
+    :return: euclidean distance from every input point to the closest point on the target mesh. Tensor of shape (N)
+    """
+    # construct ray casting scene with target mesh in it
+    scene = o3d.t.geometry.RaycastingScene()
+    _ = scene.add_triangles(vertex_positions=np.array(trg_points, dtype=np.float32), triangle_indices=np.array(trg_tris, dtype=np.uint32))  # we do not need the geometry ID for mesh
+
+    # distance computation
+    dist = scene.compute_distance(np.array(query_points, dtype=np.float32))
+    return torch.utils.dlpack.from_dlpack(dist.to_dlpack())

@@ -1,5 +1,7 @@
 import os
 from typing import Sequence, Tuple, List
+
+from metrics import point_surface_distance
 from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
 import pytorch3d.structures
 from numpy.typing import ArrayLike
@@ -392,23 +394,6 @@ def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], 
         label_tensor[indices[:, 0], indices[:, 1], indices[:, 2]] = i+1  # TODO: why index out of bounds?
 
     return label_tensor
-
-
-def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> torch.Tensor:
-    """ Parallel unsigned distance computation from N query points to a target triangle mesh using Open3d.
-
-    :param query_points: query points for distance computation. ArrayLike of shape (Nx3)
-    :param trg_points: vertices of the target mesh. ArrayLike of shape (Vx3)
-    :param trg_tris: shared edge triangle index list of the target mesh. ArrayLike of shape (Tx3)
-    :return: euclidean distance from every input point to the closest point on the target mesh. Tensor of shape (N)
-    """
-    # construct ray casting scene with target mesh in it
-    scene = o3d.t.geometry.RaycastingScene()
-    _ = scene.add_triangles(vertex_positions=np.array(trg_points, dtype=np.float32), triangle_indices=np.array(trg_tris, dtype=np.uint32))  # we do not need the geometry ID for mesh
-
-    # distance computation
-    dist = scene.compute_distance(np.array(query_points, dtype=np.float32))
-    return torch.utils.dlpack.from_dlpack(dist.to_dlpack())
 
 
 def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
