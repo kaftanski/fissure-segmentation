@@ -11,6 +11,8 @@ from tqdm.contrib import itertools
 from torch.nn import functional as F
 
 from data import ImageDataset
+from metrics import point_surface_distance
+from visualization import visualize_point_cloud, visualize_trimesh, trimesh_on_axis, point_cloud_on_axis
 
 
 class TPS:
@@ -118,30 +120,17 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
         moving_pc_np = np.asarray(moving_pc.points)
 
         affine = pycpd.AffineRegistration(X=fixed_pc_np, Y=moving_pc_np)
-        affine_prereg, affine_params = affine.register()
+        affine_prereg, (affine_mat, affine_translation) = affine.register()
 
         deformable = pycpd.DeformableRegistration(X=fixed_pc_np, Y=affine_prereg,
             alpha=0.001,  # trade-off between regularization/smoothness (>1) and point fit (<1)
             beta=2)  # gaussian kernel width of the regularization kernel
         deformed_pc_np, (trf_G, trf_W) = deformable.register()
 
-        fig = plt.figure()
-        ax1 = fig.add_subplot(131, projection='3d')
-        ax2 = fig.add_subplot(132, projection='3d')
-        ax3 = fig.add_subplot(133, projection='3d')
-
-        visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
-        visualize('Affine', fixed_pc_np, affine_prereg, ax2)
-        visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
-        #plt.show()
-
         deformed_pc = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(deformed_pc_np.astype(np.float32)))
         reg_result = o3d.pipelines.registration.evaluate_registration(source=deformed_pc, target=fixed_pc,
-                                                                      max_correspondence_distance=10)  # TODO: heuristic
+                                                                      max_correspondence_distance=10)
         print(reg_result)
-
-        reg_result_icp = o3d.pipelines.registration.registration_icp(source=deformed_pc, target=fixed_pc,
-                                                                     max_correspondence_distance=10)
 
         # interpolate displacements at fixed points
         D, H, W = img_shape
@@ -164,10 +153,37 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
                                                align_corners=False).squeeze().t()
         new_moving_pc_np = fixed_pc_np - unnormalize(displacements_to_fixed.squeeze()).cpu().numpy()
 
+        # undo affine transformation
+        affine_inverse = np.linalg.inv(affine_mat)
+        new_moving_pc_np_not_affine = np.matmul((new_moving_pc_np - affine_translation)[:, None, :],
+                                                affine_inverse[None, :, :]).squeeze()
+
+        # VISUALIZATION
+        # show registration steps
+        fig = plt.figure()
+        ax1 = fig.add_subplot(131, projection='3d')
+        ax2 = fig.add_subplot(132, projection='3d')
+        ax3 = fig.add_subplot(133, projection='3d')
+
+        visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
+        visualize('Affine', fixed_pc_np, affine_prereg, ax2)
+        visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
+
+        # visualize sampling and back-transformation
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         visualize('fixed-sampled_disp', new_moving_pc_np, affine_prereg, ax)  # TODO: possibly undo affine reg
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        point_cloud_on_axis(ax, new_moving_pc_np_not_affine, c='r', cmap=None, title='sampled from fixed')
+        trimesh_on_axis(ax, np.asarray(moving.vertices), np.asarray(moving.triangles), color='b', title='sampled from fixed', alpha=0.5)
         plt.show()
+
+        # EVALUATION: compute surface distance between sampled moving and GT mesh!
+        dist_moved = point_surface_distance(query_points=new_moving_pc_np_not_affine, trg_points=moving.vertices,
+                                            trg_tris=moving.triangles)
+        print(f'Point Cloud distance to GT mesh: {dist_moved.mean().item():.4f} +- {dist_moved.std().item():.4f}')
 
 
 if __name__ == '__main__':
