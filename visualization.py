@@ -68,14 +68,9 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
     colors = ['r', 'g', 'b', 'y']
     cmap = ListedColormap(colors[:len(labels.unique())])
 
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels.cpu(), cmap=cmap, marker='.')
+    point_cloud_on_axis(ax, points, labels.cpu(), cmap, title=title)
     # ax.view_init(elev=100., azim=-60.)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    if title:
-        ax.set_title(title)
-
+    
     if savepath is not None:
         fig.tight_layout()
         fig.savefig(savepath, bbox_inches='tight', dpi=300)
@@ -84,6 +79,15 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
         plt.show()
     else:
         plt.close(fig)
+
+
+def point_cloud_on_axis(ax, points, c, cmap, marker='.', title=''):
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
 
 
 def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
@@ -101,13 +105,7 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
 
     colors = ['r', 'g', 'b', 'y']
     for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
-        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=colors[i])
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    if title:
-        ax.set_title(title)
+        trimesh_on_axis(ax, vertices, triangles, colors[i], title)
 
     if savepath is not None:
         fig.tight_layout()
@@ -117,3 +115,12 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
         plt.show()
     else:
         plt.close(fig)
+
+
+def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1.):
+    ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=color, alpha=alpha)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    if title:
+        ax.set_title(title)
