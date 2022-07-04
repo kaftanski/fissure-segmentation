@@ -94,23 +94,19 @@ def visualize(title, X, Y, ax):
     ax.legend(loc='upper left', fontsize='x-large')
 
 
-def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
+def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.PointCloud],
              moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
              img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
     """ Cave: meshes should be in world coordinates (or at least with an isotropic spacing)
 
-    :param fixed_meshes:
+    :param fixed_pcs:
     :param moving_meshes:
     :param img_shape: shape of the original image (with unit spacing)
     :param n_sample_points:
     :return:
     """
-
-    if type(fixed_meshes) != type(moving_meshes):
-        raise ValueError(f'Type mismatch between fixed_meshes ({type(fixed_meshes)}) and moving_meshes ({type(moving_meshes)})')
-
-    if not isinstance(fixed_meshes, Iterable):
-        fixed_meshes = [fixed_meshes]
+    if not isinstance(fixed_pcs, Iterable):
+        fixed_pcs = [fixed_pcs]
         moving_meshes = [moving_meshes]
 
     new_moving_pcs = []
@@ -119,8 +115,7 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
     hd_p2m = []
 
     # TODO: joint registration of left/right fissure
-    for fixed, moving in zip(fixed_meshes, moving_meshes):
-        fixed_pc = fixed.sample_points_poisson_disk(number_of_points=n_sample_points)
+    for fixed_pc, moving in zip(fixed_pcs, moving_meshes):
         moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points)
 
         fixed_pc_np = np.asarray(fixed_pc.points)
@@ -206,13 +201,15 @@ def register(fixed_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geomet
         hd_p2m.append(hd)
 
     new_moving_pcs = np.stack(new_moving_pcs, axis=0)
-    return new_moving_pcs, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
+    fixed_pcs = np.stack(fixed_pcs, axis=0)
+    return new_moving_pcs, fixed_pcs, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
 
 
 if __name__ == '__main__':
     out_path = 'results/corresponding_points'
     os.makedirs(out_path, exist_ok=True)
     undo_affine = True
+    n_sample_points = 1024
 
     ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
 
@@ -227,6 +224,12 @@ if __name__ == '__main__':
     assert sequence == 'fixed'
     fixed_meshes = ds.get_fissure_meshes(f)
     img_fixed, _ = ds[f]
+
+    # sample points from fixed
+    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points) for mesh in fixed_meshes]
+    fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
+    np.save(os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts'), fixed_pcs_np)
+
     for m in range(len(ds)):
         if f == m:
             continue
@@ -235,8 +238,8 @@ if __name__ == '__main__':
             # use inhale scans for now only
             continue
 
-        corr_points, evaluation = register(ds.get_fissure_meshes(f), ds.get_fissure_meshes(m),
-                                           img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
+        corr_points, fixed_pts, evaluation = register(fixed_pcs, ds.get_fissure_meshes(m),
+                                                      img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
 
         corresponding_points.append(corr_points)
         mean_p2m.append(evaluation['mean'])
