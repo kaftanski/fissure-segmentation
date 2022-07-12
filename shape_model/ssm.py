@@ -75,11 +75,12 @@ class SSM(LoadableModel):
         self.assert_trained()
 
         stddev = torch.sqrt(self.eigenvalues)
-        weights = torch.randn(n_samples, self.num_modes) * stddev
-
-        # restrict samples to plausible range +-alpha*stddev
         ranges = self.alpha * stddev
-        return torch.clamp(weights, -ranges, ranges)
+        return torch.rand(n_samples, self.num_modes.data, device=stddev.device) * 2 * ranges - ranges
+        # weights = torch.randn(n_samples, self.num_modes.data, device=stddev.device) * stddev
+        #
+        # # restrict samples to plausible range +-alpha*stddev
+        # return torch.clamp(weights, -ranges, ranges)
 
     def assert_trained(self):
         if self.eigenvectors is None:
@@ -118,7 +119,7 @@ if __name__ == '__main__':
     shapes = torch.stack(shapes, dim=0)
     shapes = shape2vector(shapes)
 
-    sm = SSM(alpha=2.5, target_variance=0.95)
+    sm = SSM(alpha=3, target_variance=0.95)
     sm.fit(shapes)
 
     sm.save(shape_folder+'/ssm.pth')
