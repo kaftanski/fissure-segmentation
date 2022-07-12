@@ -81,13 +81,16 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
         plt.close(fig)
 
 
-def point_cloud_on_axis(ax, points, c, cmap, marker='.', title=''):
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker)
+def point_cloud_on_axis(ax, points, c, cmap, marker='.', title='', label=''):
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker, label=label)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     if title:
         ax.set_title(title)
+
+    if label:
+        ax.legend()
 
 
 def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
