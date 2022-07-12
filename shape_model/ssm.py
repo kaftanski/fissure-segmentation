@@ -106,15 +106,23 @@ def vector2shape(vector: torch.Tensor, dimensionality=3):
     return vector.unflatten(dim=-1, sizes=(int(vector.shape[-1] / dimensionality), dimensionality))
 
 
+def save_shape(array, filepath):
+    np.save(filepath, array)
+
+
+def load_shape(filepath):
+    arr = np.load(filepath)
+    arr = np.concatenate([*arr], axis=0)  # unpack all objects (first dimension)
+    return torch.from_numpy(arr)
+
+
 if __name__ == '__main__':
     # load data
     shape_folder = "results/corresponding_points"
     files = glob.glob(os.path.join(shape_folder, '*.npy'))
     shapes = []
     for f in files:
-        arr = np.load(f)
-        arr = np.concatenate((arr[0], arr[1]), axis=0)
-        shapes.append(torch.from_numpy(arr))
+        shapes.append(load_shape(f))
 
     shapes = torch.stack(shapes, dim=0)
     shapes = shape2vector(shapes)

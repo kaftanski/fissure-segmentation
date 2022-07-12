@@ -14,6 +14,7 @@ from torch.nn import functional as F
 
 from data import ImageDataset
 from metrics import point_surface_distance
+from shape_model.ssm import save_shape
 from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
@@ -228,7 +229,7 @@ if __name__ == '__main__':
     # sample points from fixed
     fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points) for mesh in fixed_meshes]
     fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
-    np.save(os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts'), fixed_pcs_np)
+    save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts'))
 
     for m in range(len(ds)):
         if f == m:
@@ -239,14 +240,14 @@ if __name__ == '__main__':
             continue
 
         corr_points, fixed_pts, evaluation = register(fixed_pcs, ds.get_fissure_meshes(m),
-                                                      img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
+                                                      img_shape=img_fixed.shape, show=True, undo_affine_reg=undo_affine)
 
         corresponding_points.append(corr_points)
         mean_p2m.append(evaluation['mean'])
         std_p2m.append(evaluation['std'])
         hd_p2m.append(evaluation['hd'])
 
-        np.save(os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts'), corr_points)
+        save_shape(corr_points, os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts'))
 
     mean_p2m = torch.stack(mean_p2m)
     std_p2m = torch.stack(std_p2m)
