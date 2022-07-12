@@ -28,6 +28,7 @@ class SSM(LoadableModel):
         """
         :param train_shapes: data matrix of shape (N x F): one row per sample (N), F features each
         """
+        # TODO: procrustes analysis
         self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True), requires_grad=False)
         U, S, V = torch.pca_lowrank(train_shapes, q=min(train_shapes.shape), center=True)
         total_variance = S.sum()
