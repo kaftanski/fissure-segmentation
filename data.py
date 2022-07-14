@@ -414,35 +414,6 @@ class PointDataset(CustomDataset):
         return self.points[i]
 
 
-class FaustDataset(Dataset):
-    def __init__(self, sample_points, points_folder='/share/data_sam1/bigalke/datasets/faust/training/registrations/',
-                 label_file='/share/data_sam1/bigalke/datasets/faust/training/body_part_labels.npy'):
-        self.sample_points = sample_points
-
-        # load point clouds
-        filenames = glob(os.path.join(points_folder, '*.npy'))
-        self.point_clouds = []
-        for file in filenames:
-            pts = torch.from_numpy(np.load(file)).T
-            self.point_clouds.append(pts.float())
-
-        # load label file (same for all point clouds, 1-to-1 correspondence)
-        self.labels = torch.from_numpy(np.load(label_file)).long() - 1  # labels in range 0..14
-
-        self.num_classes = len(torch.unique(self.labels))
-
-    def __getitem__(self, item):
-        # randomly sample points
-        pts = self.point_clouds[item]
-        sample = torch.randperm(pts.shape[1])[:self.sample_points]
-        pts = pts[:, sample]
-        lbl = self.labels[sample]
-        return pts, torch.empty(0, pts.shape[1]), lbl
-
-    def __len__(self):
-        return len(self.point_clouds)
-
-
 def load_landmarks(filepath):
     points = []
     with open(filepath, 'r') as csv_file:
