@@ -82,6 +82,11 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
 
 
 def point_cloud_on_axis(ax, points, c, cmap, marker='.', title='', label=''):
+    if isinstance(points, torch.Tensor):
+        points = points.cpu()
+
+    points = points.squeeze()
+
     ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker, label=label)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
