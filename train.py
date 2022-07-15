@@ -312,6 +312,8 @@ def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epoch
         fold_dir = os.path.join(out_dir, f'fold{fold}')
         if not test_only:
             os.makedirs(fold_dir, exist_ok=True)
+            # reset model for the current fold
+            model = type(model)(**model.config)
             train(model, train_ds, batch_size, loss, device, learn_rate, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
