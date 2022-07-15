@@ -150,19 +150,20 @@ class DGCNNSeg(LoadableModel):
 
         # look if there are points that have been left out
         left_out_pts = torch.nonzero(softmax_accumulation.sum(1) == 0)[..., 1]
-        other_pts = torch.nonzero(softmax_accumulation.sum(1))[..., 1]
         print(f'After {n_initial_runs} runs, {left_out_pts.shape[0]} points have not been seen yet.')
-        point_mix = sample_points // 2
-        fill_out_num = sample_points - point_mix
-        perm = torch.randperm(n_leftover_runs*point_mix, device=pc.device) % len(left_out_pts)
-        for r in range(n_leftover_runs):
-            lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
-            other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
-            pts = torch.cat((lo_pts, other), dim=0)
-            softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=0)
+        if left_out_pts.shape[0] > 0:
+            other_pts = torch.nonzero(softmax_accumulation.sum(1))[..., 1]
+            point_mix = sample_points // 2
+            fill_out_num = sample_points - point_mix
+            perm = torch.randperm(n_leftover_runs*point_mix, device=pc.device) % len(left_out_pts)
+            for r in range(n_leftover_runs):
+                lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
+                other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
+                pts = torch.cat((lo_pts, other), dim=0)
+                softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=0)
 
-        if (softmax_accumulation.sum(1) == 0).sum() != 0:
-            warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
+            if (softmax_accumulation.sum(1) == 0).sum() != 0:
+                warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
 
         return F.softmax(softmax_accumulation, dim=1)
 
