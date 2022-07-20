@@ -434,6 +434,10 @@ class CorrespondingPointDataset(PointDataset):
         val_ds._remove_non_matched_from_corr_points()
         return train_ds, val_ds
 
+    @property
+    def num_classes(self):
+        return len(self.corr_points.label.unique())
+
     def _remove_non_matched_from_corr_points(self):
         for i in range(len(self.ids) - 1, -1, -1):
             if self.ids[i] not in self.corr_points.ids:

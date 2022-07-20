@@ -8,10 +8,10 @@ from shape_model.ssm import SSM
 class DGSSM(LoadableModel):
     @store_config_args
     def __init__(self, k, in_features, spatial_transformer=False, dynamic=True, image_feat_module=False,
-                 ssm_alpha=3., ssm_targ_var=0.95):
+                 ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1):
         super(DGSSM, self).__init__()
         self.ssm = SSM(ssm_alpha, ssm_targ_var)
-        self.dgcnn = DGCNNReg(k, in_features, 1,  # placeholder number of modes, has to be updated after training SSM
+        self.dgcnn = DGCNNReg(k, in_features, ssm_modes,  # placeholder number of modes, has to be updated after training SSM
                               spatial_transformer, dynamic, image_feat_module)
 
     def forward(self, x):
@@ -23,3 +23,13 @@ class DGSSM(LoadableModel):
 
     def fit_ssm(self, shapes):
         self.ssm.fit(shapes)
+        self.config['ssm_modes'] = self.ssm.num_modes.data
+
+    @classmethod
+    def load(cls, path, device):
+        checkpoint = torch.load(path, map_location=torch.device(device))
+        model = cls(**checkpoint['config'])
+        model.load_state_dict(checkpoint['model_state'], strict=False)
+        ssm_state = {key.replace("ssm.", ""): value for key, value in checkpoint['model_state'].items() if "ssm." in key}
+        model.ssm.register_parameters_from_state_dict(ssm_state)
+        return model

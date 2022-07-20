@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="train DG-SSM" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="test DG-SSM" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_dgcnn_ssm.py" />
-    <option name="PARAMETERS" value="--data fissures --coords --patch --batch 32 --gpu 2 --output results/DG-SSM --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --transformer --show --epochs 100 --kp_mode cnn" />
+    <option name="PARAMETERS" value="--gpu 2 --output results/DG-SSM --show --test_only" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

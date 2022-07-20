@@ -9,6 +9,24 @@ from numpy.typing import ArrayLike
 from torch.nn import functional as F
 
 
+class RunningMean(torch.nn.Module):
+    def __init__(self):
+        super(RunningMean, self).__init__()
+        self.mean = None
+        self.n = 0
+
+    def forward(self, x):
+        self.n += 1
+
+        if self.mean is None:
+            self.mean = x
+
+        else:
+            self.mean = ((self.mean*(self.n-1)) + x) / self.n
+
+        return self.mean
+
+
 def pairwise_dist(x):
     """ squared euclidean distance from each point in x to itself and others
 

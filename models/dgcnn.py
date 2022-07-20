@@ -2,12 +2,13 @@ import time
 import warnings
 
 import torch
+from abc import ABC, abstractmethod
 from torch import nn
 from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
-from utils.utils import pairwise_dist
+from utils.utils import pairwise_dist, RunningMean
 from torch.nn import functional as F
 
 
@@ -64,7 +65,7 @@ def knn(x, k, self_loop=False):
     return idx
 
 
-class DGCNNBase(LoadableModel):
+class DGCNNBase(LoadableModel, ABC):
     @store_config_args
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
         super(DGCNNBase, self).__init__()
@@ -88,6 +89,9 @@ class DGCNNBase(LoadableModel):
         else:
             self.spatial_transformer = None
 
+        # activation used for inference of full point cloud
+        self.output_activation = nn.Identity()
+
     def forward(self, x):
         """
 
@@ -107,6 +111,10 @@ class DGCNNBase(LoadableModel):
             x = self.spatial_transformer(x)
 
         return x
+
+    @abstractmethod
+    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        pass
 
     def init_weights(self):
         self.apply(init_weights)
@@ -163,12 +171,14 @@ class DGCNNSeg(DGCNNBase):
         return x
 
     def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        output_activation = nn.Softmax(dim=1)
+
         n_leftover_runs = n_runs_min // 5
         n_initial_runs = n_runs_min - n_leftover_runs
         softmax_accumulation = torch.zeros(pc.shape[0], self.num_classes, *pc.shape[2:], device=pc.device)
         for r in range(n_initial_runs):
             perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
-            softmax_accumulation[..., perm] += F.softmax(self(pc[..., perm]), dim=1)
+            softmax_accumulation[..., perm] += output_activation(self(pc[..., perm]))
 
         # look if there are points that have been left out
         left_out_pts = torch.nonzero(softmax_accumulation.sum(1) == 0)[..., 1]
@@ -182,12 +192,12 @@ class DGCNNSeg(DGCNNBase):
                 lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
                 other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
                 pts = torch.cat((lo_pts, other), dim=0)
-                softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=1)
+                softmax_accumulation[..., pts] += output_activation(self(pc[..., pts]))
 
             if (softmax_accumulation.sum(1) == 0).sum() != 0:
                 warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
 
-        return F.softmax(softmax_accumulation, dim=1)
+        return output_activation(softmax_accumulation)
 
 
 class DGCNNReg(DGCNNBase):
@@ -225,6 +235,14 @@ class DGCNNReg(DGCNNBase):
 
         global_features = self.global_feature(multi_level_features)
         return self.regression(global_features)
+
+    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        accumulation = torch.zeros(pc.shape[0], self.num_classes, 1, device=pc.device)
+        for i in range(n_runs_min):
+            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
+            accumulation += self(pc[..., perm])
+
+        return accumulation / n_runs_min
 
 
 class EdgeConv(nn.Module):

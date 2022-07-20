@@ -9,17 +9,17 @@ from models.modelio import store_config_args, LoadableModel
 
 class SSM(LoadableModel):
     @store_config_args
-    def __init__(self, alpha=2.5, target_variance=0.95, dimensionality=3, _num_modes=None, _percent_of_variance=None):
+    def __init__(self, alpha=2.5, target_variance=0.95, dimensionality=3):
         super().__init__()
         self.target_variance = target_variance
         self.alpha = alpha
         self.dim = dimensionality
 
-        self.num_modes = _num_modes
-        self.percent_of_variance = _percent_of_variance
-
         # register parameters that will be set by calling SSM.fit
         # these can be used like normal python attributes!
+        self.register_parameter('num_modes', None)
+        self.register_parameter('percent_of_variance', None)
+
         self.register_parameter('mean_shape', None)
         self.register_parameter('eigenvalues', None)
         self.register_parameter('eigenvectors', None)
@@ -43,12 +43,11 @@ class SSM(LoadableModel):
         variance_at_sv = (S/total_variance).cumsum(0)
 
         # number of necessary modes to account for desired portion of the whole variance
-        self.num_modes = (variance_at_sv <= self.target_variance).sum() + 1
-        self.percent_of_variance = variance_at_sv[self.num_modes-1]
+        num_modes = (variance_at_sv <= self.target_variance).sum() + 1
 
         # set config parameters
-        self.config['num_modes'] = self.num_modes
-        self.config['percent_of_variance'] = self.percent_of_variance
+        self.num_modes = nn.Parameter(num_modes, requires_grad=False)
+        self.percent_of_variance = nn.Parameter(variance_at_sv[self.num_modes-1], requires_grad=False)
 
         # set the model parameters: principal axes
         self.eigenvalues = nn.Parameter(S[None, :self.num_modes])
@@ -96,10 +95,12 @@ class SSM(LoadableModel):
     def load(cls, path, device):
         checkpoint = torch.load(path, map_location=torch.device(device))
         model = cls(**checkpoint['config'])
-        for key, value in checkpoint['model_state'].items():
-            model.register_parameter(key, nn.Parameter(value, requires_grad=False))
-
+        model.register_parameters_from_state_dict(checkpoint['model_state'])
         return model
+
+    def register_parameters_from_state_dict(self, state_dict):
+        for key, value in state_dict.items():
+            self.register_parameter(key, nn.Parameter(value, requires_grad=False))
 
     def train(self, mode=True):
         # this module is fixed (parameters should not be adjusted during training)
