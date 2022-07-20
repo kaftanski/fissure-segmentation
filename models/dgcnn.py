@@ -182,7 +182,7 @@ class DGCNNSeg(DGCNNBase):
                 lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
                 other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
                 pts = torch.cat((lo_pts, other), dim=0)
-                softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=0)
+                softmax_accumulation[..., pts] += F.softmax(self(pc[..., pts]), dim=1)
 
             if (softmax_accumulation.sum(1) == 0).sum() != 0:
                 warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
