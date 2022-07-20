@@ -10,12 +10,12 @@ import torch
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from data import PointDataset, load_split_file, save_split_file, LungData
+from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
 from metrics import assd, label_mesh_assd, batch_dice
-from models.dgcnn import DGCNNSeg
+from models.dgcnn import DGCNNSeg, SharedFullyConnected
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map
@@ -29,6 +29,13 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
         class_weights = class_weights.to(device)
 
     criterion = get_loss_fn(loss, class_weights)
+
+    if isinstance(ds, CorrespondingPointDataset):
+        model.fit_ssm(ds.corr_points.get_shape_datamatrix().to(device))
+
+        # make the model regress the correct number of modes for the SSM
+        model.dgcnn.regression[-1] = SharedFullyConnected(256, model.ssm.num_modes, dim=1)
+        model.dgcnn.init_weights()
 
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)

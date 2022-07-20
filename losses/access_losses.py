@@ -5,6 +5,7 @@ from losses.dice_loss import GDL
 from enum import Enum
 
 from losses.recall_loss import BatchRecallLoss
+from losses.ssm_loss import CorrespondingPointDistance
 
 
 class Losses(Enum):
@@ -16,6 +17,9 @@ class Losses(Enum):
 
     RECALL = "recall"
     """cross entropy loss weighted with batch-specific false-positive rate, promotes recall"""
+
+    SSM = "ssm"
+    """ ssm loss (chamfer distance for now) """  # TODO: implement point to mesh distance
 
     @classmethod
     def list(cls):
@@ -46,5 +50,8 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
 
     if loss == Losses.RECALL.value:
         return BatchRecallLoss()
+
+    if loss == Losses.SSM.value:
+        return CorrespondingPointDistance()
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

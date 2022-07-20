@@ -12,6 +12,7 @@ from glob import glob
 from typing import OrderedDict
 
 from augmentations import image_augmentation
+from shape_model.ssm import load_shape
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
 from utils.utils import load_points
 import SimpleITK as sitk
@@ -414,6 +415,62 @@ class PointDataset(CustomDataset):
         return self.points[i]
 
 
+class CorrespondingPointDataset(PointDataset):
+    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
+                 patch_feat=None, corr_folder="./results/corresponding_points"):
+        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, folder, use_coords, patch_feat, exclude_rhf=False)
+        self.corr_points = CorrespondingPoints(corr_folder)
+
+        # remove non-matched data points
+        self._remove_non_matched_from_corr_points()
+
+    def __getitem__(self, item):
+        pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
+        return pts, self.corr_points[item]
+
+    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+        train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
+        train_ds._remove_non_matched_from_corr_points()
+        val_ds._remove_non_matched_from_corr_points()
+        return train_ds, val_ds
+
+    def _remove_non_matched_from_corr_points(self):
+        for i in range(len(self.ids) - 1, -1, -1):
+            if self.ids[i] not in self.corr_points.ids:
+                self._pop_item(i)
+
+        for i in range(len(self.corr_points) - 1, -1, -1):
+            if self.corr_points.ids[i] not in self.ids:
+                self.corr_points.points.pop(i)
+                self.corr_points.ids.pop(i)
+
+
+class CorrespondingPoints:
+    def __init__(self, folder):
+        self.folder = folder
+        self.points = []
+        self.ids = []
+        files = sorted(glob(os.path.join(self.folder, '*.npy')))
+        for f in files:
+            self.points.append(load_shape(f))
+            tail = f.split(os.sep)[-1]
+            case, sequence = tail.split('_')[:2]
+            self.ids.append((case, sequence))
+
+        # points are corresponding, one label is applicable to all
+        self.label = load_shape(files[0], return_labels=True)[1]
+        self.num_objects = len(np.unique(self.label))
+
+    def __getitem__(self, item):
+        return self.points[item]
+
+    def __len__(self):
+        return len(self.points)
+
+    def get_shape_datamatrix(self):
+        return torch.stack(self.points, dim=0)
+
+
 def load_landmarks(filepath):
     points = []
     with open(filepath, 'r') as csv_file:
@@ -486,7 +543,11 @@ def save_split_file(split, filepath):
 
 
 if __name__ == '__main__':
-    ds = ImageDataset('../data')
+    ds = CorrespondingPointDataset(1024, 'cnn', patch_feat='mind')
     splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
-    for fold in splitfile:
-        train, test = ds.split_data_set(fold)
+    tr, vl = ds.split_data_set(splitfile[0])
+    pass
+    # ds = ImageDataset('../data')
+    # splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
+    # for fold in splitfile:
+    #     train, test = ds.split_data_set(fold)

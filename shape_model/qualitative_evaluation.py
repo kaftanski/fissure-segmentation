@@ -6,6 +6,7 @@ import torch
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+from losses.ssm_loss import corresponding_point_distance
 from shape_model.ssm import SSM, load_shape
 from visualization import point_cloud_on_axis, visualize_point_cloud
 
@@ -112,6 +113,13 @@ if __name__ == '__main__':
     errors = torch.stack(errors, dim=0)
     print('Reconstruction error (corresponding points):', errors.mean().item(), '+-', errors.std().item(),
           f'(Hausdorff {errors.max().item()})')
+
+    # try half precision
+    model.half()
+    weights = model(shapes.half())
+    restored = model.decode(weights)
+    errors = corresponding_point_distance(shapes, restored)
+    print('Half precision:', errors.mean().item(), '+-', errors.std().item(), 'HD:', errors.max())
 
     # visualize random samples
     visualize_samples(model, 100, os.path.join(result_dir, 'samples'))

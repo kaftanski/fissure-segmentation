@@ -72,3 +72,17 @@ def get_dgcnn_train_parser():
 def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
     return parser
+
+
+def get_dgcnn_ssm_train_parser():
+    parser = get_dgcnn_train_parser()
+    parser.description = 'Train DGCNN-Shape-Model Regression for lung fissure segmentation'
+
+    group = parser.add_argument_group('SSM parameters')
+    group.add_argument('--alpha', default=3., type=float,
+                       help='Multiplier for plausible shape range (+-alpha*std.dev.)')
+    group.add_argument('--target_variance', default=0.95, type=float,
+                       help='Fraction of the dataset variance to be explained by the model')
+
+    parser.set_defaults(loss='ssm')
+    return parser

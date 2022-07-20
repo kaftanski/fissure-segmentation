@@ -231,6 +231,7 @@ if __name__ == '__main__':
     fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
     save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts'))
 
+    # register each image onto fixed
     for m in range(len(ds)):
         if f == m:
             continue

@@ -64,29 +64,62 @@ def knn(x, k, self_loop=False):
     return idx
 
 
-class DGCNNSeg(LoadableModel):
+class DGCNNBase(LoadableModel):
     @store_config_args
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
-        super(DGCNNSeg, self).__init__()
+        super(DGCNNBase, self).__init__()
         self.k = k
         self.num_classes = num_classes
         self.dynamic = dynamic
+        self.knn_graph = None
 
         if image_feat_module:
             if in_features < 4:
                 raise ValueError('Number of In-Features for DGCNN too low if you want to use the image feature module! '
                                  'Need at 3, as the first 3 are assumed to be the point coordinates.')
             self.image_feature_module = ImageFeatures(in_channels=in_features-3, out_channels=(6, 12))
-            in_features = 3 + 12
+            self.in_features = 3 + 12
         else:
             self.image_feature_module = None
+            self.in_features = in_features
 
         if spatial_transformer:
             self.spatial_transformer = SpatialTransformer(k)
         else:
             self.spatial_transformer = None
 
-        self.ec1 = EdgeConv(in_features, [64, 64], self.k)
+    def forward(self, x):
+        """
+
+        :param x: input of shape (point cloud batch x features x points)
+        :return: output of the common DGCNN layers (image feature module and spatial transformer)
+        """
+        # compute static kNN graph based on coordinates if net is not supposed to be dynamic
+        if not self.dynamic:
+            self.knn_graph = knn(x[:, :3], self.k, self_loop=False)
+
+        # extract image features for points
+        if self.image_feature_module is not None:
+            x = self.image_feature_module(x)
+
+        # transform point cloud into canonical space
+        if self.spatial_transformer is not None:
+            x = self.spatial_transformer(x)
+
+        return x
+
+    def init_weights(self):
+        self.apply(init_weights)
+        if self.spatial_transformer is not None:
+            # special initialisation
+            self.spatial_transformer.init_weights()
+
+
+class DGCNNSeg(DGCNNBase):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
+        super(DGCNNSeg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
+
+        self.ec1 = EdgeConv(self.in_features, [64, 64], self.k)
         self.ec2 = EdgeConv(64, [64], self.k)
         self.ec3 = EdgeConv(64, [64], self.k)
 
@@ -101,12 +134,10 @@ class DGCNNSeg(LoadableModel):
             # nn.Dropout(p=0.5), TODO: use this?
             SharedFullyConnected(256, 128, dim=1),
             # nn.Dropout(p=0.5),
-            SharedFullyConnected(128, num_classes, dim=1)
+            SharedFullyConnected(128, self.num_classes, dim=1)
         )
 
-        self.apply(init_weights)
-        if spatial_transformer:
-            self.spatial_transformer.init_weights()
+        self.init_weights()
 
     def forward(self, x):
         """
@@ -114,21 +145,12 @@ class DGCNNSeg(LoadableModel):
         :param x: input of shape (point cloud batch x features x points)
         :return: point segmentation of shape (point cloud batch x num_classes)
         """
-        # compute static kNN graph based on coordinates if net is not supposed to be dynamic
-        knn_graph = None if self.dynamic else knn(x[:, :3], self.k, self_loop=False)
-
-        # extract image features for points
-        if self.image_feature_module is not None:
-            x = self.image_feature_module(x)
-
-        # transform point cloud into canonical space
-        if self.spatial_transformer is not None:
-            x = self.spatial_transformer(x)
+        x = super(DGCNNSeg, self).forward(x)
 
         # edge convolutions
-        x1 = self.ec1(x, knn_graph)
-        x2 = self.ec2(x1, knn_graph)
-        x3 = self.ec3(x2, knn_graph)
+        x1 = self.ec1(x, self.knn_graph)
+        x2 = self.ec2(x1, self.knn_graph)
+        x3 = self.ec3(x2, self.knn_graph)
         multi_level_features = torch.cat([x1, x2, x3], dim=1)
 
         # global feature vector
@@ -166,6 +188,43 @@ class DGCNNSeg(LoadableModel):
                 warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
 
         return F.softmax(softmax_accumulation, dim=1)
+
+
+class DGCNNReg(DGCNNBase):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
+        super(DGCNNReg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
+
+        self.ec1 = EdgeConv(self.in_features, [64], self.k)
+        self.ec2 = EdgeConv(64, [64], self.k)
+        self.ec3 = EdgeConv(64, [128], self.k)
+        self.ec4 = EdgeConv(128, [256], self.k)
+
+        self.global_feature = nn.Sequential(
+            SharedFullyConnected(2 * 64 + 128 + 256, 1024, dim=1),
+            nn.AdaptiveMaxPool1d(1)
+        )
+
+        self.regression = nn.Sequential(
+            SharedFullyConnected(1024, 512, dim=1),
+            # nn.Dropout(p=0.5), TODO: use this?
+            SharedFullyConnected(512, 256, dim=1),
+            # nn.Dropout(p=0.5),
+            SharedFullyConnected(256, self.num_classes, dim=1)
+        )
+
+        self.init_weights()
+
+    def forward(self, x):
+        x = super(DGCNNReg, self).forward(x)
+
+        x1 = self.ec1(x, self.knn_graph)
+        x2 = self.ec2(x1, self.knn_graph)
+        x3 = self.ec3(x2, self.knn_graph)
+        x4 = self.ec4(x3, self.knn_graph)
+        multi_level_features = torch.cat([x1, x2, x3, x4], dim=1)
+
+        global_features = self.global_feature(multi_level_features)
+        return self.regression(global_features)
 
 
 class EdgeConv(nn.Module):

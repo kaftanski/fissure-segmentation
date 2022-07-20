@@ -120,10 +120,19 @@ def save_shape(array, filepath):
     np.save(filepath, array)
 
 
-def load_shape(filepath):
+def load_shape(filepath, return_labels=False):
     arr = np.load(filepath)
-    arr = np.concatenate([*arr], axis=0)  # unpack all objects (first dimension)
-    return torch.from_numpy(arr)
+
+    # unpack all objects (first dimension)
+    arr_concat = torch.from_numpy(np.concatenate([*arr], axis=0)).float()
+
+    if return_labels:
+        # generate pointwise labels
+        labels = torch.from_numpy(
+            np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
+        return arr_concat, labels
+    else:
+        return arr_concat
 
 
 if __name__ == '__main__':
