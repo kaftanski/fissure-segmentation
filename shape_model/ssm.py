@@ -9,44 +9,50 @@ from models.modelio import store_config_args, LoadableModel
 
 class SSM(LoadableModel):
     @store_config_args
-    def __init__(self, alpha=2.5, target_variance=0.95, dimensionality=3):
+    def __init__(self, alpha=2.5, target_variance=0.95, dimensionality=3, _num_modes=None, _percent_of_variance=None):
         super().__init__()
         self.target_variance = target_variance
         self.alpha = alpha
         self.dim = dimensionality
 
+        self.num_modes = _num_modes
+        self.percent_of_variance = _percent_of_variance
+
         # register parameters that will be set by calling SSM.fit
         # these can be used like normal python attributes!
-        self.register_parameter('num_modes', None)
-        self.register_parameter('percent_of_variance', None)
-
         self.register_parameter('mean_shape', None)
         self.register_parameter('eigenvalues', None)
         self.register_parameter('eigenvectors', None)
 
+        # this module is fixed (parameters should not be adjusted during training)
+        self.eval()
+        self.training = False
+
     def fit(self, train_shapes: torch.Tensor):
         """
         :param train_shapes: data matrix of shape (N x F): one row per sample (N), F features each
+            (alternatively: batch of N shapes with P points each, shape (N x P x 3)
         """
+        if len(train_shapes.shape) == 3 and train_shapes.shape[-1] == self.dim:
+            train_shapes = shape2vector(train_shapes)
+
         # TODO: procrustes analysis
-        self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True), requires_grad=False)
+        self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True))
         U, S, V = torch.pca_lowrank(train_shapes, q=min(train_shapes.shape), center=True)
         total_variance = S.sum()
         variance_at_sv = (S/total_variance).cumsum(0)
 
         # number of necessary modes to account for desired portion of the whole variance
-        num_modes = (variance_at_sv <= self.target_variance).sum() + 1
+        self.num_modes = (variance_at_sv <= self.target_variance).sum() + 1
+        self.percent_of_variance = variance_at_sv[self.num_modes-1]
 
         # set config parameters
-        self.num_modes = nn.Parameter(num_modes, requires_grad=False)
-        self.percent_of_variance = nn.Parameter(variance_at_sv[self.num_modes-1], requires_grad=False)
+        self.config['num_modes'] = self.num_modes
+        self.config['percent_of_variance'] = self.percent_of_variance
 
         # set the model parameters: principal axes
-        self.eigenvalues = nn.Parameter(S[None, :self.num_modes], requires_grad=False)
-        self.eigenvectors = nn.Parameter(V[None, :, :self.num_modes], requires_grad=False)
-
-        # in case we missed one requires_grad=True Parameter -> set all to False
-        self.requires_grad_(False)
+        self.eigenvalues = nn.Parameter(S[None, :self.num_modes])
+        self.eigenvectors = nn.Parameter(V[None, :, :self.num_modes])
 
     def forward(self, shapes):
         """
@@ -67,8 +73,8 @@ class SSM(LoadableModel):
         :return:
         """
         self.assert_trained()
-
-        reconstruction = self.mean_shape + torch.matmul(self.eigenvectors, weights.unsqueeze(-1)).squeeze(-1)
+        weights = weights.view(*weights.shape[:2], 1)
+        reconstruction = self.mean_shape + torch.matmul(self.eigenvectors, weights).squeeze(-1)
         return vector2shape(reconstruction, self.dim)
 
     def random_samples(self, n_samples: int):
@@ -76,7 +82,7 @@ class SSM(LoadableModel):
 
         stddev = torch.sqrt(self.eigenvalues)
         ranges = self.alpha * stddev
-        return torch.rand(n_samples, self.num_modes.data, device=stddev.device) * 2 * ranges - ranges
+        return torch.rand(n_samples, self.num_modes.data, device=stddev.device, dtype=self.eigenvectors.dtype) * 2 * ranges - ranges
         # weights = torch.randn(n_samples, self.num_modes.data, device=stddev.device) * stddev
         #
         # # restrict samples to plausible range +-alpha*stddev
@@ -94,6 +100,10 @@ class SSM(LoadableModel):
             model.register_parameter(key, nn.Parameter(value, requires_grad=False))
 
         return model
+
+    def train(self, mode=True):
+        # this module is fixed (parameters should not be adjusted during training)
+        return self
 
 
 def shape2vector(shape: torch.Tensor):
