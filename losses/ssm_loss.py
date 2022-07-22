@@ -6,7 +6,7 @@ class CorrespondingPointDistance(nn.Module):
         super(CorrespondingPointDistance, self).__init__()
 
     def forward(self, prediction, target):
-        return corresponding_point_distance(prediction, target).mean()
+        return corresponding_point_distance(prediction, target).pow(2).mean()
 
 
 def corresponding_point_distance(prediction, target):
