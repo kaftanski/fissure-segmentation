@@ -8,7 +8,7 @@ from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
-from utils.utils import pairwise_dist, RunningMean
+from utils.utils import pairwise_dist
 from torch.nn import functional as F
 
 
@@ -142,7 +142,7 @@ class DGCNNSeg(DGCNNBase):
             # nn.Dropout(p=0.5), TODO: use this?
             SharedFullyConnected(256, 128, dim=1),
             # nn.Dropout(p=0.5),
-            SharedFullyConnected(128, self.num_classes, dim=1)
+            SharedFullyConnected(128, self.num_classes, dim=1, last_layer=True)
         )
 
         self.init_weights()
@@ -219,7 +219,7 @@ class DGCNNReg(DGCNNBase):
             # nn.Dropout(p=0.5), TODO: use this?
             SharedFullyConnected(512, 256, dim=1),
             # nn.Dropout(p=0.5),
-            SharedFullyConnected(256, self.num_classes, dim=1)
+            SharedFullyConnected(256, self.num_classes, dim=1, last_layer=True)
         )
 
         self.init_weights()
@@ -234,7 +234,9 @@ class DGCNNReg(DGCNNBase):
         multi_level_features = torch.cat([x1, x2, x3, x4], dim=1)
 
         global_features = self.global_feature(multi_level_features)
-        return self.regression(global_features)
+
+        x = self.regression(global_features)
+        return x
 
     def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
         accumulation = torch.zeros(pc.shape[0], self.num_classes, 1, device=pc.device)
@@ -315,9 +317,11 @@ class SpatialTransformer(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size=3, stride=1, bias=False, padding=True, dim=2,
-                 negative_slope=1e-2):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size=3, stride=1, padding=True, dim=2,
+                 negative_slope=1e-2, bn=True, activation=True):
         super(ConvBlock, self).__init__()
+
+        bias = not bn
 
         if dim == 1:
             conv_layer = nn.Conv1d
@@ -331,26 +335,29 @@ class ConvBlock(nn.Module):
         else:
             raise ValueError(f'There is no Conv layer for dimensionality {dim}.')
 
-        self.layers = nn.Sequential(
+        self.layers = nn.ModuleList([
             conv_layer(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=bias,
-                       stride=stride, padding=(kernel_size//2) if padding else 0),
-            norm_layer(num_features=out_channels),
-            nn.LeakyReLU(negative_slope=negative_slope)
-        )
+                       stride=stride, padding=(kernel_size // 2) if padding else 0)
+        ])
+
+        if bn:
+            self.layers.append(norm_layer(num_features=out_channels))
+
+        if activation:
+            self.layers.append(nn.LeakyReLU(negative_slope=negative_slope))
 
     def forward(self, x):
-        return self.layers(x)
+        for l in self.layers:
+            x = l(x)
+        return x
 
 
 class SharedFullyConnected(ConvBlock):
-    def __init__(self, in_features, out_features, dim=2):
+    def __init__(self, in_features, out_features, dim=2, last_layer=False):
         super(SharedFullyConnected, self).__init__(
             in_features, out_features, dim=dim,
-            kernel_size=1, padding=False, bias=False,
+            kernel_size=1, padding=False, bn=not last_layer, activation=not last_layer,
             negative_slope=0.2)  # TODO: test lighter slope
-
-    def forward(self, x):
-        return self.layers(x)
 
 
 class ImageFeatures(nn.Module):
