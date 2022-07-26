@@ -40,7 +40,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
             pred_weights = model.dgcnn.predict_full_pointcloud(input_pts)
             reconstructions = model.ssm.decode(pred_weights)
 
-            # test only the SSM for baseline reconstruction
+            # test SSM separately for baseline reconstruction
             reconstruction_baseline = model.ssm.decode(model.ssm(corr_pts))
 
         weight_stats[i] += pred_weights.squeeze().cpu()

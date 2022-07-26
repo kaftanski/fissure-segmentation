@@ -14,6 +14,7 @@ from data import PointDataset, load_split_file, save_split_file, LungData, Corre
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
+from losses.ssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg, SharedFullyConnected
 from utils.fissure_utils import binary_to_fissure_segmentation
@@ -31,7 +32,17 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
     criterion = get_loss_fn(loss, class_weights)
 
     if isinstance(ds, CorrespondingPointDataset):
-        model.fit_ssm(ds.corr_points.get_shape_datamatrix().to(device))
+        train_shapes = ds.corr_points.get_shape_datamatrix().to(device)
+        model.fit_ssm(train_shapes)
+
+        ev_before = model.ssm.eigenvectors.data.clone()
+        ms_before = model.ssm.mean_shape.data.clone()
+
+        # compute the train reconstruction error
+        with torch.no_grad():
+            reconstructions = model.ssm.decode(model.ssm(train_shapes))
+            error = corresponding_point_distance(reconstructions, train_shapes)
+            print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
         # make the model regress the correct number of modes for the SSM
         model.dgcnn.regression[-1] = SharedFullyConnected(256, model.ssm.num_modes, dim=1)
@@ -40,6 +51,18 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
     trainer.run(initial_epoch=0)
+
+    if isinstance(ds, CorrespondingPointDataset):
+        # assert that the SSM has not been changed
+        assert torch.all(model.ssm.eigenvectors.data == ev_before), \
+            'SSM parameters have changed. This should not have happened'
+        assert torch.all(model.ssm.mean_shape.data == ms_before), \
+            'SSM parameters have changed. This should not have happened'
+
+        with torch.no_grad():
+            reconstructions = model.ssm.decode(model.ssm(train_shapes))
+            error = corresponding_point_distance(reconstructions, train_shapes)
+            print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
 
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],

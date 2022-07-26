@@ -4,6 +4,8 @@ import os.path
 import numpy as np
 import torch
 from torch import nn
+
+from losses.ssm_loss import corresponding_point_distance
 from models.modelio import store_config_args, LoadableModel
 
 
@@ -25,8 +27,7 @@ class SSM(LoadableModel):
         self.register_parameter('eigenvectors', None)
 
         # this module is fixed (parameters should not be adjusted during training)
-        self.eval()
-        self.training = False
+        self.requires_grad_(False)
 
     def fit(self, train_shapes: torch.Tensor):
         """
@@ -37,7 +38,7 @@ class SSM(LoadableModel):
             train_shapes = shape2vector(train_shapes)
 
         # TODO: procrustes analysis
-        self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True))
+        self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True), requires_grad=False)
         U, S, V = torch.pca_lowrank(train_shapes, q=min(train_shapes.shape), center=True)
         total_variance = S.sum()
         variance_at_sv = (S/total_variance).cumsum(0)
@@ -50,8 +51,11 @@ class SSM(LoadableModel):
         self.percent_of_variance = nn.Parameter(variance_at_sv[self.num_modes-1], requires_grad=False)
 
         # set the model parameters: principal axes
-        self.eigenvalues = nn.Parameter(S[None, :self.num_modes])
-        self.eigenvectors = nn.Parameter(V[None, :, :self.num_modes])
+        self.eigenvalues = nn.Parameter(S[None, :self.num_modes], requires_grad=False)
+        self.eigenvectors = nn.Parameter(V[None, :, :self.num_modes], requires_grad=False)
+
+        # in case we missed one requires_grad=True Parameter -> set all to False
+        self.requires_grad_(False)
 
     def forward(self, shapes):
         """
@@ -102,10 +106,6 @@ class SSM(LoadableModel):
         for key, value in state_dict.items():
             self.register_parameter(key, nn.Parameter(value, requires_grad=False))
 
-    def train(self, mode=True):
-        # this module is fixed (parameters should not be adjusted during training)
-        return self
-
 
 def shape2vector(shape: torch.Tensor):
     return shape.flatten(start_dim=-2)
@@ -145,17 +145,25 @@ if __name__ == '__main__':
         shapes.append(load_shape(f))
 
     shapes = torch.stack(shapes, dim=0)
-    shapes = shape2vector(shapes)
+
+    train_index = int(0.5 * len(shapes))
+    train_shapes = shapes[:train_index]
+    test_shapes = shapes[train_index:]
 
     sm = SSM(alpha=3, target_variance=0.95)
-    sm.fit(shapes)
+    sm.fit(shape2vector(train_shapes))
 
+    # test reconstruction
+    test_predictions = sm.decode(sm(test_shapes))
+    error = corresponding_point_distance(test_predictions, test_shapes)
+    print(error.mean().item(), '+-', error.std().item())
+
+    # test saving and loading
     sm.save(shape_folder+'/ssm.pth')
     sm_reloaded = SSM.load(shape_folder+'/ssm.pth', 'cpu')
 
-    weights = sm(vector2shape(shapes))
+    weights = sm(shapes)
     restored = sm.decode(weights)
 
     restored_2 = sm.decode(weights)
-
-    samples = sm.random_samples(10)
+    assert torch.allclose(restored_2, restored)
