@@ -19,7 +19,7 @@ class DGSSM(LoadableModel):
 
         pred_weights = self.dgcnn(x)
         reconstructions = self.ssm.decode(pred_weights)
-        return reconstructions
+        return reconstructions, pred_weights.squeeze()
 
     def fit_ssm(self, shapes):
         self.ssm.fit(shapes)

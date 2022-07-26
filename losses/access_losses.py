@@ -38,6 +38,20 @@ def assemble_nnunet_loss_function(class_weights: torch.Tensor = None):
     return combined_loss
 
 
+def asseble_dg_ssm_loss():
+    point_loss = CorrespondingPointDistance()
+    coefficient_loss = nn.MSELoss()
+
+    def combined_loss(prediction, target):
+        pred_shape, pred_weights = prediction
+        targ_shape, targ_weights = target
+        pl = point_loss(pred_shape, targ_shape)
+        wl = coefficient_loss(pred_weights, targ_weights)
+        return pl + 0.5 * wl, {'Corr-Point-Loss': pl, 'Coefficients': wl}
+
+    return combined_loss
+
+
 def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
     if isinstance(loss, Losses):
         loss = loss.value
@@ -52,6 +66,6 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
         return BatchRecallLoss()
 
     if loss == Losses.SSM.value:
-        return CorrespondingPointDistance()
+        return asseble_dg_ssm_loss()
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

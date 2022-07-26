@@ -11,6 +11,7 @@ from torch.utils.data import random_split, DataLoader
 
 import models.modelio
 from data import CustomDataset
+from models.dg_ssm import DGSSM
 
 
 class ModelTrainer:
@@ -44,7 +45,7 @@ class ModelTrainer:
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
         val_split = int(len(self.ds) * 0.2)
         ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
-        num_workers = 4
+        num_workers = 0#4
         drop_last = len(ds) // 2 >= self.batch_size
         self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading
@@ -104,11 +105,20 @@ class ModelTrainer:
         # TODO: support additional validation metrics
 
         with autocast():
+            x = x.to(self.device)
+            y = y.to(self.device)
+
             # forward pass
-            output = self.model(x.to(self.device))
+            output = self.model(x)
+
+            # UGLY SPECIAL CASE
+            if isinstance(self.model, DGSSM):
+                # use optimal SSM weights for supervision
+                target_weights = self.model.ssm(y)
+                y = (y, target_weights)
 
             # loss computation
-            loss = self.loss_function(output, y.to(self.device))
+            loss = self.loss_function(output, y)
 
         if isinstance(loss, tuple):
             loss, components = loss
