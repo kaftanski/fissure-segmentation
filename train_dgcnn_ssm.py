@@ -15,7 +15,6 @@ from visualization import point_cloud_on_axis
 
 
 def test(ds: CorrespondingPointDataset, device, out_dir, show):
-    # TODO: compute SSM reconstruction error as baseline
     # device = 'cpu'
 
     model = DGSSM.load(os.path.join(out_dir, 'model.pth'), device=device)
@@ -27,6 +26,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
     os.makedirs(plot_dir, exist_ok=True)
 
     corr_point_errors = torch.zeros(len(ds), ds.num_classes)
+    ssm_error_baseline = torch.zeros_like(corr_point_errors)
     weight_stats = torch.zeros(len(ds), model.ssm.num_modes.data)
     for i in range(len(ds)):
         case, sequence = ds.ids[i]
@@ -36,14 +36,20 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         corr_pts = ds.corr_points[i].unsqueeze(0).to(device)
 
         with torch.no_grad():
+            # make whole model prediction
             pred_weights = model.dgcnn.predict_full_pointcloud(input_pts)
             reconstructions = model.ssm.decode(pred_weights)
+
+            # test only the SSM for baseline reconstruction
+            reconstruction_baseline = model.ssm.decode(model.ssm(corr_pts))
 
         weight_stats[i] += pred_weights.squeeze().cpu()
 
         error = corresponding_point_distance(reconstructions, corr_pts).cpu()
+        baseline_error = corresponding_point_distance(reconstruction_baseline, corr_pts).cpu()
         for c in range(ds.num_classes):
             corr_point_errors[i, c] = error[0, ds.corr_points.label == c+1].mean()
+            ssm_error_baseline[i, c] = baseline_error[0, ds.corr_points.label == c + 1].mean()
 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
@@ -57,6 +63,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
             plt.close(fig)
 
     print(f'Corr. point distance: {corr_point_errors.mean().item():.4f} +- {corr_point_errors.std().item():.4f}')
+    print(f'SSM reconstruction error: {ssm_error_baseline.mean().item():.4f} +- {ssm_error_baseline.std().item():.4f}')
     print(f'StdDev of pred. weights: {weight_stats.std(dim=0)} \n\tModel StdDev: {model.ssm.eigenvalues.sqrt().squeeze()}')
 
 
