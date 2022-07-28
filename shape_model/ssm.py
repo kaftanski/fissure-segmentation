@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
     shapes = torch.stack(shapes, dim=0)
 
-    train_index = int(0.5 * len(shapes))
+    train_index = int(0.7 * len(shapes))
     train_shapes = shapes[:train_index]
     test_shapes = shapes[train_index:]
 

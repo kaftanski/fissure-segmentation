@@ -1,9 +1,11 @@
-from typing import Sequence
+from typing import Sequence, List
 
+import numpy
 import numpy as np
 import open3d as o3d
 import os
 
+from pytorch3d.structures import Meshes
 import torch
 from numpy.typing import ArrayLike
 from torch.nn import functional as F
@@ -103,6 +105,18 @@ def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
     verts = o3d.utility.Vector3dVector(np.array(verts, dtype=np.float32))
     tris = o3d.utility.Vector3iVector(np.array(tris, dtype=np.uint32))
     return o3d.geometry.TriangleMesh(vertices=verts, triangles=tris)
+
+
+def o3d_to_pt3d_meshes(o3d_meshes: List[o3d.geometry.TriangleMesh]):
+    verts = []
+    faces = []
+    vert_normals = []
+    for m in o3d_meshes:
+        verts.append(torch.from_numpy(np.asarray(m.vertices)).float())
+        faces.append(torch.from_numpy(np.asarray(m.triangles)).float())
+        vert_normals.append(torch.from_numpy(np.asarray(m.vertex_normals)).float())
+
+    return Meshes(verts, faces, verts_normals=vert_normals)
 
 
 def kpts_to_grid(kpts_world, shape, align_corners=None):

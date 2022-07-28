@@ -11,10 +11,12 @@ from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
 
+from pytorch3d.structures import join_meshes_as_batch
+
 from augmentations import image_augmentation
 from shape_model.ssm import load_shape
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
-from utils.utils import load_points
+from utils.utils import load_points, o3d_to_pt3d_meshes
 import SimpleITK as sitk
 import numpy as np
 import torch
@@ -416,17 +418,30 @@ class PointDataset(CustomDataset):
 
 
 class CorrespondingPointDataset(PointDataset):
-    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
-                 patch_feat=None, corr_folder="./results/corresponding_points"):
-        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, folder, use_coords, patch_feat, exclude_rhf=False)
+    def __init__(self, sample_points, kp_mode, point_folder='/home/kaftan/FissureSegmentation/point_data/',
+                 use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
+                 image_folder='/home/kaftan/FissureSegmentation/data/'):
+        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat, exclude_rhf=False)
         self.corr_points = CorrespondingPoints(corr_folder)
+
+        # load meshes for supervision
+        self.meshes = []
+        for case, sequence in self.ids:
+            meshlist = sorted(glob(os.path.join(image_folder, f'{case}_mesh_{sequence}', f'{case}_fissure*_{sequence}.obj')))
+            self.meshes.append(tuple(o3d.io.read_triangle_mesh(m) for m in meshlist))
 
         # remove non-matched data points
         self._remove_non_matched_from_corr_points()
 
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
-        return pts, self.corr_points[item]
+
+        # combine the label meshes
+        concat_meshes = self.meshes[item][0]
+        for m in self.meshes[item][1:]:
+            concat_meshes += m
+
+        return pts, (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
@@ -447,6 +462,14 @@ class CorrespondingPointDataset(PointDataset):
             if self.corr_points.ids[i] not in self.ids:
                 self.corr_points.points.pop(i)
                 self.corr_points.ids.pop(i)
+
+    def get_batch_collate_fn(self):
+        def collate_fn(list_of_samples):
+            return torch.stack([pc for pc, (_, _) in list_of_samples], dim=0), \
+                   (torch.stack([corr_pts for _, (corr_pts, _) in list_of_samples]),
+                    join_meshes_as_batch([mesh for _, (_, mesh) in list_of_samples]))
+
+        return collate_fn
 
 
 class CorrespondingPoints:

@@ -106,7 +106,6 @@ class ModelTrainer:
 
         with autocast():
             x = x.to(self.device)
-            y = y.to(self.device)
 
             # forward pass
             output = self.model(x)
@@ -114,8 +113,10 @@ class ModelTrainer:
             # UGLY SPECIAL CASE
             if isinstance(self.model, DGSSM):
                 # use optimal SSM weights for supervision
-                target_weights = self.model.ssm(y)
-                y = (y, target_weights)
+                target_weights = self.model.ssm(y[0].to(self.device))
+                y = (y[1].to(self.device), target_weights)
+            else:
+                y = y.to(self.device)
 
             # loss computation
             loss = self.loss_function(output, y)

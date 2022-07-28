@@ -1,4 +1,6 @@
 import torch
+from pytorch3d.loss import point_mesh_face_distance
+from pytorch3d.structures import Pointclouds
 from torch import nn
 
 from losses.dice_loss import GDL
@@ -45,7 +47,11 @@ def asseble_dg_ssm_loss():
     def combined_loss(prediction, target):
         pred_shape, pred_weights = prediction
         targ_shape, targ_weights = target
-        pl = point_loss(pred_shape, targ_shape)
+        # pl = point_loss(pred_shape, targ_shape)
+
+        # convert predicted shape to pt3d point cloud
+        pcl_pred = Pointclouds(pred_shape)
+        pl = point_mesh_face_distance(targ_shape, pcl_pred)
         wl = coefficient_loss(pred_weights, targ_weights)
         return pl + 0.5 * wl, {'Corr-Point-Loss': pl, 'Coefficients': wl}
 
