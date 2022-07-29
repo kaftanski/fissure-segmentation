@@ -44,10 +44,6 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
             error = corresponding_point_distance(reconstructions, train_shapes)
             print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
-        # make the model regress the correct number of modes for the SSM
-        model.dgcnn.regression[-1] = SharedFullyConnected(256, model.ssm.num_modes, dim=1)
-        model.dgcnn.init_weights()
-
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
     trainer.run(initial_epoch=0)

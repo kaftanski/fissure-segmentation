@@ -1,6 +1,6 @@
 import torch
 
-from models.dgcnn import DGCNNReg
+from models.dgcnn import DGCNNReg, SharedFullyConnected
 from models.modelio import LoadableModel, store_config_args
 from shape_model.ssm import SSM
 
@@ -24,6 +24,10 @@ class DGSSM(LoadableModel):
     def fit_ssm(self, shapes):
         self.ssm.fit(shapes)
         self.config['ssm_modes'] = self.ssm.num_modes.data
+
+        # make the model regress the correct number of modes for the SSM
+        self.dgcnn.regression[-1] = SharedFullyConnected(256, self.ssm.num_modes, dim=1, last_layer=True).to(next(self.parameters()).device)
+        self.dgcnn.init_weights()
 
     @classmethod
     def load(cls, path, device):
