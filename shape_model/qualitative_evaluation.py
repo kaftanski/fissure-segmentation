@@ -80,6 +80,37 @@ def latent_interpolation(shape_from: torch.Tensor, shape_to: torch.Tensor, model
         plt.close(fig)
 
 
+@torch.no_grad()
+def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None):
+    device = ssm.eigenvalues.device
+
+    fig = plt.figure(figsize=(3*plots_per_mode, 5*modes_to_plot))
+    for mode in range(modes_to_plot):
+        coeff_range = torch.linspace(-ssm.alpha, ssm.alpha, steps=plots_per_mode, device=device) * ssm.eigenvalues[0, mode].sqrt()
+        for plot in range(plots_per_mode+1):
+            if plot == 0:
+                ax = fig.add_subplot(modes_to_plot, plots_per_mode + 1, mode * (plots_per_mode + 1) + plot + 1)
+                ax.text(x=1, y=0.5, s=f'$\lambda_{mode+1}$', horizontalalignment="right", verticalalignment="center")
+                ax.set_axis_off()
+            else:
+                ax = fig.add_subplot(modes_to_plot, plots_per_mode + 1, mode * (plots_per_mode + 1) + plot + 1,
+                                     projection='3d')
+                coefficients = torch.zeros(1, ssm.num_modes, device=device)
+                coefficients[0, mode] = coeff_range[plot-1]
+                shape = ssm.decode(coefficients).squeeze()
+                point_cloud_on_axis(ax, shape, c='r', cmap=None)
+
+            if mode == 0:
+                if plot == 1:
+                    ax.set_title('$-\\alpha\sqrt{\lambda_i}$')
+                if plot == plots_per_mode:
+                    ax.set_title('$\\alpha\sqrt{\lambda_i}$')
+
+    if savepath is not None:
+        fig.savefig(savepath, bbox_inches='tight', dpi=300)
+    plt.show()
+
+
 if __name__ == '__main__':
     result_dir = './results/shape_models/'
 
