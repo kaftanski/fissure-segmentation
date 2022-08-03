@@ -81,7 +81,7 @@ def latent_interpolation(shape_from: torch.Tensor, shape_to: torch.Tensor, model
 
 
 @torch.no_grad()
-def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None):
+def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None, show=True):
     device = ssm.eigenvalues.device
 
     fig = plt.figure(figsize=(3*plots_per_mode, 5*modes_to_plot))
@@ -108,7 +108,10 @@ def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None):
 
     if savepath is not None:
         fig.savefig(savepath, bbox_inches='tight', dpi=300)
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 if __name__ == '__main__':
