@@ -9,11 +9,11 @@ from pytorch3d.structures import Meshes, Pointclouds
 from pytorch3d.transforms import random_rotations
 from pytorch3d.transforms.transform3d import Transform3d
 from pytorch3d.loss import point_mesh_face_distance
-from torch import optim
+from torch import optim, nn
 
 from data import CorrespondingPointDataset
 from losses.access_losses import get_loss_fn, Losses
-from losses.ssm_loss import corresponding_point_distance
+from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from visualization import visualize_point_cloud
@@ -63,9 +63,10 @@ def mean_pairwise_shape_dist(shapes, meshes):
     # p2m_dists = torch.tensor(p2m_dists)
     return corr_dists.mean() # p2m_dists.mean()
 
-show = False
 
-out_dir = 'results/dgssm_toy_example'
+show = True
+
+out_dir = 'results/dgssm_toy_example_only_corr_point_loss'
 os.makedirs(out_dir, exist_ok=True)
 plot_dir = os.path.join(out_dir, 'plots')
 os.makedirs(plot_dir, exist_ok=True)
@@ -95,8 +96,10 @@ mode_plot(dgssm.ssm, savepath=os.path.join(plot_dir, 'ssm_modes.png'), show=show
 #     visualize_point_cloud(shapes[i], torch.ones(shapes.shape[1]), title='train shape')
 # visualize_point_cloud(dgssm.ssm.mean_shape.data.squeeze().view(2048, 3), torch.ones(shapes.shape[1]), title='mean shape')
 
-criterion = get_loss_fn(Losses.SSM)
+criterion = CorrespondingPointDistance()# get_loss_fn(Losses.SSM)
 optimizer = optim.Adam(dgssm.parameters(), lr=0.001)
+
+coefficient_distance = nn.MSELoss()
 
 epochs = 1000
 steps_per_epoch = 10
@@ -110,17 +113,19 @@ ssm_target = ssm_target.to(device)
 mesh_target = mesh_target.to(device)
 
 ssm_valid_error = torch.zeros(epochs, device=device)
-dgssm_valid_corr_error = torch.zeros_like(ssm_valid_error, device=device)
+valid_corr_error = torch.zeros_like(ssm_valid_error, device=device)
 train_corr_error = torch.zeros_like(ssm_valid_error, device=device)
 loss_progression = torch.zeros_like(ssm_valid_error, device=device)
-components_progression = {'Point-Loss': torch.zeros_like(ssm_valid_error, device=device),
-                          'Coefficients': torch.zeros_like(ssm_valid_error, device=device)}
+train_coefficient_error = torch.zeros_like(ssm_valid_error, device=device)
+valid_coefficient_error = torch.zeros_like(ssm_valid_error, device=device)
+# components_progression = {'Point-Loss': torch.zeros_like(ssm_valid_error, device=device),
+#                           'Coefficients': torch.zeros_like(ssm_valid_error, device=device)}
 for epoch in range(epochs):
     for step in range(steps_per_epoch):
         dgssm.train()
 
         # get randomly transformed input and target data
-        inputs_transformed, mesh_transformed, shape_transformed = \
+        inputs_transformed, _, shape_transformed = \
             get_random_transformed_data(batch_size, device, input_pc, mesh_target, ssm_target)
 
         # train the model
@@ -129,29 +134,30 @@ for epoch in range(epochs):
         target_weights = dgssm.ssm(shape_transformed)
 
         optimizer.zero_grad()
-        loss, components = criterion(output, (mesh_transformed, target_weights))
+        loss = criterion(output[0], shape_transformed)# , components = criterion(output, (mesh_transformed, target_weights))
         loss.backward()
         optimizer.step()
 
         loss_progression[epoch] += loss.item() / steps_per_epoch
-        components_progression['Point-Loss'][epoch] += components['Point-Loss'].item() / steps_per_epoch
-        components_progression['Coefficients'][epoch] += components['Coefficients'].item() / steps_per_epoch
+        # components_progression['Point-Loss'][epoch] += components['Point-Loss'].item() / steps_per_epoch
+        # components_progression['Coefficients'][epoch] += components['Coefficients'].item() / steps_per_epoch
         with torch.no_grad():
             train_corr_error[epoch] += corresponding_point_distance(output[0], shape_transformed).mean() / steps_per_epoch
+            train_coefficient_error[epoch] += coefficient_distance(output[1], target_weights) / steps_per_epoch
 
         # validation
         dgssm.eval()
-
-        inputs_transformed, mesh_transformed, shape_transformed = \
-            get_random_transformed_data(batch_size, device, input_pc, mesh_target, ssm_target)
-
         with torch.no_grad():
+            inputs_transformed, _, shape_transformed = \
+                get_random_transformed_data(batch_size, device, input_pc, mesh_target, ssm_target)
+
             # validate DGSSM
             output = dgssm(inputs_transformed)
             target_weights = dgssm.ssm(shape_transformed)
-            _, valid_components = criterion(output, (mesh_transformed, target_weights))
+            # _, valid_components = criterion(output, (mesh_transformed, target_weights))
 
-            dgssm_valid_corr_error[epoch] += corresponding_point_distance(output[0], shape_transformed).mean() / steps_per_epoch#torch.sqrt(valid_components['Point-Loss']) / steps_per_epoch
+            valid_corr_error[epoch] += corresponding_point_distance(output[0], shape_transformed).mean() / steps_per_epoch#torch.sqrt(valid_components['Point-Loss']) / steps_per_epoch
+            valid_coefficient_error[epoch] += coefficient_distance(output[1], target_weights) / steps_per_epoch
 
             # SSM baseline error of validation data
             ssm_reconstruction = dgssm.ssm.decode(target_weights)
@@ -165,10 +171,10 @@ for epoch in range(epochs):
         #     visualize_point_cloud(mesh_transformed.verts_list()[i], torch.ones(mesh_transformed.verts_list()[i].shape[0]), title='mesh target')
 
     print(f'TRAINING epoch {epoch}')
-    print(f'\tTotal: {loss_progression[epoch].item():.4f} | Point-Loss: {components_progression["Point-Loss"][epoch]:.4f} mm | Coefficients: {components_progression["Coefficients"][epoch]:.4f} | Corr. Point Error: {train_corr_error[epoch].item():.4f} mm')
+    print(f'\tTotal: {loss_progression[epoch].item():.4f} | Coefficients: {train_coefficient_error[epoch]:.4f} | Corr. Point Error: {train_corr_error[epoch].item():.4f} mm')
 
     print('VALIDATION (Corr. Point Error)')
-    print(f'\tDGSSM: {dgssm_valid_corr_error[epoch].item():.4f} mm | SSM baseline: {ssm_valid_error[epoch].item():.4f} mm\n')
+    print(f'\tDGSSM: {valid_corr_error[epoch].item():.4f} mm | SSM baseline: {ssm_valid_error[epoch].item():.4f} mm | Coefficients: {valid_coefficient_error[epoch]:.4f}\n')
 
 # save model
 dgssm.save(os.path.join(out_dir, 'model.pth'))
@@ -176,22 +182,22 @@ dgssm.save(os.path.join(out_dir, 'model.pth'))
 # loss plots
 plt.figure()
 plt.plot(loss_progression.cpu())
-plt.title('total loss')
+plt.title('train loss')
 plt.savefig(os.path.join(out_dir, 'training_progression.png'))
-for key, val in components_progression.items():
-    plt.figure()
-    plt.plot(val.cpu())
-    plt.title(key)
+# for key, val in components_progression.items():
+#     plt.figure()
+#     plt.plot(val.cpu())
+#     plt.title(key)
 if show:
     plt.show()
 
 with open(os.path.join(out_dir, 'training_progression.csv'), 'w') as progression_csv:
     writer = csv.writer(progression_csv)
-    writer.writerow(['Total Loss'] + loss_progression.tolist())
-    writer.writerow(['Point Error [mm]'] + components_progression['Point-Loss'].tolist())
-    writer.writerow(['Coefficients Loss'] + components_progression['Coefficients'].tolist())
-    writer.writerow(['Train Corr. Point Error [mm]'] + components_progression['Coefficients'].tolist())
-    writer.writerow(['Validation Corr. Point Error [mm]'] + dgssm_valid_corr_error.tolist())
+    writer.writerow(['Train Loss'] + loss_progression.tolist())
+    writer.writerow(['Train Corr. Point Error [mm]'] + train_corr_error.tolist())
+    writer.writerow(['Train Coefficient MSE'] + train_coefficient_error.tolist())
+    writer.writerow(['Validation Corr. Point Error [mm]'] + valid_corr_error.tolist())
+    writer.writerow(['Valid Coefficient MSE'] + valid_coefficient_error.tolist())
     writer.writerow(['SSM Error [mm]'] + ssm_valid_error.tolist())
 
 # compute statistics of the random data for reference
