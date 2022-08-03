@@ -177,7 +177,7 @@ dgssm.save(os.path.join(out_dir, 'model.pth'))
 plt.figure()
 plt.plot(loss_progression.cpu())
 plt.title('total loss')
-plt.savefig(os.path.join('training_progression.png'))
+plt.savefig(os.path.join(out_dir, 'training_progression.png'))
 for key, val in components_progression.items():
     plt.figure()
     plt.plot(val.cpu())
