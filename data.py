@@ -421,7 +421,7 @@ class CorrespondingPointDataset(PointDataset):
     def __init__(self, sample_points, kp_mode, point_folder='/home/kaftan/FissureSegmentation/point_data/',
                  use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
                  image_folder='/home/kaftan/FissureSegmentation/data/'):
-        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat, exclude_rhf=False)
+        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat, exclude_rhf=True)
         self.corr_points = CorrespondingPoints(corr_folder)
 
         # load meshes for supervision
@@ -445,7 +445,7 @@ class CorrespondingPointDataset(PointDataset):
 
         # combine the label meshes
         concat_meshes = self.meshes[item][0]
-        for m in self.meshes[item][1:]:
+        for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
             concat_meshes += m
 
         return pts, (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))

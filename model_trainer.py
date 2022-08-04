@@ -98,8 +98,8 @@ class ModelTrainer:
 
     def init_history(self, loss_term_labels):
         for term in loss_term_labels:
-            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch)
-            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch)
+            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
+            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
 
     def forward_step(self, x, y, ep, train):
         # TODO: support additional validation metrics
@@ -113,7 +113,8 @@ class ModelTrainer:
             # UGLY SPECIAL CASE
             if isinstance(self.model, DGSSM):
                 # use optimal SSM weights for supervision
-                target_weights = self.model.ssm(y[0].to(self.device))
+                with torch.no_grad():
+                    target_weights = self.model.ssm(y[0].to(self.device))
                 y = (y[1].to(self.device), target_weights)
             else:
                 y = y.to(self.device)
@@ -148,9 +149,9 @@ class ModelTrainer:
 
         # save mean batch statistics (weighting based on number of samples, works with or without drop_last in dl)
         batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
-        history['total_loss'][ep] += loss.item() * batch_factor
+        history['total_loss'][ep] += loss.detach() * batch_factor
         for term in components.keys():
-            history[term][ep] += components[term].item() * batch_factor
+            history[term][ep] += components[term].detach() * batch_factor
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
@@ -191,8 +192,8 @@ class ModelTrainer:
             ax = [ax]
         fig.suptitle(f'Training Progression. Best model from epoch {self.best_epoch}.')
         for i, key in enumerate(self.training_history.keys()):
-            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.training_history[key], label=f'training', c='b')
-            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.validation_history[key], label=f'validation', c='r')
+            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.training_history[key].cpu(), label=f'training', c='b')
+            ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.validation_history[key].cpu(), label=f'validation', c='r')
             ax[i].set_ylabel(key)
             ax[i].legend()
         ax[-1].set_xlabel('epoch')
