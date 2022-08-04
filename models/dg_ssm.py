@@ -17,7 +17,8 @@ class DGSSM(LoadableModel):
     def forward(self, x):
         self.ssm.assert_trained()
 
-        pred_weights = self.dgcnn(x)
+        coefficients = self.dgcnn(x)  # predict the coefficient multipliers for the eigenvalues
+        pred_weights = coefficients.squeeze() * self.ssm.eigenvalues
         reconstructions = self.ssm.decode(pred_weights)
         return reconstructions, pred_weights.squeeze()
 
