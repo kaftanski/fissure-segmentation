@@ -15,7 +15,7 @@ from torch.nn import functional as F
 from data import ImageDataset
 from metrics import point_surface_distance
 from shape_model.ssm import save_shape
-from visualization import trimesh_on_axis, point_cloud_on_axis
+from visualization import trimesh_on_axis, point_cloud_on_axis, visualize_point_cloud
 
 
 class TPS:
@@ -114,6 +114,7 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
     mean_p2m = []
     std_p2m = []
     hd_p2m = []
+    affine_transforms = []
 
     # TODO: joint registration of left/right fissure
     for fixed_pc, moving in zip(fixed_pcs, moving_meshes):
@@ -164,8 +165,15 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
         # switch to use the affine registered PCs or from the original space
         if undo_affine_reg:
             new_moving_pcs.append(new_moving_pc_np_not_affine)
+
+            # affine transform was undone, just the identity is left
+            affine_transforms.append(np.eye(3, 4))
         else:
             new_moving_pcs.append(new_moving_pc_np)
+
+            # remember affine transformation for later
+            # (pycpd defines affine transformation as x*A -> we transpose the matrix so we can use A^T*x)
+            affine_transforms.append(np.concatenate([affine_mat.T, affine_translation[:, np.newaxis]], axis=1))
 
         if show:
             # VISUALIZATION
@@ -182,7 +190,7 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
             # visualize sampling and back-transformation
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-            visualize('fixed-sampled_disp', new_moving_pc_np, affine_prereg, ax)  # TODO: possibly undo affine reg
+            visualize('fixed-sampled_disp', new_moving_pc_np, affine_prereg, ax)
 
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
@@ -203,18 +211,17 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
 
     new_moving_pcs = np.stack(new_moving_pcs, axis=0)
     fixed_pcs = np.stack(fixed_pcs, axis=0)
-    return new_moving_pcs, fixed_pcs, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
+    affine_transforms = np.stack(affine_transforms, axis=0)
+    return new_moving_pcs, fixed_pcs, affine_transforms, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
 
 
 if __name__ == '__main__':
     out_path = 'results/corresponding_points'
     os.makedirs(out_path, exist_ok=True)
-    undo_affine = True
+    undo_affine = False
     n_sample_points = 1024
 
     ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
-
-    corresponding_points = []
 
     mean_p2m = []
     std_p2m = []
@@ -229,7 +236,7 @@ if __name__ == '__main__':
     # sample points from fixed
     fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points) for mesh in fixed_meshes]
     fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
-    save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts'))
+    save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
 
     # register each image onto fixed
     for m in range(len(ds)):
@@ -240,15 +247,15 @@ if __name__ == '__main__':
             # use inhale scans for now only
             continue
 
-        corr_points, fixed_pts, evaluation = register(fixed_pcs, ds.get_fissure_meshes(m),
-                                                      img_shape=img_fixed.shape, show=True, undo_affine_reg=undo_affine)
+        corr_points, fixed_pts, transforms, evaluation = \
+            register(fixed_pcs, ds.get_fissure_meshes(m), img_shape=img_fixed.shape, show=False,
+                     undo_affine_reg=undo_affine)
 
-        corresponding_points.append(corr_points)
         mean_p2m.append(evaluation['mean'])
         std_p2m.append(evaluation['std'])
         hd_p2m.append(evaluation['hd'])
 
-        save_shape(corr_points, os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts'))
+        save_shape(corr_points, os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts.npz'), transforms=transforms)
 
     mean_p2m = torch.stack(mean_p2m)
     std_p2m = torch.stack(std_p2m)

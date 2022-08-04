@@ -1,5 +1,7 @@
 import glob
 import os.path
+import pickle
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -117,12 +119,24 @@ def vector2shape(vector: torch.Tensor, dimensionality=3):
     return vector.unflatten(dim=-1, sizes=(int(vector.shape[-1] / dimensionality), dimensionality))
 
 
-def save_shape(array, filepath):
-    np.save(filepath, array)
+def save_shape(array, filepath, transforms=None):
+    """
+
+    :param array: shape [N_objects, N_points, 3]
+    :param filepath: path to save to
+    :param transforms: affine pre-registration used when constructing the corresponding point data set (shape [N_objects, 3, 4]).
+        uses identity by default.
+    """
+    if transforms is None:
+        transforms = np.stack([np.eye(3, 4) for _ in range(array.shape[0])])
+    with open(filepath, 'wb') as file:
+        pickle.dump(OrderedDict({'shape': array, 'transform': transforms}), file)
 
 
 def load_shape(filepath, return_labels=False):
-    arr = np.load(filepath)
+    file = np.load(filepath, allow_pickle=True)
+    arr = file['shape']
+    trf = torch.from_numpy(file['transform']).float()
 
     # unpack all objects (first dimension)
     arr_concat = torch.from_numpy(np.concatenate([*arr], axis=0)).float()
@@ -131,9 +145,9 @@ def load_shape(filepath, return_labels=False):
         # generate pointwise labels
         labels = torch.from_numpy(
             np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
-        return arr_concat, labels
+        return arr_concat, trf, labels
     else:
-        return arr_concat
+        return arr_concat, trf
 
 
 if __name__ == '__main__':
@@ -142,7 +156,7 @@ if __name__ == '__main__':
     files = glob.glob(os.path.join(shape_folder, '*.npy'))
     shapes = []
     for f in files:
-        shapes.append(load_shape(f))
+        shapes.append(load_shape(f)[0])
 
     shapes = torch.stack(shapes, dim=0)
 

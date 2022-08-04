@@ -128,7 +128,7 @@ if __name__ == '__main__':
     files = glob.glob(os.path.join(shape_folder, '*.npy'))
     shapes = []
     for f in files:
-        shapes.append(load_shape(f))
+        shapes.append(load_shape(f)[0])
 
     shapes = torch.stack(shapes, dim=0).to(device)
 

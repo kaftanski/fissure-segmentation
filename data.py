@@ -433,6 +433,13 @@ class CorrespondingPointDataset(PointDataset):
         # remove non-matched data points
         self._remove_non_matched_from_corr_points()
 
+        # affine transform the ground truth meshes to fit the corresponding points
+        for meshes, transforms in zip(self.meshes, self.corr_points.transforms):
+            for m, t in zip(meshes, transforms):
+                # rotate around [0,0,0] (o3d uses the PC's center of mass by default)
+                m.rotate(t[..., :3], center=np.zeros([3, 1]))
+                m.translate(t[..., -1])
+
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
 
@@ -461,6 +468,7 @@ class CorrespondingPointDataset(PointDataset):
         for i in range(len(self.corr_points) - 1, -1, -1):
             if self.corr_points.ids[i] not in self.ids:
                 self.corr_points.points.pop(i)
+                self.corr_points.transforms.pop(i)
                 self.corr_points.ids.pop(i)
 
     def get_batch_collate_fn(self):
@@ -473,19 +481,22 @@ class CorrespondingPointDataset(PointDataset):
 
 
 class CorrespondingPoints:
-    def __init__(self, folder):
+    def __init__(self, folder="./results/corresponding_points"):
         self.folder = folder
         self.points = []
+        self.transforms = []
         self.ids = []
-        files = sorted(glob(os.path.join(self.folder, '*.npy')))
+        files = sorted(glob(os.path.join(self.folder, '*.npz')))
         for f in files:
-            self.points.append(load_shape(f))
+            s, t = load_shape(f)
+            self.points.append(s)
+            self.transforms.append(t)
             tail = f.split(os.sep)[-1]
             case, sequence = tail.split('_')[:2]
             self.ids.append((case, sequence))
 
         # points are corresponding, one label is applicable to all
-        self.label = load_shape(files[0], return_labels=True)[1]
+        self.label = load_shape(files[0], return_labels=True)[-1]
         self.num_objects = len(np.unique(self.label))
 
     def __getitem__(self, item):

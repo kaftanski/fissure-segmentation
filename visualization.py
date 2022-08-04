@@ -60,7 +60,9 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    points = points.cpu()
+    if isinstance(points, torch.Tensor):
+        points = points.cpu()
+
     if exclude_background:
         points = points[labels != 0]
         labels = labels[labels != 0]
