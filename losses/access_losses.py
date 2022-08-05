@@ -51,8 +51,9 @@ def asseble_dg_ssm_loss():
 
         # convert predicted shape to pt3d point cloud
         pcl_pred = Pointclouds(pred_shape)
-        pl = point_mesh_face_distance(targ_shape, pcl_pred)
-        wl = coefficient_loss(pred_weights, targ_weights)
+        # pl = point_mesh_face_distance(targ_shape, pcl_pred)
+        pl = point_loss(pred_shape, targ_shape)
+        wl = coefficient_loss(pred_weights, targ_weights)  # TODO: is it better to use regularization w^T * Sigma^-1 * w
         return pl + 0.5 * wl, {'Point-Loss': pl, 'Coefficients': wl}
 
     return combined_loss

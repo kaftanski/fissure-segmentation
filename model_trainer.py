@@ -115,7 +115,7 @@ class ModelTrainer:
                 # use optimal SSM weights for supervision
                 with torch.no_grad():
                     target_weights = self.model.ssm(y[0].to(self.device))
-                y = (y[1].to(self.device), target_weights)
+                y = (y.to(self.device), target_weights)
             else:
                 y = y.to(self.device)
 

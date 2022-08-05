@@ -443,12 +443,12 @@ class CorrespondingPointDataset(PointDataset):
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
 
-        # combine the label meshes
-        concat_meshes = self.meshes[item][0]
-        for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
-            concat_meshes += m
+        # # combine the label meshes
+        # concat_meshes = self.meshes[item][0]
+        # for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
+        #     concat_meshes += m
 
-        return pts, (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
+        return pts, self.corr_points[item]  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
@@ -471,13 +471,19 @@ class CorrespondingPointDataset(PointDataset):
                 self.corr_points.transforms.pop(i)
                 self.corr_points.ids.pop(i)
 
-    def get_batch_collate_fn(self):
-        def collate_fn(list_of_samples):
-            return torch.stack([pc for pc, (_, _) in list_of_samples], dim=0), \
-                   (torch.stack([corr_pts for _, (corr_pts, _) in list_of_samples]),
-                    join_meshes_as_batch([mesh for _, (_, mesh) in list_of_samples]))
-
-        return collate_fn
+    # def get_batch_collate_fn(self):
+    #     def collate_fn(list_of_samples):
+    #         pcs = []
+    #         corr_pts = []
+    #         meshes = []
+    #         for pc, (corr, mesh) in list_of_samples:
+    #             pcs.append(pc)
+    #             corr_pts.append(corr)
+    #             meshes.append(mesh)
+    #
+    #         return torch.stack(pcs, dim=0), (torch.stack(corr_pts), join_meshes_as_batch(meshes))
+    #
+    #     return collate_fn
 
 
 class CorrespondingPoints:
