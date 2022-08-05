@@ -9,6 +9,7 @@ from torch import nn
 
 from losses.ssm_loss import corresponding_point_distance
 from models.modelio import store_config_args, LoadableModel
+from shape_model.LPCA.model import LPCA
 
 
 class SSM(LoadableModel):
@@ -109,6 +110,55 @@ class SSM(LoadableModel):
             self.register_parameter(key, nn.Parameter(value, requires_grad=False))
 
 
+class LSSM(SSM):
+    """
+    Using kernelized LSSM from:
+    @inproceedings{miccai2020,
+        Author = {Matthias Wilms and Jan Ehrhardt and Nils Daniel Forkert},
+        Title = {A Kernelized Multi-level Localization Method for Flexible Shape Modeling with Few Training Data},
+        Booktitle = {Medical Image Computing and Computer Assisted Intervention -- {MICCAI 2020}},
+        Year = {2020}
+    }
+
+    Original LSSM paper (with normal LPCA):
+    @article{media2017,
+        Title = {Multi-resolution multi-object statistical shape models based on the locality assumption},
+        Author = {Matthias Wilms and Heinz Handels and Jan Ehrhardt},
+        Journal = {Medical Image Analysis},
+        Year = {2017},
+        Number = {5},
+        Pages = {17--29},
+        Volume = {38}
+    }
+    """
+
+    def __init__(self, alpha=2.5, target_variance=0.95, dimensionality=3):
+        super(LSSM, self).__init__(alpha, target_variance, dimensionality)
+        self.lpca = LPCA(num_levels=5, target_variation=target_variance)
+
+    def fit(self, train_shapes: torch.Tensor):
+        if len(train_shapes.shape) == 3 and train_shapes.shape[-1] == self.dim:
+            train_shapes = shape2vector(train_shapes)
+
+        device = train_shapes.device
+
+        # run the training (only implemented in Numpy)
+        train_shapes = train_shapes.cpu().numpy().T  # model expects data matrix with shapes in columns
+        mean_shape, eigenvectors, eigenvalues, num_modes, percent_of_variance = \
+            self.lpca.lpca(train_shapes)
+        # TODO: percent of variance is wrong
+
+        # convert the results to pytorch Parameters
+        self.eigenvalues = nn.Parameter(torch.from_numpy(eigenvalues).unsqueeze(0).float(), requires_grad=False)
+        self.eigenvectors = nn.Parameter(torch.from_numpy(eigenvectors).unsqueeze(0).float(), requires_grad=False)
+        self.mean_shape = nn.Parameter(torch.from_numpy(mean_shape.T).float(), requires_grad=False)
+        self.num_modes = nn.Parameter(torch.tensor(num_modes), requires_grad=False)
+        self.percent_of_variance = nn.Parameter(torch.tensor(percent_of_variance, dtype=torch.float), requires_grad=False)
+
+        self.requires_grad_(False)  # just to be sure nothing will be changed during training
+        self.to(device)
+
+
 def shape2vector(shape: torch.Tensor):
     return shape.flatten(start_dim=-2)
 
@@ -153,7 +203,7 @@ def load_shape(filepath, return_labels=False):
 if __name__ == '__main__':
     # load data
     shape_folder = "results/corresponding_points"
-    files = glob.glob(os.path.join(shape_folder, '*.npy'))
+    files = glob.glob(os.path.join(shape_folder, '*.npz'))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])
@@ -164,7 +214,7 @@ if __name__ == '__main__':
     train_shapes = shapes[:train_index]
     test_shapes = shapes[train_index:]
 
-    sm = SSM(alpha=3, target_variance=0.95)
+    sm = LSSM(alpha=3, target_variance=0.95)
     sm.fit(shape2vector(train_shapes))
 
     # test reconstruction

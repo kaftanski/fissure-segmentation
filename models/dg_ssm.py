@@ -2,15 +2,16 @@ import torch
 
 from models.dgcnn import DGCNNReg, SharedFullyConnected
 from models.modelio import LoadableModel, store_config_args
-from shape_model.ssm import SSM
+from shape_model.ssm import SSM, LSSM
 
 
 class DGSSM(LoadableModel):
     @store_config_args
     def __init__(self, k, in_features, spatial_transformer=False, dynamic=True, image_feat_module=False,
-                 ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1):
+                 ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1, lssm=False):
         super(DGSSM, self).__init__()
-        self.ssm = SSM(ssm_alpha, ssm_targ_var)
+        SSMClass = SSM if not lssm else LSSM
+        self.ssm = SSMClass(ssm_alpha, ssm_targ_var)
         self.dgcnn = DGCNNReg(k, in_features, ssm_modes,  # placeholder number of modes, has to be updated after training SSM
                               spatial_transformer, dynamic, image_feat_module)
 

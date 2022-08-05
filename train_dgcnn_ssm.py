@@ -9,7 +9,8 @@ from cli.cli_utils import load_args_for_testing, store_args
 from data import CorrespondingPointDataset
 from losses.ssm_loss import corresponding_point_distance
 from models.dg_ssm import DGSSM
-from shape_model.ssm import SSM
+from shape_model.qualitative_evaluation import mode_plot
+from shape_model.ssm import vector2shape
 from train import run
 from visualization import point_cloud_on_axis
 
@@ -25,9 +26,13 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
     plot_dir = os.path.join(pred_dir, 'plots')
     os.makedirs(plot_dir, exist_ok=True)
 
+    # show behavior of ssm modes
+    mode_plot(model.ssm, savepath=os.path.join(plot_dir, 'ssm_modes.png'), show=show)
+
     corr_point_errors = torch.zeros(len(ds), ds.num_classes)
     ssm_error_baseline = torch.zeros_like(corr_point_errors)
     weight_stats = torch.zeros(len(ds), model.ssm.num_modes.data)
+    weight_stats_ssm = torch.zeros_like(weight_stats)
     for i in range(len(ds)):
         case, sequence = ds.ids[i]
 
@@ -41,9 +46,11 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
             reconstructions = model.ssm.decode(pred_weights)
 
             # test SSM separately for baseline reconstruction
-            reconstruction_baseline = model.ssm.decode(model.ssm(corr_pts))
+            ssm_weights = model.ssm(corr_pts)
+            reconstruction_baseline = model.ssm.decode(ssm_weights)
 
         weight_stats[i] += pred_weights.squeeze().cpu()
+        weight_stats_ssm[i] += ssm_weights.squeeze().cpu()
 
         error = corresponding_point_distance(reconstructions, corr_pts).cpu()
         baseline_error = corresponding_point_distance(reconstruction_baseline, corr_pts).cpu()
@@ -62,8 +69,14 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         else:
             plt.close(fig)
 
-    print(f'Corr. point distance: {corr_point_errors.mean().item():.4f} +- {corr_point_errors.std().item():.4f}')
-    print(f'SSM reconstruction error: {ssm_error_baseline.mean().item():.4f} +- {ssm_error_baseline.std().item():.4f}')
+    print(f'Corr. point distance: {corr_point_errors.mean().item():.4f} mm +- {corr_point_errors.std().item():.4f} mm')
+    print(f'SSM reconstruction error: {ssm_error_baseline.mean().item():.4f} mm +- {ssm_error_baseline.std().item():.4f} mm')
+
+    # sanity check / baseline: distance from mean shape to test shapes
+    mean_shape_distance = corresponding_point_distance(vector2shape(model.ssm.mean_shape.data), ds.corr_points.get_shape_datamatrix().to(device))
+    print(f'Distance between mean SSM-shape and test shapes: {mean_shape_distance.mean().item():.4f} +- {mean_shape_distance.std().item():.4f}')
+
+    # compare range of predicted weights to model knowledge
     print(f'StdDev of pred. weights: {weight_stats.std(dim=0)} \n\tModel StdDev: {model.ssm.eigenvalues.sqrt().squeeze()}')
 
 
@@ -90,6 +103,6 @@ if __name__ == '__main__':
     in_features = ds[0][0].shape[0]
     model = DGSSM(k=args.k, in_features=in_features,
                   spatial_transformer=args.transformer, dynamic=not args.static,
-                  ssm_alpha=args.alpha, ssm_targ_var=args.target_variance)
+                  ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm)
 
     run(ds, model, test, args)

@@ -83,6 +83,8 @@ def get_dgcnn_ssm_train_parser():
                        help='Multiplier for plausible shape range (+-alpha*std.dev.)')
     group.add_argument('--target_variance', default=0.95, type=float,
                        help='Fraction of the dataset variance to be explained by the model')
+    group.add_argument('--lssm', const=True, default=False,
+                       help='use Localized SSM (Wilms et al., MedIA 2017) instead of standard SSM', nargs='?')
 
     parser.set_defaults(loss='ssm')
     return parser

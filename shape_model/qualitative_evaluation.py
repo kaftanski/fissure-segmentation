@@ -59,7 +59,7 @@ def latent_interpolation(shape_from: torch.Tensor, shape_to: torch.Tensor, model
             assert torch.allclose(interp_weights, weights_from)
             title = 'Recons. 1'
         elif s == steps+1:
-            assert torch.allclose(interp_weights, weights_to)
+            assert torch.all((interp_weights - weights_to).abs() < 1e-5)
             title = 'Recons. 2'
         else:
             title = f'Interp. Step {s}'
@@ -125,7 +125,7 @@ if __name__ == '__main__':
 
     # load data
     shape_folder = "results/corresponding_points"
-    files = glob.glob(os.path.join(shape_folder, '*.npy'))
+    files = glob.glob(os.path.join(shape_folder, '*.npz'))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])
@@ -154,6 +154,9 @@ if __name__ == '__main__':
     restored = model.decode(weights)
     errors = corresponding_point_distance(shapes, restored)
     print('Half precision:', errors.mean().item(), '+-', errors.std().item(), 'HD:', errors.max())
+
+    # back to normal precicion
+    model.float()
 
     # visualize random samples
     visualize_samples(model, 100, os.path.join(result_dir, 'samples'))
