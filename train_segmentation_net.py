@@ -175,10 +175,10 @@ if __name__ == '__main__':
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
-    else:
-        store_args(args=args, out_dir=args.output)
 
     ds = ImageDataset('../data', exclude_rhf=args.exclude_rhf, binary=args.binary)
     model = MobileNetASPP(num_classes=ds.num_classes)
 
     run(ds, model, test, args)
+    if not args.test_only:
+        store_args(args=args, out_dir=args.output)

@@ -419,8 +419,6 @@ if __name__ == '__main__':
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
-    else:
-        store_args(args=args, out_dir=args.output)
 
     print(args)
 
@@ -464,3 +462,5 @@ if __name__ == '__main__':
         writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
         writer.writeheader()
         writer.writerow(setup_dict)
+    if not args.test_only:
+        store_args(args=args, out_dir=args.output)

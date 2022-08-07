@@ -74,7 +74,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
 
     # sanity check / baseline: distance from mean shape to test shapes
     mean_shape_distance = corresponding_point_distance(vector2shape(model.ssm.mean_shape.data), ds.corr_points.get_shape_datamatrix().to(device))
-    print(f'Distance between mean SSM-shape and test shapes: {mean_shape_distance.mean().item():.4f} +- {mean_shape_distance.std().item():.4f}')
+    print(f'Distance between mean SSM-shape and test shapes: {mean_shape_distance.mean().item():.4f} mm +- {mean_shape_distance.std().item():.4f} mm')
 
     # compare range of predicted weights to model knowledge
     print(f'StdDev of pred. weights: {weight_stats.std(dim=0)} \n\tModel StdDev: {model.ssm.eigenvalues.sqrt().squeeze()}')
@@ -86,8 +86,6 @@ if __name__ == '__main__':
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
-    else:
-        store_args(args=args, out_dir=args.output)
 
     if args.data == 'lobes':
         raise NotImplementedError()
@@ -106,3 +104,5 @@ if __name__ == '__main__':
                   ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm)
 
     run(ds, model, test, args)
+    if not args.test_only:
+        store_args(args=args, out_dir=args.output)
