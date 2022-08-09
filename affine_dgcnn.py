@@ -1,6 +1,7 @@
 import csv
 import os
 import time
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import torch
@@ -10,14 +11,30 @@ from torch import optim
 
 from data import CorrespondingPointDataset
 from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
-from models.dgcnn import DGCNNReg
+# from models.dgcnn import DGCNNReg
+from models.dgcnn_opensrc import DGCNN
+from models.modelio import LoadableModel, store_config_args
 from visualization import point_cloud_on_axis
 
 
-class AffineDGCNN(DGCNNReg):
-    def __init__(self, k, in_features=3, num_outputs=3):
-        super(AffineDGCNN, self).__init__(k, in_features, num_outputs, spatial_transformer=False)
-        # last layer bias is 0-init (like all biases per default)
+# class AffineDGCNN(DGCNNReg):
+#     def __init__(self, k, in_features=3, num_outputs=3):
+#         super(AffineDGCNN, self).__init__(k, in_features, num_outputs, spatial_transformer=False)
+#         # last layer bias is 0-init (like all biases per default)
+
+class AffineDGCNN(LoadableModel):
+    @store_config_args
+    def __init__(self, k, num_outputs=3):
+        super(AffineDGCNN, self).__init__()
+        dgcnn_args = SimpleNamespace(
+            k=k,
+            emb_dims=1024,  # length of global feature vector
+            dropout=0.
+        )
+        self.dgcnn = DGCNN(dgcnn_args, output_channels=num_outputs)
+
+    def forward(self, x):
+        return self.dgcnn(x)
 
 
 def random_transformation(n_samples, device, rotation=False, translation=True):
@@ -68,9 +85,9 @@ def get_batch(target_shape, batch_size, device):
     return shapes_batch, normalized_shapes, mean, std, target_translation
 
 
-show = False
+show = True
 
-out_dir = 'results/dgcnn_translation_sanitycheck'
+out_dir = 'results/dgcnn_translation_opensrc'
 os.makedirs(out_dir, exist_ok=True)
 plot_dir = os.path.join(out_dir, 'plots')
 os.makedirs(plot_dir, exist_ok=True)
@@ -95,7 +112,7 @@ model = AffineDGCNN(k=40).to(device)
 criterion = CorrespondingPointDistance()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-epochs = 1000
+epochs = 100
 steps_per_epoch = 10
 batch_size = 8
 
@@ -119,7 +136,7 @@ for epoch in range(epochs):
 
         # compute prediction
         translation_pred = model(shapes_batch.transpose(1, 2))
-        pred_shapes = target_shape + translation_pred.transpose(1, 2) #* std  # denormalize translation
+        pred_shapes = target_shape + translation_pred.squeeze().unsqueeze(1) #* std  # denormalize translation
 
         # training step
         optimizer.zero_grad()
@@ -141,7 +158,7 @@ for epoch in range(epochs):
 
             # validate DGSSM
             translation_pred = model(shapes_batch.transpose(1, 2))
-            pred_shapes = target_shape + translation_pred.transpose(1, 2) #* std
+            pred_shapes = target_shape + translation_pred.squeeze().unsqueeze(1) #* std
 
             valid_corr_error[epoch] += corresponding_point_distance(pred_shapes, shapes_batch).mean() / steps_per_epoch
             valid_pred_std[epoch] += translation_pred.std() / steps_per_epoch
