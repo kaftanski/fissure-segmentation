@@ -30,6 +30,7 @@ def random_transformation(n_samples, device):
 
 
 def rotate_around_center(shapes, rotations: Transform3d):
+    assert shapes.ndim == 3
     translation_to_center = shapes.mean(1, keepdim=True)
     return rotations.transform_points(shapes - translation_to_center) + translation_to_center
 

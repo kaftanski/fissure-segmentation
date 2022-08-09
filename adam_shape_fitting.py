@@ -62,7 +62,7 @@ def sanity_check2():
 
     n_iter = 10000
     lr = .01
-    device = 'cuda:3'
+    device = 'cuda:1'
 
     ds = CorrespondingPoints()
 
@@ -98,10 +98,51 @@ def sanity_check2():
     print(ssm.eigenvectors.mean(), ssm.eigenvectors.min(), ssm.eigenvectors.max())
 
 
+def sanity_check3():
+    """
+    Can Adam reconstruct the coefficients for all shapes at once?
+    """
+    n_iter = 10000
+    lr = .01
+    device = 'cuda:1'
+
+    ds = CorrespondingPoints()
+
+    shapes = ds.get_shape_datamatrix().to(device)
+
+    ssm = LSSM()
+    ssm.fit(shapes)
+    ssm.to(device)
+
+    optimal_reconstruction = ssm.decode(ssm(shapes))
+    optimal_reconstruction_error = corresponding_point_distance(shapes, optimal_reconstruction)
+
+    weight = nn.Parameter(torch.zeros(len(shapes), ssm.num_modes, device=device))
+    optimizer = optim.Adam(params=[weight], lr=lr)
+
+    criterion = CorrespondingPointDistance()
+    for it in range(n_iter):
+        optimizer.zero_grad()
+        reconstruction = ssm.decode(weight)
+        loss = criterion(reconstruction, shapes)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        # print(loss.item())
+
+        with torch.no_grad():
+            reconstruction_difference = corresponding_point_distance(reconstruction, optimal_reconstruction)
+        print(f'Error: {reconstruction_difference.mean().item():.4f} | Baseline: {optimal_reconstruction_error.mean().item():.4f}')
+
+    print(weight)
+    print(weight.mean(), weight.min(), weight.max())
+    print(ssm.eigenvectors.mean(), ssm.eigenvectors.min(), ssm.eigenvectors.max())
+
+
 def ransac():
     # TODO
     pass
 
 
 if __name__ == '__main__':
-    sanity_check2()
+    sanity_check3()
