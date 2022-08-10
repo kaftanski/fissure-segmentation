@@ -7,34 +7,34 @@ import matplotlib.pyplot as plt
 import torch
 from pytorch3d.transforms import random_rotations
 from pytorch3d.transforms.transform3d import Transform3d
-from torch import optim
+from torch import optim, nn
 
 from data import CorrespondingPointDataset
 from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
-# from models.dgcnn import DGCNNReg
+from models.dgcnn import DGCNNReg
 from models.dgcnn_opensrc import DGCNN
 from models.modelio import LoadableModel, store_config_args
 from visualization import point_cloud_on_axis
 
 
-# class AffineDGCNN(DGCNNReg):
-#     def __init__(self, k, in_features=3, num_outputs=3):
-#         super(AffineDGCNN, self).__init__(k, in_features, num_outputs, spatial_transformer=False)
-#         # last layer bias is 0-init (like all biases per default)
+class AffineDGCNN(DGCNNReg):
+    def __init__(self, k, in_features=3, num_outputs=3):
+        super(AffineDGCNN, self).__init__(k, in_features, num_outputs, spatial_transformer=False)
+        # last layer bias is 0-init (like all biases per default)
 
-class AffineDGCNN(LoadableModel):
-    @store_config_args
-    def __init__(self, k, num_outputs=3):
-        super(AffineDGCNN, self).__init__()
-        dgcnn_args = SimpleNamespace(
-            k=k,
-            emb_dims=1024,  # length of global feature vector
-            dropout=0.
-        )
-        self.dgcnn = DGCNN(dgcnn_args, output_channels=num_outputs)
-
-    def forward(self, x):
-        return self.dgcnn(x)
+# class AffineDGCNN(LoadableModel):
+#     @store_config_args
+#     def __init__(self, k, num_outputs=3):
+#         super(AffineDGCNN, self).__init__()
+#         dgcnn_args = SimpleNamespace(
+#             k=k,
+#             emb_dims=1024,  # length of global feature vector
+#             dropout=0.5
+#         )
+#         self.dgcnn = DGCNN(dgcnn_args, output_channels=num_outputs)
+#
+#     def forward(self, x):
+#         return self.dgcnn(x)
 
 
 def random_transformation(n_samples, device, rotation=False, translation=True):
@@ -87,7 +87,7 @@ def get_batch(target_shape, batch_size, device):
 
 show = True
 
-out_dir = 'results/dgcnn_translation_opensrc'
+out_dir = 'results/dgcnn_translation_sanitycheck'
 os.makedirs(out_dir, exist_ok=True)
 plot_dir = os.path.join(out_dir, 'plots')
 os.makedirs(plot_dir, exist_ok=True)
@@ -141,6 +141,7 @@ for epoch in range(epochs):
         # training step
         optimizer.zero_grad()
         loss = criterion(pred_shapes, shapes_batch)
+        # loss = 0.5 * criterion(translation_pred, target_translation) + 0.5 * criterion(pred_shapes, shapes_batch)
         loss.backward()
         optimizer.step()
 
@@ -162,6 +163,18 @@ for epoch in range(epochs):
 
             valid_corr_error[epoch] += corresponding_point_distance(pred_shapes, shapes_batch).mean() / steps_per_epoch
             valid_pred_std[epoch] += translation_pred.std() / steps_per_epoch
+
+    # plot some results
+    if not epoch % 20 and show:
+        for i in range(len(pred_shapes)):
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+
+            point_cloud_on_axis(ax, pred_shapes[i], c='r', label='prediction', title=f'Epoch {epoch}. Translation: {[int(t.item()+0.5) for t in target_translation[i]]}')
+            point_cloud_on_axis(ax, shapes_batch[i], c='b', label='target')
+
+            if show:
+                plt.show()
 
     print(f'EPOCH {epoch} (took {time.time() - ep_start:.4f} s)')
     print(f'\tLoss: {loss_progression[epoch].item():.4f} | Corr. Point Error: {train_corr_error[epoch].item():.4f} mm | Prediction StdDev: {train_pred_std[epoch].item():.4f}')
@@ -188,21 +201,21 @@ with open(os.path.join(out_dir, 'training_progression.csv'), 'w') as progression
     writer.writerow(['Valid Pred. StdDev'] + valid_pred_std.tolist())
     writer.writerow(['Target StdDev'] + target_translation_std.tolist())
 
+# plot some results
+for i in range(len(pred_shapes)):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    point_cloud_on_axis(ax, pred_shapes[i], c='r', label='prediction', title=f'Translation: {[int(t.item()+0.5) for t in target_translation[i]]}')
+    point_cloud_on_axis(ax, shapes_batch[i], c='b', label='target')
+
+    fig.savefig(os.path.join(plot_dir, f'pred{i}.png'), dpi=300, bbox_inches='tight')
+    if show:
+        plt.show()
+
 # compute statistics of the random data for reference
 augmentations = random_transformation(batch_size, device)
 shapes_batch = rotate_around_center(target_shape, augmentations)
 
 mean_valid_data_distance = mean_pairwise_shape_dist(shapes_batch)
 print(f'MEAN DATASET DISTANCES: {mean_valid_data_distance.item():.4f} mm\n')
-
-# plot some results
-for i in range(len(pred_shapes)):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    point_cloud_on_axis(ax, pred_shapes[i], c='r', label='prediction')
-    point_cloud_on_axis(ax, shapes_batch[i], c='b', label='target')
-
-    fig.savefig(os.path.join(plot_dir, f'pred{i}.png'), dpi=300, bbox_inches='tight')
-    if show:
-        plt.show()
