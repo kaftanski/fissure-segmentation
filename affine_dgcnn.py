@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import torch
-from pytorch3d.transforms import random_rotations
 from pytorch3d.transforms.transform3d import Transform3d
 from torch import optim, nn
 
@@ -18,9 +17,27 @@ from visualization import point_cloud_on_axis
 
 
 class AffineDGCNN(DGCNNReg):
-    def __init__(self, k, in_features=3, num_outputs=3):
-        super(AffineDGCNN, self).__init__(k, in_features, num_outputs, spatial_transformer=False)
+    def __init__(self, k, in_features=3, do_rotation=True, do_translation=True):
+        super(AffineDGCNN, self).__init__(k, in_features, do_rotation*3 + do_translation*3, spatial_transformer=False)
         # last layer bias is 0-init (like all biases per default)
+        self.rot = do_rotation
+        self.trans = do_translation
+
+    def forward(self, x):
+        y = super(AffineDGCNN, self).forward(x).squeeze()
+        index = 0
+        if self.rot:
+            rot = y[:, :3]
+            index = 3
+        else:
+            rot = torch.zeros(x.shape[0], 3, device=x.device)
+
+        if self.trans:
+            trans = y[:, index:]
+        else:
+            trans = torch.zeros(x.shape[0], 3, device=x.device)
+
+        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
 
 # class AffineDGCNN(LoadableModel):
 #     @store_config_args
@@ -37,20 +54,32 @@ class AffineDGCNN(DGCNNReg):
 #         return self.dgcnn(x)
 
 
-def random_transformation(n_samples, device, rotation=False, translation=True):
-    rotations = random_rotations(n_samples, device=device)
+def random_transformation(n_samples, device, rotation=True, translation=True):
+    # random rotation angles
+    if rotation:
+        random_angles = (torch.rand(n_samples, 3, device=device) * 2 - 1) * 180
+    else:
+        random_angles = torch.zeros(n_samples, 3, device=device)
 
-    # random translation
-    translation_amount = 30
-    translations = (torch.rand(n_samples, 3, device=device) * 2 - 1) * translation_amount
+    # random translation vectors
+    if translation:
+        translation_amount = 0.2  # for [-1, 1] grid coordinates
+        translations = (torch.rand(n_samples, 3, device=device) * 2 - 1) * translation_amount
+    else:
+        translations = torch.zeros(n_samples, 3, device=device)
 
     # assemble transform
-    transforms = Transform3d(device=device)
-    if rotation:
-        transforms = transforms.rotate(rotations)
-    if translation:
-        transforms = transforms.translate(translations)
-    return transforms
+    transforms = compose_transform(random_angles, translations)
+    return transforms, random_angles, translations
+
+
+def compose_transform(angles: torch.Tensor, translation: torch.Tensor):
+    t = Transform3d(device=angles.device) \
+        .rotate_axis_angle(angle=angles[:, 0], axis='X') \
+        .rotate_axis_angle(angle=angles[:, 1], axis='Y') \
+        .rotate_axis_angle(angle=angles[:, 2], axis='Z') \
+        .translate(translation)
+    return t
 
 
 def rotate_around_center(shapes, transforms: Transform3d):
@@ -72,150 +101,201 @@ def mean_pairwise_shape_dist(shapes):
     return corr_dists.mean()
 
 
-def get_batch(target_shape, batch_size, device):
-    augmentations = random_transformation(batch_size, device)
+def get_batch(target_shape, batch_size, device, do_rotation, do_translation):
+    augmentations, target_angles, target_translation = random_transformation(batch_size, device, do_rotation, do_translation)
     shapes_batch = rotate_around_center(target_shape, augmentations)
-    target_translation = augmentations.get_matrix()[:, 3, :3]
-
-    # z-normalize
-    mean = shapes_batch.mean(dim=(0, 1), keepdim=True)
-    std = shapes_batch.std(dim=(0, 1), keepdim=True)
-    normalized_shapes = shapes_batch - mean
-    normalized_shapes = normalized_shapes / std
-    return shapes_batch, normalized_shapes, mean, std, target_translation
+    return shapes_batch, target_angles, target_translation
 
 
-show = True
+def run_example(epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device):
+    assert use_point_loss or use_param_loss
+    assert do_rotation or do_translation
 
-out_dir = 'results/dgcnn_translation_sanitycheck'
-os.makedirs(out_dir, exist_ok=True)
-plot_dir = os.path.join(out_dir, 'plots')
-os.makedirs(plot_dir, exist_ok=True)
+    # output directories
+    out_dir = f'results/DGCNN_sanity_check/dgcnn{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
+    os.makedirs(out_dir, exist_ok=True)
+    plot_dir = os.path.join(out_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
 
-device = 'cuda:3'
+    # dataset
+    ds = CorrespondingPointDataset(1024, 'cnn')
 
-ds = CorrespondingPointDataset(1024, 'cnn')
+    # setup model
+    model = AffineDGCNN(k=40, do_rotation=do_rotation, do_translation=do_translation).to(device)
 
-# # augment shapes with random transformations
-# n_augment = 10  # times the data set
-# n_shapes = shapes.shape[0]
-# for i in range(n_augment):
-#     augmentations = random_transformation(n_shapes, device)
-#     shapes = torch.concat([shapes, rotate_around_center(shapes[:n_shapes], augmentations)], dim=0)
+    # setup losses
+    point_loss = CorrespondingPointDistance()
+    param_loss = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-model = AffineDGCNN(k=40).to(device)
+    # pick one exemplary shape
+    fixed_index = 0
+    target_shape = ds.corr_points[fixed_index]
+    target_shape = target_shape.unsqueeze(0).to(device)
 
-# for i in range(5):
-#     visualize_point_cloud(shapes[i], torch.ones(shapes.shape[1]), title='train shape')
-# visualize_point_cloud(dgssm.ssm.mean_shape.data.squeeze().view(2048, 3), torch.ones(shapes.shape[1]), title='mean shape')
+    # rescale shape into [-1, 1] coordinate grid
+    mean = target_shape.mean(dim=(0, 1), keepdim=True)
+    target_shape = target_shape - mean
+    scale, _ = torch.max(torch.sqrt(torch.sum(torch.square(target_shape), dim=2, keepdim=True)), dim=1, keepdim=True)
+    target_shape = target_shape / scale
 
-criterion = CorrespondingPointDistance()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # setup training progression tensors
+    loss_progression = torch.zeros(epochs, device=device)
+    train_corr_error = torch.zeros_like(loss_progression, device=device)
+    valid_corr_error = torch.zeros_like(loss_progression, device=device)
+    train_angle_error = torch.zeros_like(loss_progression, device=device)
+    valid_angle_error = torch.zeros_like(loss_progression, device=device)
+    train_trans_error = torch.zeros_like(loss_progression, device=device)
+    valid_trans_error = torch.zeros_like(loss_progression, device=device)
+    train_pred_std = torch.zeros_like(loss_progression, device=device)
+    valid_pred_std = torch.zeros_like(loss_progression, device=device)
+    target_translation_std = torch.zeros_like(loss_progression, device=device)
+    for epoch in range(epochs):
+        ep_start = time.time()
+        for step in range(steps_per_epoch):
+            model.train()
 
-epochs = 100
-steps_per_epoch = 10
-batch_size = 8
+            # only use one transformed shape for training
+            shapes_batch, target_angles, target_translation = \
+                get_batch(target_shape, batch_size, device, do_rotation, do_translation)
 
-fixed_index = 0
-_, target_shape = ds[fixed_index]
-target_shape = target_shape.unsqueeze(0).to(device)
+            # compute prediction
+            angles_pred, translation_pred = model(shapes_batch.transpose(1, 2))
+            pred_transform = compose_transform(angles_pred, translation_pred)
+            pred_shapes = rotate_around_center(target_shape, pred_transform)
 
-loss_progression = torch.zeros(epochs, device=device)
-train_corr_error = torch.zeros_like(loss_progression, device=device)
-valid_corr_error = torch.zeros_like(loss_progression, device=device)
-train_pred_std = torch.zeros_like(loss_progression, device=device)
-valid_pred_std = torch.zeros_like(loss_progression, device=device)
-target_translation_std = torch.zeros_like(loss_progression, device=device)
-for epoch in range(epochs):
-    ep_start = time.time()
-    for step in range(steps_per_epoch):
-        model.train()
+            # training step
+            optimizer.zero_grad()
+            pts_ls = point_loss(pred_shapes, shapes_batch)
+            par_ls = param_loss(torch.cat([angles_pred, translation_pred], dim=1),
+                                torch.cat([target_angles, target_translation], dim=1))
+            loss = 0
+            if use_point_loss:
+                loss += pts_ls
+            if use_param_loss:
+                loss += par_ls
+            loss /= use_point_loss + use_param_loss
 
-        # only use one transformed shape for training
-        shapes_batch, _, _, _, target_translation = get_batch(target_shape, batch_size, device)
+            loss.backward()
+            optimizer.step()
 
-        # compute prediction
-        translation_pred = model(shapes_batch.transpose(1, 2))
-        pred_shapes = target_shape + translation_pred.squeeze().unsqueeze(1) #* std  # denormalize translation
+            # remember training metrics
+            with torch.no_grad():
+                loss_progression[epoch] += loss.item() / steps_per_epoch
+                train_angle_error[epoch] += (angles_pred - target_angles).square().mean().sqrt() / steps_per_epoch
+                train_trans_error[epoch] += ((translation_pred - target_translation) * scale.squeeze()).square().sum(1).sqrt().mean() / steps_per_epoch
+                train_corr_error[epoch] += corresponding_point_distance(pred_shapes * scale,
+                                                                        shapes_batch * scale).mean() / steps_per_epoch
+                train_pred_std[epoch] += translation_pred.std() / steps_per_epoch
+                target_translation_std[epoch] += target_translation.std() / steps_per_epoch
 
-        # training step
-        optimizer.zero_grad()
-        loss = criterion(pred_shapes, shapes_batch)
-        # loss = 0.5 * criterion(translation_pred, target_translation) + 0.5 * criterion(pred_shapes, shapes_batch)
-        loss.backward()
-        optimizer.step()
+            # validation
+            model.eval()  # TODO: validation loss much lower than train loss
+            with torch.no_grad():
+                shapes_batch, target_angles, target_translation = \
+                    get_batch(target_shape, batch_size, device, do_rotation, do_translation)
 
-        loss_progression[epoch] += loss.item() / steps_per_epoch
-        # additional metrics
-        with torch.no_grad():
-            train_corr_error[epoch] += corresponding_point_distance(pred_shapes, shapes_batch).mean() / steps_per_epoch
-            train_pred_std[epoch] += translation_pred.std() / steps_per_epoch
-            target_translation_std[epoch] += target_translation.std() / steps_per_epoch
+                angles_pred, translation_pred = model(shapes_batch.transpose(1, 2))
+                pred_transform = compose_transform(angles_pred, translation_pred)
+                pred_shapes = rotate_around_center(target_shape, pred_transform)
 
-        # validation
-        model.eval()
-        with torch.no_grad():
-            shapes_batch, _, _, _, target_translation = get_batch(target_shape, batch_size, device)
+                valid_angle_error[epoch] += (angles_pred - target_angles).square().mean().sqrt() / steps_per_epoch
+                valid_trans_error[epoch] += ((translation_pred - target_translation) * scale.squeeze()).square().sum(1).sqrt().mean() / steps_per_epoch
+                valid_corr_error[epoch] += corresponding_point_distance(pred_shapes * scale,
+                                                                        shapes_batch * scale).mean() / steps_per_epoch
+                valid_pred_std[epoch] += translation_pred.std() / steps_per_epoch
 
-            # validate DGSSM
-            translation_pred = model(shapes_batch.transpose(1, 2))
-            pred_shapes = target_shape + translation_pred.squeeze().unsqueeze(1) #* std
+        # plot some results
+        if not epoch % 20 and show:
+            for i in range(len(pred_shapes)):
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
 
-            valid_corr_error[epoch] += corresponding_point_distance(pred_shapes, shapes_batch).mean() / steps_per_epoch
-            valid_pred_std[epoch] += translation_pred.std() / steps_per_epoch
+                point_cloud_on_axis(ax, pred_shapes[i] * scale, c='r', label='prediction',
+                                    title=f'Epoch {epoch}. Translation: {[int(t.item() + 0.5) for t in target_translation[i] * scale.squeeze()]}')
+                point_cloud_on_axis(ax, shapes_batch[i] * scale, c='b', label='target')
+
+                if show:
+                    plt.show()
+
+        print(f'EPOCH {epoch} (took {time.time() - ep_start:.4f} s)')
+        print(
+            f'\tLoss: {loss_progression[epoch].item():.4f} | Corr. Point Error: {train_corr_error[epoch].item():.4f} mm | Angle Error: {train_angle_error[epoch].item():.4f} | Translation Error: {train_trans_error[epoch].item():.4f} mm | Prediction StdDev: {train_pred_std[epoch].item():.4f}')
+        print(
+            f'\tValidation Corr. Point Error: {valid_corr_error[epoch].item():.4f} mm | Angle Error: {valid_angle_error[epoch].item():.4f} | Translation Error: {valid_trans_error[epoch].item():.4f} mm | Prediction StdDev: {valid_pred_std[epoch].item():.4f}')
+        print(f'\tTarget StdDev: {target_translation_std[epoch].item():.4f}\n')
+
+    # save model
+    model.save(os.path.join(out_dir, 'model.pth'))
 
     # plot some results
-    if not epoch % 20 and show:
-        for i in range(len(pred_shapes)):
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
+    errors = corresponding_point_distance(pred_shapes * scale, shapes_batch * scale).mean(-1)
+    for i in range(len(pred_shapes)):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
 
-            point_cloud_on_axis(ax, pred_shapes[i], c='r', label='prediction', title=f'Epoch {epoch}. Translation: {[int(t.item()+0.5) for t in target_translation[i]]}')
-            point_cloud_on_axis(ax, shapes_batch[i], c='b', label='target')
+        point_cloud_on_axis(ax, pred_shapes[i] * scale, c='r', label='prediction',
+            title=f'Translation: {[int(t.item() + 0.5) for t in target_translation[i] * scale.squeeze()]}. P2P-Error: {errors[i].item():.4f}')
+        point_cloud_on_axis(ax, shapes_batch[i] * scale, c='b', label='target')
 
-            if show:
-                plt.show()
+        fig.savefig(os.path.join(plot_dir, f'pred{i}.png'), dpi=300, bbox_inches='tight')
+        if show:
+            plt.show()
 
-    print(f'EPOCH {epoch} (took {time.time() - ep_start:.4f} s)')
-    print(f'\tLoss: {loss_progression[epoch].item():.4f} | Corr. Point Error: {train_corr_error[epoch].item():.4f} mm | Prediction StdDev: {train_pred_std[epoch].item():.4f}')
-    print(f'\tValidation Corr. Point Error: {valid_corr_error[epoch].item():.4f} mm | Prediction StdDev: {valid_pred_std[epoch].item():.4f}')
-    print(f'\tTarget StdDev: {target_translation_std[epoch].item():.4f}\n')
+    # compute statistics of the random data for reference
+    augmentations, _, _ = random_transformation(200, device, do_rotation, do_translation)
+    shapes_batch = rotate_around_center(target_shape, augmentations) * scale
 
-# save model
-model.save(os.path.join(out_dir, 'model.pth'))
+    mean_valid_data_distance = mean_pairwise_shape_dist(shapes_batch).item()
+    print(f'MEAN DATASET DISTANCES: {mean_valid_data_distance:.4f} mm\n')
 
-# loss plots
-plt.figure()
-plt.plot(loss_progression.cpu())
-plt.title('train loss')
-plt.savefig(os.path.join(out_dir, 'training_progression.png'))
-if show:
-    plt.show()
+    # assemble all statistics
+    metrics = {
+        'Train Loss': loss_progression,
+        'Train Corr. Point Error [mm]': train_corr_error,
+        'Train Angle RMSE [deg]': train_angle_error,
+        'Train Translation RMSE [mm]': train_trans_error,
+        'Train Pred. StdDev': train_pred_std,
+        'Valid Corr. Point Error [mm]': valid_corr_error,
+        'Valid Angle RMSE [deg]': valid_angle_error,
+        'Valid Translation RMSE [mm]': valid_trans_error,
+        'Valid Pred. StdDev': valid_pred_std,
+        'Target StdDev': target_translation_std
+    }
 
-with open(os.path.join(out_dir, 'training_progression.csv'), 'w') as progression_csv:
-    writer = csv.writer(progression_csv)
-    writer.writerow(['Train Loss'] + loss_progression.tolist())
-    writer.writerow(['Train Corr. Point Error [mm]'] + train_corr_error.tolist())
-    writer.writerow(['Train Pred. StdDev'] + train_pred_std.tolist())
-    writer.writerow(['Validation Corr. Point Error [mm]'] + valid_corr_error.tolist())
-    writer.writerow(['Valid Pred. StdDev'] + valid_pred_std.tolist())
-    writer.writerow(['Target StdDev'] + target_translation_std.tolist())
+    # plot metrics
+    for title, values in metrics.items():
+        plt.figure()
+        plt.plot(values.cpu())
+        plt.title(title)
+        fn = title.replace(' ', '_').replace('.', '').replace('[mm]', '').replace('[deg]', '')
+        plt.savefig(os.path.join(out_dir, fn + '.png'), dpi=300, bbox_inches='tight')
+        if show:
+            plt.show()
 
-# plot some results
-for i in range(len(pred_shapes)):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    # write raw data
+    with open(os.path.join(out_dir, 'training_progression.csv'), 'w') as progression_csv:
+        writer = csv.writer(progression_csv)
+        for title, values in metrics.items():
+            writer.writerow([title] + values.tolist())
 
-    point_cloud_on_axis(ax, pred_shapes[i], c='r', label='prediction', title=f'Translation: {[int(t.item()+0.5) for t in target_translation[i]]}')
-    point_cloud_on_axis(ax, shapes_batch[i], c='b', label='target')
+        writer.writerow(['Mean Dataset Distance [mm]', mean_valid_data_distance])
 
-    fig.savefig(os.path.join(plot_dir, f'pred{i}.png'), dpi=300, bbox_inches='tight')
-    if show:
-        plt.show()
 
-# compute statistics of the random data for reference
-augmentations = random_transformation(batch_size, device)
-shapes_batch = rotate_around_center(target_shape, augmentations)
+if __name__ == '__main__':
+    epochs = 1000
+    steps_per_epoch = 10
+    batch_size = 8
 
-mean_valid_data_distance = mean_pairwise_shape_dist(shapes_batch)
-print(f'MEAN DATASET DISTANCES: {mean_valid_data_distance.item():.4f} mm\n')
+    show = False
+    device = 'cuda:3'
+
+    for do_rotation in [False, True]:
+        for do_translation in [False, True]:
+            if not (do_rotation or do_translation):
+                continue
+            for use_param_loss in [False, True]:
+                for use_point_loss in [False, True]:
+                    if not (use_param_loss or use_point_loss):
+                        continue
+                    run_example(epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
