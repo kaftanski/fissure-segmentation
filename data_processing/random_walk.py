@@ -12,6 +12,7 @@ from torch.nn import functional as F
 from visualization import visualize_with_overlay
 
 
+# TODO: test skimage.segmentation.random_walk
 def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torch.Tensor = None) -> torch.sparse.Tensor:
     """ Computes Laplacian matrix for an n-dimensional image with intensity weights.
 
@@ -78,6 +79,16 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
 
 
 def random_walk(L: torch.sparse.Tensor, labels: torch.Tensor, graph_mask: torch.Tensor = None) -> torch.Tensor:
+    """
+
+    :param L: graph laplacian matrix, as created by compute_laplace_matrix
+    :param labels: seed points/scribbles for each object. should contain values of [0, 1, ..., N_objects].
+        Note: a value of 0 is considered as "unseeded" and not as background. If you want to segment background as well,
+        please assign it the label 1.
+    :param graph_mask: binary tensor of the same size as labels. will remove any False elements from the optimization,
+        these will have a 0 probability for all labels as a result
+    :return: probabilities for each label at each voxel. shape: [labels.shape[...], N_objects]
+    """
     # linear index tensor
     ind = torch.arange(labels.numel())
 

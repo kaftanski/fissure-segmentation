@@ -25,7 +25,7 @@ class DGSSM(LoadableModel):
 
     def fit_ssm(self, shapes):
         self.ssm.fit(shapes)
-        self.config['ssm_modes'] = self.ssm.num_modes.data
+        self.config['ssm_modes'] = self.ssm.num_modes.data.item()
 
         # make the model regress the correct number of modes for the SSM
         self.dgcnn.regression[-1] = SharedFullyConnected(256, self.ssm.num_modes, dim=1, last_layer=True).to(next(self.parameters()).device)

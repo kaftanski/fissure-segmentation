@@ -83,7 +83,7 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
         plt.close(fig)
 
 
-def point_cloud_on_axis(ax, points, c, cmap, marker='.', title='', label=''):
+def point_cloud_on_axis(ax, points, c, cmap=None, marker='.', title='', label=''):
     if isinstance(points, torch.Tensor):
         points = points.cpu()
 
