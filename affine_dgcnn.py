@@ -11,7 +11,7 @@ from torch import optim, nn
 from data import CorrespondingPointDataset
 from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
 from models.dgcnn import DGCNNReg
-from models.dgcnn_opensrc import DGCNN
+from models.dgcnn_opensrc import DGCNN, PointNet
 from models.modelio import LoadableModel, store_config_args
 from visualization import point_cloud_on_axis
 
@@ -39,19 +39,72 @@ class AffineDGCNN(DGCNNReg):
 
         return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
 
-# class AffineDGCNN(LoadableModel):
-#     @store_config_args
-#     def __init__(self, k, num_outputs=3):
-#         super(AffineDGCNN, self).__init__()
-#         dgcnn_args = SimpleNamespace(
-#             k=k,
-#             emb_dims=1024,  # length of global feature vector
-#             dropout=0.5
-#         )
-#         self.dgcnn = DGCNN(dgcnn_args, output_channels=num_outputs)
-#
-#     def forward(self, x):
-#         return self.dgcnn(x)
+
+class AffineOpenDGCNN(LoadableModel):
+    @store_config_args
+    def __init__(self, k, do_rotation=True, do_translation=True):
+        super(AffineOpenDGCNN, self).__init__()
+        dgcnn_args = SimpleNamespace(
+            k=k,
+            emb_dims=1024,  # length of global feature vector
+            dropout=0.
+        )
+        self.dgcnn = DGCNN(dgcnn_args, output_channels=do_rotation*3 + do_translation*3)
+        self.rot = do_rotation
+        self.trans = do_translation
+
+    def forward(self, x):
+        y = self.dgcnn(x)
+        index = 0
+        if self.rot:
+            rot = y[:, :3]
+            index = 3
+        else:
+            rot = torch.zeros(x.shape[0], 3, device=x.device)
+
+        if self.trans:
+            trans = y[:, index:]
+        else:
+            trans = torch.zeros(x.shape[0], 3, device=x.device)
+
+        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
+
+
+class AffinePointNet(LoadableModel):
+    @store_config_args
+    def __init__(self, k, do_rotation=True, do_translation=True):
+        super(AffinePointNet, self).__init__()
+        dgcnn_args = SimpleNamespace(
+            k=k,
+            emb_dims=1024,  # length of global feature vector
+            dropout=0.
+        )
+        self.pointnet = PointNet(dgcnn_args, output_channels=do_rotation * 3 + do_translation * 3)
+        self.rot = do_rotation
+        self.trans = do_translation
+
+    def forward(self, x):
+        y = self.pointnet(x)
+        index = 0
+        if self.rot:
+            rot = y[:, :3]
+            index = 3
+        else:
+            rot = torch.zeros(x.shape[0], 3, device=x.device)
+
+        if self.trans:
+            trans = y[:, index:]
+        else:
+            trans = torch.zeros(x.shape[0], 3, device=x.device)
+
+        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
+
+
+MODELS = {
+    'DGCNN': AffineDGCNN,
+    'OpenDGCNN': AffineOpenDGCNN,
+    'PointNet': AffinePointNet
+}
 
 
 def random_transformation(n_samples, device, rotation=True, translation=True):
@@ -107,12 +160,12 @@ def get_batch(target_shape, batch_size, device, do_rotation, do_translation):
     return shapes_batch, target_angles, target_translation
 
 
-def run_example(epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device):
+def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device):
     assert use_point_loss or use_param_loss
     assert do_rotation or do_translation
 
     # output directories
-    out_dir = f'results/DGCNN_sanity_check/dgcnn{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
+    out_dir = f'results/{model}_sanity_check/{model}{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
     os.makedirs(out_dir, exist_ok=True)
     plot_dir = os.path.join(out_dir, 'plots')
     os.makedirs(plot_dir, exist_ok=True)
@@ -121,7 +174,7 @@ def run_example(epochs, steps_per_epoch, batch_size, do_rotation, do_translation
     ds = CorrespondingPointDataset(1024, 'cnn')
 
     # setup model
-    model = AffineDGCNN(k=40, do_rotation=do_rotation, do_translation=do_translation).to(device)
+    model = MODELS[model](k=40, do_rotation=do_rotation, do_translation=do_translation).to(device)
 
     # setup losses
     point_loss = CorrespondingPointDistance()
@@ -290,6 +343,8 @@ if __name__ == '__main__':
     show = False
     device = 'cuda:3'
 
+    model = 'OpenDGCNN'
+
     for do_rotation in [False, True]:
         for do_translation in [False, True]:
             if not (do_rotation or do_translation):
@@ -298,4 +353,4 @@ if __name__ == '__main__':
                 for use_point_loss in [False, True]:
                     if not (use_param_loss or use_point_loss):
                         continue
-                    run_example(epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
+                    run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
