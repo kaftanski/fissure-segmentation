@@ -4,18 +4,16 @@ from typing import Union, Iterable
 
 import math
 import matplotlib.pyplot as plt
-import torch
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import open3d as o3d
 import pycpd
-from tqdm.contrib import itertools
+import torch
 from torch.nn import functional as F
 
 from data import ImageDataset
 from metrics import point_surface_distance
 from shape_model.ssm import save_shape
-from visualization import trimesh_on_axis, point_cloud_on_axis, visualize_point_cloud
+from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
 class TPS:
@@ -95,6 +93,44 @@ def visualize(title, X, Y, ax):
     ax.legend(loc='upper left', fontsize='x-large')
 
 
+def register_cpd(fixed_pc_np, moving_pc_np):
+    # affine pre-registration
+    affine = pycpd.AffineRegistration(X=fixed_pc_np, Y=moving_pc_np)
+    affine_prereg, (affine_mat, affine_translation) = affine.register()
+
+    # deformable registration
+    deformable = pycpd.DeformableRegistration(X=fixed_pc_np, Y=affine_prereg,
+                                              alpha=0.001,
+                                              # trade-off between regularization/smoothness (>1) and point fit (<1)
+                                              beta=2)  # gaussian kernel width of the regularization kernel
+    deformed_pc_np, (trf_G, trf_W) = deformable.register()
+
+    displacements = np.matmul(trf_G, trf_W)
+    return affine_prereg, affine_mat, affine_translation, deformed_pc_np, displacements
+
+
+def inverse_transformation_at_fixed_points(deformed_pc_np, displacements, fixed_pc_np, img_shape):
+    # interpolate displacements at fixed points
+    D, H, W = img_shape
+
+    def normalize(grid):
+        return (grid / torch.tensor([W - 1, H - 1, D - 1], device=grid.device)) * 2  # no -1 for displacements!
+
+    def unnormalize(grid):
+        return (grid * torch.tensor([H - 1, W - 1, D - 1], device=grid.device)) / 2
+
+    fixed_pc_torch = torch.from_numpy(fixed_pc_np).unsqueeze(0).float()
+    deformed_pc_torch = torch.from_numpy(deformed_pc_np).unsqueeze(0).float()
+    displacements = torch.from_numpy(displacements).unsqueeze(0).float()
+    dense_flow = thin_plate_dense(normalize(deformed_pc_torch) - 1, normalize(displacements),
+                                  shape=(W, H, D), step=4, lambd=0.1)
+    dense_flow = dense_flow.permute(0, 4, 1, 2, 3)
+    displacements_to_fixed = F.grid_sample(dense_flow, normalize(fixed_pc_torch.view(1, -1, 1, 1, 3)) - 1,
+                                           align_corners=False).squeeze().t()
+    new_moving_pc_np = fixed_pc_np - unnormalize(displacements_to_fixed.squeeze()).cpu().numpy()
+    return new_moving_pc_np
+
+
 def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.PointCloud],
              moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
              img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
@@ -123,39 +159,16 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
         fixed_pc_np = np.asarray(fixed_pc.points)
         moving_pc_np = np.asarray(moving_pc.points)
 
-        affine = pycpd.AffineRegistration(X=fixed_pc_np, Y=moving_pc_np)
-        affine_prereg, (affine_mat, affine_translation) = affine.register()
-
-        deformable = pycpd.DeformableRegistration(X=fixed_pc_np, Y=affine_prereg,
-            alpha=0.001,  # trade-off between regularization/smoothness (>1) and point fit (<1)
-            beta=2)  # gaussian kernel width of the regularization kernel
-        deformed_pc_np, (trf_G, trf_W) = deformable.register()
-
+        # register and check result
+        affine_prereg, affine_mat, affine_translation, deformed_pc_np, displacements = register_cpd(
+            fixed_pc_np, moving_pc_np)
         deformed_pc = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(deformed_pc_np.astype(np.float32)))
         reg_result = o3d.pipelines.registration.evaluate_registration(source=deformed_pc, target=fixed_pc,
                                                                       max_correspondence_distance=10)
         print(reg_result)
 
-        # interpolate displacements at fixed points
-        D, H, W = img_shape
-
-        def normalize(grid):
-            return (grid / torch.tensor([W - 1, H - 1, D - 1], device=grid.device)) * 2  # no -1 for displacements!
-
-        def unnormalize(grid):
-            return (grid * torch.tensor([H - 1, W - 1, D - 1], device=grid.device)) / 2
-
-        fixed_pc_torch = torch.from_numpy(fixed_pc_np).unsqueeze(0).float()
-        deformed_pc_torch = torch.from_numpy(deformed_pc_np).unsqueeze(0).float()
-
-        displacements = torch.from_numpy(np.matmul(trf_G, trf_W)).unsqueeze(0).float()
-
-        dense_flow = thin_plate_dense(normalize(deformed_pc_torch)-1, normalize(displacements),
-                                      shape=(W, H, D), step=4, lambd=0.1)
-        dense_flow = dense_flow.permute(0, 4, 1, 2, 3)
-        displacements_to_fixed = F.grid_sample(dense_flow, normalize(fixed_pc_torch.view(1, -1, 1, 1, 3))-1,
-                                               align_corners=False).squeeze().t()
-        new_moving_pc_np = fixed_pc_np - unnormalize(displacements_to_fixed.squeeze()).cpu().numpy()
+        # compute corresponding points
+        new_moving_pc_np = inverse_transformation_at_fixed_points(deformed_pc_np, displacements, fixed_pc_np, img_shape)
 
         # undo affine transformation
         affine_inverse = np.linalg.inv(affine_mat)
