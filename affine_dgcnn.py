@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import torch
+from pytorch3d.transforms import so3_exp_map
 from pytorch3d.transforms.transform3d import Transform3d
 from torch import optim, nn
 
@@ -37,7 +38,7 @@ class AffineDGCNN(DGCNNReg):
         else:
             trans = torch.zeros(x.shape[0], 3, device=x.device)
 
-        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
+        return rot, trans
 
 
 class AffineOpenDGCNN(LoadableModel):
@@ -67,7 +68,7 @@ class AffineOpenDGCNN(LoadableModel):
         else:
             trans = torch.zeros(x.shape[0], 3, device=x.device)
 
-        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
+        return rot, trans
 
 
 class AffinePointNet(LoadableModel):
@@ -97,7 +98,7 @@ class AffinePointNet(LoadableModel):
         else:
             trans = torch.zeros(x.shape[0], 3, device=x.device)
 
-        return rot*180, trans  # predict reparameterization of angle and translation in [-1,1] grid coords
+        return rot, trans
 
 
 MODELS = {
@@ -110,7 +111,7 @@ MODELS = {
 def random_transformation(n_samples, device, rotation=True, translation=True):
     # random rotation angles
     if rotation:
-        random_angles = (torch.rand(n_samples, 3, device=device) * 2 - 1) * 180
+        random_angles = (torch.rand(n_samples, 3, device=device) * 2 - 1) * 2
     else:
         random_angles = torch.zeros(n_samples, 3, device=device)
 
@@ -126,12 +127,12 @@ def random_transformation(n_samples, device, rotation=True, translation=True):
     return transforms, random_angles, translations
 
 
-def compose_transform(angles: torch.Tensor, translation: torch.Tensor):
-    t = Transform3d(device=angles.device) \
-        .rotate_axis_angle(angle=angles[:, 0], axis='X') \
-        .rotate_axis_angle(angle=angles[:, 1], axis='Y') \
-        .rotate_axis_angle(angle=angles[:, 2], axis='Z') \
+def compose_transform(log_rotation_matrix: torch.Tensor, translation: torch.Tensor):
+    t = Transform3d(device=log_rotation_matrix.device) \
+        .rotate(so3_exp_map(log_rotation_matrix)) \
         .translate(translation)
+    # log_rotation_matrix is an R^3 vector of which the direction is the rotation axis and the magnitude is the
+    # angle magnitude of rotation around the axis
     return t
 
 
@@ -297,10 +298,10 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
 
     # compute statistics of the random data for reference
     augmentations, _, _ = random_transformation(200, device, do_rotation, do_translation)
-    shapes_batch = rotate_around_center(target_shape, augmentations) * scale
+    shapes_batch = rotate_around_center(target_shape, augmentations)
 
-    mean_valid_data_distance = mean_pairwise_shape_dist(shapes_batch).item()
-    print(f'MEAN DATASET DISTANCES: {mean_valid_data_distance:.4f} mm\n')
+    initial_error = corresponding_point_distance(target_shape * scale, shapes_batch * scale).mean()  # mean_pairwise_shape_dist(shapes_batch).item()
+    print(f'INITIAL ERROR: {initial_error:.4f} mm\n')
 
     # assemble all statistics
     metrics = {
@@ -332,7 +333,7 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
         for title, values in metrics.items():
             writer.writerow([title] + values.tolist())
 
-        writer.writerow(['Mean Dataset Distance [mm]', mean_valid_data_distance])
+        writer.writerow(['Initial Error [mm]', initial_error])
 
 
 if __name__ == '__main__':
@@ -341,16 +342,18 @@ if __name__ == '__main__':
     batch_size = 8
 
     show = False
-    device = 'cuda:3'
+    device = 'cuda:2'
 
-    model = 'OpenDGCNN'
+    model = 'DGCNN'
+    run_example(model, epochs, steps_per_epoch, batch_size, do_rotation=True, do_translation=False, use_point_loss=True,
+                use_param_loss=False, show=show, device=device)
 
-    for do_rotation in [False, True]:
-        for do_translation in [False, True]:
-            if not (do_rotation or do_translation):
-                continue
-            for use_param_loss in [False, True]:
-                for use_point_loss in [False, True]:
-                    if not (use_param_loss or use_point_loss):
-                        continue
-                    run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
+    # for do_rotation in [False, True]:
+    #     for do_translation in [False, True]:
+    #         if not (do_rotation or do_translation):
+    #             continue
+    #         for use_param_loss in [False, True]:
+    #             for use_point_loss in [False, True]:
+    #                 if not (use_param_loss or use_point_loss):
+    #                     continue
+    #                 run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
