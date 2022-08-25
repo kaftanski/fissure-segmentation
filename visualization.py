@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Patch
 from numpy.typing import ArrayLike
 
 plt.rcParams['image.cmap'] = 'gray'
@@ -127,10 +128,14 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
         plt.close(fig)
 
 
-def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1.):
+def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1., label=''):
     ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=color, alpha=alpha)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     if title:
         ax.set_title(title)
+    if label:
+        handles, labels = plt.gca().get_legend_handles_labels()
+        handles.append(Patch(facecolor=color, edgecolor=color, label=label, alpha=alpha))
+        plt.legend(handles=handles)
