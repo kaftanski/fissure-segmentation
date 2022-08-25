@@ -1,6 +1,6 @@
 import csv
 import os.path
-from typing import Union, Iterable
+from typing import Union, Iterable, Sequence
 
 import math
 import matplotlib.pyplot as plt
@@ -109,7 +109,16 @@ def register_cpd(fixed_pc_np, moving_pc_np):
     return affine_prereg, affine_mat, affine_translation, deformed_pc_np, displacements
 
 
-def inverse_transformation_at_fixed_points(deformed_pc_np, displacements, fixed_pc_np, img_shape):
+def inverse_transformation_at_sampled_points(deformed_pc_np: np.ndarray, moving_displacements: np.ndarray,
+                                             sample_point_cloud: np.ndarray, img_shape: Sequence[int]):
+    """
+
+    :param deformed_pc_np: the moved point cloud in world coordinates [N_points, 3]
+    :param moving_displacements: the displacements used for each point of the moved pc [N_points, 3]
+    :param sample_point_cloud: locations at which the inverse transformation should be sampled [N_points_sample, 3]
+    :param img_shape: shape of the original image in world coordinates
+    :return: sampled point cloud in moving's space
+    """
     # interpolate displacements at fixed points
     D, H, W = img_shape
 
@@ -119,21 +128,27 @@ def inverse_transformation_at_fixed_points(deformed_pc_np, displacements, fixed_
     def unnormalize(grid):
         return (grid * torch.tensor([H - 1, W - 1, D - 1], device=grid.device)) / 2
 
-    fixed_pc_torch = torch.from_numpy(fixed_pc_np).unsqueeze(0).float()
+    sample_pc_torch = torch.from_numpy(sample_point_cloud).unsqueeze(0).float()
     deformed_pc_torch = torch.from_numpy(deformed_pc_np).unsqueeze(0).float()
-    displacements = torch.from_numpy(displacements).unsqueeze(0).float()
-    dense_flow = thin_plate_dense(normalize(deformed_pc_torch) - 1, normalize(displacements),
+    moving_displacements = torch.from_numpy(moving_displacements).unsqueeze(0).float()
+    dense_flow = thin_plate_dense(normalize(deformed_pc_torch) - 1, normalize(moving_displacements),
                                   shape=(W, H, D), step=4, lambd=0.1)
     dense_flow = dense_flow.permute(0, 4, 1, 2, 3)
-    displacements_to_fixed = F.grid_sample(dense_flow, normalize(fixed_pc_torch.view(1, -1, 1, 1, 3)) - 1,
+    sampled_displacements = F.grid_sample(dense_flow, normalize(sample_pc_torch.view(1, -1, 1, 1, 3)) - 1,
                                            align_corners=False).squeeze().t()
-    new_moving_pc_np = fixed_pc_np - unnormalize(displacements_to_fixed.squeeze()).cpu().numpy()
+    new_moving_pc_np = sample_point_cloud - unnormalize(sampled_displacements.squeeze()).cpu().numpy()
     return new_moving_pc_np
 
 
-def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.PointCloud],
-             moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
-             img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
+def inverse_affine_transform(point_cloud: np.ndarray, affine_mat: np.ndarray, affine_translation: np.ndarray):
+    affine_inverse = np.linalg.inv(affine_mat)
+    pc_not_affine = np.matmul((point_cloud - affine_translation)[:, None, :], affine_inverse[None, :, :]).squeeze()
+    return pc_not_affine
+
+
+def simple_correspondence(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.PointCloud],
+                          moving_meshes: Union[Iterable[o3d.geometry.TriangleMesh], o3d.geometry.TriangleMesh],
+                          img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
     """ Cave: meshes should be in world coordinates (or at least with an isotropic spacing)
 
     :param fixed_pcs:
@@ -168,12 +183,10 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
         print(reg_result)
 
         # compute corresponding points
-        new_moving_pc_np = inverse_transformation_at_fixed_points(deformed_pc_np, displacements, fixed_pc_np, img_shape)
+        new_moving_pc_np = inverse_transformation_at_sampled_points(deformed_pc_np, displacements, fixed_pc_np, img_shape)
 
         # undo affine transformation
-        affine_inverse = np.linalg.inv(affine_mat)
-        new_moving_pc_np_not_affine = np.matmul((new_moving_pc_np - affine_translation)[:, None, :],
-                                                affine_inverse[None, :, :]).squeeze()
+        new_moving_pc_np_not_affine = inverse_affine_transform(new_moving_pc_np, affine_mat, affine_translation)
 
         # switch to use the affine registered PCs or from the original space
         if undo_affine_reg:
@@ -229,7 +242,7 @@ def register(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3d.geometry.Po
 
 
 if __name__ == '__main__':
-    out_path = 'results/corresponding_points'
+    out_path = 'results/corresponding_points_with_exhale'
     os.makedirs(out_path, exist_ok=True)
     undo_affine = False
     n_sample_points = 1024
@@ -242,7 +255,7 @@ if __name__ == '__main__':
 
     f = 0
     sequence = ds.get_id(f)[1]
-    assert sequence == 'fixed'
+    # assert sequence == 'fixed'
     fixed_meshes = ds.get_fissure_meshes(f)
     img_fixed, _ = ds[f]
 
@@ -256,13 +269,13 @@ if __name__ == '__main__':
         if f == m:
             continue
 
-        if not ds.get_id(m)[1] == sequence:
-            # use inhale scans for now only
-            continue
+        # if not ds.get_id(m)[1] == sequence:
+        #     # use inhale scans for now only
+        #     continue
 
         corr_points, fixed_pts, transforms, evaluation = \
-            register(fixed_pcs, ds.get_fissure_meshes(m), img_shape=img_fixed.shape, show=False,
-                     undo_affine_reg=undo_affine)
+            simple_correspondence(fixed_pcs, ds.get_fissure_meshes(m), img_shape=img_fixed.shape, show=False,
+                                  undo_affine_reg=undo_affine)
 
         mean_p2m.append(evaluation['mean'])
         std_p2m.append(evaluation['std'])
