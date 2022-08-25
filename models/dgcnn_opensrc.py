@@ -144,4 +144,12 @@ class DGCNN(nn.Module):
         x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)
         x = self.dp2(x)
         x = self.linear3(x)
-        return x
+        return x.unsqueeze(-1)
+
+    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
+        accumulation = torch.zeros(pc.shape[0], self.linear3.out_features, 1, device=pc.device)
+        for i in range(n_runs_min):
+            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
+            accumulation += self(pc[..., perm])
+
+        return accumulation / n_runs_min
