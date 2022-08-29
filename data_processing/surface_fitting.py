@@ -1,17 +1,16 @@
 import os
 from typing import Sequence, Tuple, List
 
-from metrics import point_surface_distance
-from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
-import pytorch3d.structures
-from numpy.typing import ArrayLike
 import SimpleITK as sitk
 import math
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import open3d as o3d
+import pytorch3d.structures
 import torch
 from mpl_toolkits.mplot3d import Axes3D
+from numpy.typing import ArrayLike
 from pytorch3d.loss import (
     chamfer_distance,
     mesh_edge_loss,
@@ -25,8 +24,8 @@ from tqdm import tqdm
 
 import data
 from data import image2tensor
-import open3d as o3d
-
+from metrics import point_surface_distance
+from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
 
 mpl.rcParams['savefig.dpi'] = 80
 mpl.rcParams['figure.dpi'] = 80
@@ -531,15 +530,19 @@ def regularize_fissure_segmentations(mode):
         elif mode == 'poisson':
             fissures_reg, meshes = poisson_reconstruction(fissures, ds.get_lung_mask(i))
             case, sequence = ds.get_id(i)
-            meshdir = os.path.join(base_dir, f"{case}_mesh_{sequence}")
-            os.makedirs(meshdir, exist_ok=True)
-            for m, mesh in enumerate(meshes):
-                o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_fissure{m+1}_{sequence}.obj'), mesh)
+            save_meshes(meshes, base_dir, case, sequence)
         else:
             raise ValueError(f'No regularization mode named "{mode}".')
 
         output_file = file.replace('_img_', f'_fissures_{mode}_')
         sitk.WriteImage(fissures_reg, output_file)
+
+
+def save_meshes(meshes, base_dir, case, sequence, obj_name='fissure'):
+    meshdir = os.path.join(base_dir, f"{case}_mesh_{sequence}")
+    os.makedirs(meshdir, exist_ok=True)
+    for m, mesh in enumerate(meshes):
+        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_{obj_name}{m + 1}_{sequence}.obj'), mesh)
 
 
 if __name__ == '__main__':

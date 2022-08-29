@@ -177,18 +177,29 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
     lobes_components_relabel = change_label_filter.Execute(biggest_n_components)
 
     # compute the surface mesh via marching cubes
-    lobes_meshes = []
-    for lb in range(1, num_lobes_target+1):
-        print(f'\tComputing lobe surface mesh no. {lb}')
-        verts, faces, normals, values = marching_cubes(volume=(sitk.GetArrayViewFromImage(lobes_components_relabel) == lb),
-                                                       level=0.5, spacing=lobes_components_relabel.GetSpacing()[::-1],
-                                                       allow_degenerate=False, mask=sitk.GetArrayViewFromImage(lung_mask))
+    lobes_meshes = compute_surface_mesh_marching_cubes(lobes_components_relabel, lung_mask, num_lobes_target)
+
+    return lobes_components_relabel, lobes_meshes, True
+
+
+def compute_surface_mesh_marching_cubes(label_img: sitk.Image, mask_image: sitk.Image = None,
+                                        max_label: int = None):
+    meshes = []
+    if max_label is None:
+        max_label = np.unique(sitk.GetArrayViewFromImage(label_img))[-1]
+
+    for lb in range(1, max_label + 1):
+        print(f'\tComputing surface mesh no. {lb}')
+        verts, faces, normals, values = marching_cubes(
+            volume=(sitk.GetArrayViewFromImage(label_img) == lb),
+            level=0.5, spacing=label_img.GetSpacing()[::-1],
+            allow_degenerate=False, mask=sitk.GetArrayViewFromImage(mask_image) if mask_image is not None else None)
 
         verts = np.flip(verts, axis=-1)  # bring coordinates into xyz format
         mesh = create_o3d_mesh(verts=verts, tris=faces)
-        lobes_meshes.append(mesh)
+        meshes.append(mesh)
 
-    return lobes_components_relabel, lobes_meshes, True
+    return meshes
 
 
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
 import os.path
+from glob import glob
 from typing import Iterable
 
 import SimpleITK as sitk
@@ -7,6 +8,13 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+
+from data_processing.find_lobes import compute_surface_mesh_marching_cubes
+from data_processing.surface_fitting import poisson_reconstruction, save_meshes
+from utils.tqdm_utils import tqdm_redirect
+
+ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
+DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
 
 
 def find_non_zero_ranges(images: np.ndarray, axis: int = None):
@@ -116,9 +124,7 @@ def generate_lung_mask(lobes):
     return lung_mask
 
 
-if __name__ == '__main__':
-    ds_path = '../TotalSegmentator/Totalsegmentator_dataset/'
-    out_path = '../TotalSegmentator/ThoraxCrop/'
+def preprocess_ds():
     lobe_labels = {
         'lung_lower_lobe_right.nii.gz': 1,
         'lung_upper_lobe_right.nii.gz': 2,
@@ -128,7 +134,7 @@ if __name__ == '__main__':
     }
 
     # parse meta data
-    meta_data = pd.read_csv(os.path.join(ds_path, 'meta.csv'), delimiter=';')
+    meta_data = pd.read_csv(os.path.join(ORIG_DS_PATH, 'meta.csv'), delimiter=';')
     meta_data = meta_data.set_index('image_id')
     print(f'Total amount of images: {meta_data.shape[0]}')
 
@@ -137,7 +143,7 @@ if __name__ == '__main__':
     print(f'Amount of thorax images: {meta_data.shape[0]}')
 
     for patid in tqdm(meta_data.index):
-        pat_folder = os.path.join(ds_path, patid)
+        pat_folder = os.path.join(ORIG_DS_PATH, patid)
         img_fn = os.path.join(pat_folder, 'ct.nii.gz')
 
         # # check metadata
@@ -182,7 +188,31 @@ if __name__ == '__main__':
         lung_mask = generate_lung_mask(lobe_labels_final)
 
         # write all results
-        sitk.WriteImage(img_z_crop, os.path.join(out_path, f'{patid}_img_fixed.nii.gz'))
-        sitk.WriteImage(lobe_labels_final, os.path.join(out_path, f'{patid}_lobes_fixed.nii.gz'))
-        sitk.WriteImage(fissure_labels, os.path.join(out_path, f'{patid}_fissures_fixed.nii.gz'))
-        sitk.WriteImage(lung_mask, os.path.join(out_path, f'{patid}_mask_fixed.nii.gz'))
+        sitk.WriteImage(img_z_crop, os.path.join(DATA_PATH, f'{patid}_img_fixed.nii.gz'))
+        sitk.WriteImage(lobe_labels_final, os.path.join(DATA_PATH, f'{patid}_lobes_fixed.nii.gz'))
+        sitk.WriteImage(fissure_labels, os.path.join(DATA_PATH, f'{patid}_fissures_fixed.nii.gz'))
+        sitk.WriteImage(lung_mask, os.path.join(DATA_PATH, f'{patid}_mask_fixed.nii.gz'))
+
+
+def create_meshes():
+    img_files = sorted(glob(os.path.join(DATA_PATH, '*_img_*.nii.gz')))
+
+    for img_file in tqdm_redirect(img_files[108:]):
+        # load preprocessed data
+        case, sequence = os.path.split(img_file)[1].replace('_img_', '_').replace('.nii.gz', '').split('_')
+        print(f'Creating meshes for: {case}')
+        fissures = sitk.ReadImage(img_file.replace('_img_', '_fissures_'))
+        mask = sitk.ReadImage(img_file.replace('_img_', '_mask_'))
+        lobes = sitk.ReadImage(img_file.replace('_img_', '_lobes_'))
+
+        # generate fissure surface meshes with poisson
+        regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)  # save poisson fissures?
+        save_meshes(fissure_meshes, DATA_PATH, case, sequence, obj_name='fissure')
+
+        # generate lobe surface meshes with marching cubes
+        lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask)
+        save_meshes(lobe_meshes, DATA_PATH, case, sequence, 'lobe')
+
+
+if __name__ == '__main__':
+    create_meshes()

@@ -1,14 +1,13 @@
 import argparse
 import os.path
-import open3d as o3d
+
 import SimpleITK as sitk
 
 from data import LungData
-from data_processing.surface_fitting import poisson_reconstruction
 from data_processing.apply_lung_mask import apply_mask
 from data_processing.find_lobes import find_lobes
 from data_processing.point_features import compute_point_features
-
+from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 
 IMG_DATA_DIR = '/home/kaftan/FissureSegmentation/data'
 POINT_DATA_DIR = '/home/kaftan/FissureSegmentation/point_data'
@@ -31,10 +30,7 @@ def main(ds, index):
     regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)
     poisson_path = os.path.join(IMG_DATA_DIR, f'{case}_fissures_poisson_{sequence}.nii.gz')
     sitk.WriteImage(regularized_fissures, poisson_path)
-    meshdir = os.path.join(IMG_DATA_DIR, f"{case}_mesh_{sequence}")
-    os.makedirs(meshdir, exist_ok=True)
-    for m, mesh in enumerate(fissure_meshes):
-        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_fissure{m + 1}_{sequence}.obj'), mesh)
+    save_meshes(fissure_meshes, IMG_DATA_DIR, case, sequence, obj_name='fissure')
 
     # 2. Lung-Masking of fissure labels
     fissures_masked = apply_mask(regularized_fissures, mask)
@@ -48,8 +44,7 @@ def main(ds, index):
         print('Not enough lobes found, please check if the fissure segmentation is complete. '
               'Skipping point feature computation.')
         return
-    for m, mesh in enumerate(lobe_meshes):
-        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
+    save_meshes(lobe_meshes, IMG_DATA_DIR, case, sequence, obj_name='lobe')
 
     # 4. Point Features
     compute_point_features(img, fissures_masked, lobes, mask, POINT_DATA_DIR, case, sequence)
