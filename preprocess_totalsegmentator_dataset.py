@@ -197,7 +197,7 @@ def preprocess_ds():
 def create_meshes():
     img_files = sorted(glob(os.path.join(DATA_PATH, '*_img_*.nii.gz')))
 
-    for img_file in tqdm_redirect(img_files[108:]):
+    for img_file in tqdm_redirect(img_files):
         # load preprocessed data
         case, sequence = os.path.split(img_file)[1].replace('_img_', '_').replace('.nii.gz', '').split('_')
         print(f'Creating meshes for: {case}')
