@@ -1,3 +1,5 @@
+""" Provides wrapper for tqdm that replaces python's print with tqdm.write
+Source: https://stackoverflow.com/a/42424890 """
 import contextlib
 import inspect
 
