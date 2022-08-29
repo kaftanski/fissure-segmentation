@@ -16,6 +16,10 @@ from utils.tqdm_utils import tqdm_redirect
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
 DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
 
+# IDs of images where the 5 lobes are present but cut off somewhere (determined manually)
+exclude_list = [57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
+                705, 762, 806, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386]
+
 
 def find_non_zero_ranges(images: np.ndarray, axis: int = None):
     """
@@ -200,6 +204,10 @@ def create_meshes():
     for img_file in tqdm_redirect(img_files):
         # load preprocessed data
         case, sequence = os.path.split(img_file)[1].replace('_img_', '_').replace('.nii.gz', '').split('_')
+        if int(case.replace('s', '')) in exclude_list:
+            print(f'Skipping {case} (incomplete lobes)')
+            continue
+
         print(f'Creating meshes for: {case}')
         fissures = sitk.ReadImage(img_file.replace('_img_', '_fissures_'))
         mask = sitk.ReadImage(img_file.replace('_img_', '_mask_'))
