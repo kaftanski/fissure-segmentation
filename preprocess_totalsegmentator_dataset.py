@@ -107,6 +107,15 @@ def find_fissures(lobes: sitk.Image, device='cuda:2'):
     return fissure_img
 
 
+def generate_lung_mask(lobes):
+    labels = np.unique(sitk.GetArrayViewFromImage(lobes))
+
+    change_label_filter = sitk.ChangeLabelImageFilter()
+    change_label_filter.SetChangeMap({lbl.item(): 1 for lbl in labels[1:]})
+    lung_mask = change_label_filter.Execute(lobes)
+    return lung_mask
+
+
 if __name__ == '__main__':
     ds_path = '../TotalSegmentator/Totalsegmentator_dataset/'
     out_path = '../TotalSegmentator/ThoraxCrop/'
@@ -169,7 +178,11 @@ if __name__ == '__main__':
         # compute fissure labels from lobes
         fissure_labels = find_fissures(lobe_labels_final)
 
+        # compute lung mask from lobes
+        lung_mask = generate_lung_mask(lobe_labels_final)
+
         # write all results
         sitk.WriteImage(img_z_crop, os.path.join(out_path, f'{patid}_img_fixed.nii.gz'))
         sitk.WriteImage(lobe_labels_final, os.path.join(out_path, f'{patid}_lobes_fixed.nii.gz'))
         sitk.WriteImage(fissure_labels, os.path.join(out_path, f'{patid}_fissures_fixed.nii.gz'))
+        sitk.WriteImage(lung_mask, os.path.join(out_path, f'{patid}_mask_fixed.nii.gz'))
