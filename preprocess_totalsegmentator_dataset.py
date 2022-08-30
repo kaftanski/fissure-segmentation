@@ -202,7 +202,7 @@ def preprocess_ds():
 def create_meshes():
     img_files = sorted(glob(os.path.join(PROCESSED_DATA_PATH, '*_img_*.nii.gz')))
 
-    for img_file in tqdm_redirect(img_files[373:]):
+    for img_file in tqdm_redirect(img_files):
         # load preprocessed data
         case, sequence = os.path.split(img_file)[1].replace('_img_', '_').replace('.nii.gz', '').split('_')
         if int(case.replace('s', '')) in EXCLUDE_LIST:
@@ -215,8 +215,9 @@ def create_meshes():
         lobes = sitk.ReadImage(img_file.replace('_img_', '_lobes_'))
 
         # generate fissure surface meshes with poisson
-        regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)  # save poisson fissures?
+        regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)
         save_meshes(fissure_meshes, PROCESSED_DATA_PATH, case, sequence, obj_name='fissure')
+        sitk.WriteImage(regularized_fissures, img_file.replace('_img_', '_fissures_poisson_'))
 
         # generate lobe surface meshes with marching cubes
         lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask)
