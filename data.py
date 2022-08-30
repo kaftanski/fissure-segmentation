@@ -5,23 +5,21 @@ import os.path
 import pickle
 import warnings
 from abc import ABC, abstractmethod
-
-import open3d as o3d
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
 
-from pytorch3d.structures import join_meshes_as_batch
-
-from augmentations import image_augmentation
-from shape_model.ssm import load_shape
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, get_resample_factors
-from utils.utils import load_points, o3d_to_pt3d_meshes
 import SimpleITK as sitk
 import numpy as np
+import open3d as o3d
 import torch
 from torch.utils.data import Dataset
 
+from augmentations import image_augmentation
+from shape_model.ssm import load_shape
+from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
+    get_resample_factors
+from utils.utils import load_points, load_meshes
 
 IMG_MIN = -1000
 IMG_MAX = 1500
@@ -319,7 +317,7 @@ def preprocess(img, label, device):
 
 
 class PointDataset(CustomDataset):
-    def __init__(self, sample_points, kp_mode, folder='/home/kaftan/FissureSegmentation/point_data/', use_coords=True,
+    def __init__(self, sample_points, kp_mode, folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/', use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False, binary=False):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=False, binary=binary)
@@ -332,9 +330,9 @@ class PointDataset(CustomDataset):
         if not use_coords:
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 
-        files = sorted(glob(os.path.join(folder, kp_mode, '*_coords_*')))
-        self.kp_mode = kp_mode
         self.folder = os.path.join(folder, kp_mode)
+        files = sorted(glob(os.path.join(self.folder, '*_coords_*')))
+        self.kp_mode = kp_mode
         self.use_coords = use_coords
         self.lobes = lobes
         self.sample_points = sample_points
@@ -418,17 +416,17 @@ class PointDataset(CustomDataset):
 
 
 class CorrespondingPointDataset(PointDataset):
-    def __init__(self, sample_points, kp_mode, point_folder='/home/kaftan/FissureSegmentation/point_data/',
+    def __init__(self, sample_points, kp_mode, point_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/',
                  use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
-                 image_folder='/home/kaftan/FissureSegmentation/data/'):
+                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data/'):
         super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat, exclude_rhf=True)
         self.corr_points = CorrespondingPoints(corr_folder)
 
         # load meshes for supervision
         self.meshes = []
         for case, sequence in self.ids:
-            meshlist = sorted(glob(os.path.join(image_folder, f'{case}_mesh_{sequence}', f'{case}_fissure*_{sequence}.obj')))
-            self.meshes.append(tuple(o3d.io.read_triangle_mesh(m) for m in meshlist))
+            meshes = load_meshes(image_folder, case, sequence, obj_name='fissure')
+            self.meshes.append(meshes)
 
         # remove non-matched data points
         self._remove_non_matched_from_corr_points()
@@ -458,7 +456,7 @@ class CorrespondingPointDataset(PointDataset):
 
     @property
     def num_classes(self):
-        return len(self.corr_points.label.unique())
+        return self.corr_points.num_objects
 
     def _remove_non_matched_from_corr_points(self):
         for i in range(len(self.ids) - 1, -1, -1):
@@ -504,6 +502,11 @@ class CorrespondingPoints:
         # points are corresponding, one label is applicable to all
         self.label = load_shape(files[0], return_labels=True)[-1]
         self.num_objects = len(np.unique(self.label))
+
+    @property
+    def normalized_points(self):
+        pts_tensor = torch.stack(self.points)
+        return (pts_tensor - pts_tensor.mean(dim=(0, 1), keepdim=True)) / pts_tensor.std(dim=(0, 1), keepdim=True)  # TODO: use isotropic rescaling?
 
     def __getitem__(self, item):
         return self.points[item]
