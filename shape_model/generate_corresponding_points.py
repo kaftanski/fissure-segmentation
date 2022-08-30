@@ -4,9 +4,10 @@ from typing import Sequence
 
 import numpy as np
 import open3d as o3d
+import pytorch3d.loss
 import torch
 from matplotlib import pyplot as plt
-from sklearn.cluster import k_means
+from sklearn.cluster import k_means, OPTICS
 
 from data import ImageDataset
 from metrics import point_surface_distance
@@ -18,7 +19,7 @@ from visualization import trimesh_on_axis, point_cloud_on_axis
 
 def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
-                             img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
+                             img_shape, n_sample_points=1024, mode='cluster', undo_affine_reg=True, show=True):
     all_affine_transforms = []
     all_moving_pcs = []
     corresponding_pcs = []
@@ -26,6 +27,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
     mean_p2m = []
     std_p2m = []
     hd_p2m = []
+    cf_dists = []
 
     # register objects separately (TODO: joint registration?)
     for obj_i, fixed in enumerate(fixed_pcs):
@@ -71,15 +73,55 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
 
                 plt.show()
 
-        # k-means to determine sampling locations
-        centroids, label, inertia = k_means(
-            np.concatenate(moved_pcs, axis=0), n_clusters=n_sample_points)
+        all_points = np.concatenate(moved_pcs, axis=0)
+        if mode == 'kmeans':
+            # k-means to determine sampling locations
+            centroids, label, inertia = k_means(all_points, n_clusters=n_sample_points)
+
+        elif mode == 'cluster':
+            eps_heuristic = (all_points.max() - all_points.min()) * 0.05
+            cluster_estimator = OPTICS(min_samples=len(all_moving_meshes), max_eps=eps_heuristic)
+            clustering = cluster_estimator.fit_predict(all_points)
+
+            # compute cluster centroids
+            clusters = np.unique(clustering)
+            centroids = np.zeros((len(clusters)-1, 3))
+            for c in np.unique(clustering):
+                # -1 values are considered outliers
+                if c == -1:
+                    continue
+                centroids[c] = np.mean(all_points[clustering == c], axis=0)
+
+        elif mode == 'parzen':
+            raise NotImplementedError('Parzen mode is unfinished')
+            # kde = KernelDensity(kernel='gaussian', bandwidth=1.0).fit(all_points)  # TODO: check different bandwidths
+            # density = kde.score_samples(all_points)
+            #
+            # if show:
+            #     fig = plt.figure()
+            #     ax = fig.add_subplot(111, projection='3d')
+            #     point_cloud_on_axis(ax, all_points, c=density, cmap='Blues', title='Point Cloud Density', label='')
+            #     plt.show()
+            #
+            # def normalize(grid, img_shape):
+            #     D, H, W = img_shape
+            #     return (grid / torch.tensor([W - 1, H - 1, D - 1], device=grid.device)) * 2  # no -1 for displacements!
+
+            # dense_density = thin_plate_dense(
+            #     normalize(torch.from_numpy(all_points).unsqueeze(0), img_shape).float() - 1,
+            #     torch.from_numpy(density).view(1, -1, 1),
+            #     shape=img_shape[::-1], step=4, lambd=0.1)
+            # dense_density = dense_density[..., 0].unsqueeze(1)
+            # dense_density_nms = nms(dense_density, kernel_size=3)
+            # top_k_val, top_k_ind = torch.topk(dense_density_nms, n_sample_points)
+        else:
+            raise ValueError(f'No mode named {mode}.')
 
         if show:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
             point_cloud_on_axis(ax, fixed_pc_np, c='g', title='fixed vs. centroids', label='fixed pc')
-            point_cloud_on_axis(ax, centroids, c='b', label='k-means centroids')
+            point_cloud_on_axis(ax, centroids, c='b', label='centroids')
             plt.show()
 
         # compute inverse transformations at centroids for each moved point cloud which yields corresponding points
@@ -87,6 +129,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         mean_p2m.append([])
         std_p2m.append([])
         hd_p2m.append([])
+        cf_dists.append([])
         for instance in range(len(moved_pcs)):
             sampled_pc = inverse_transformation_at_sampled_points(moved_pcs[instance],
                                                                   moving_displacements[instance],
@@ -110,10 +153,14 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             std = dist_moved.std()
             hd = dist_moved.max()
             print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
+            cf, _ = pytorch3d.loss.chamfer_distance(torch.from_numpy(sampled_pc_not_affine[None]).float(),
+                                                 torch.from_numpy(all_moving_pcs[obj_i][instance][None]).float())
+            print(f'Chamfer Distance: {cf:.4f}')
 
             mean_p2m[obj_i].append(p2m)
             std_p2m[obj_i].append(std)
             hd_p2m[obj_i].append(hd)
+            cf_dists[obj_i].append(cf)
 
             if show:
                 # visualize sampling and back-transformation
@@ -124,22 +171,27 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
 
                 fig = plt.figure()
                 ax = fig.add_subplot(111, projection='3d')
-                point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', cmap=None, title='sampled from fixed')
+                point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', cmap=None, label='New PC')
                 trimesh_on_axis(ax, np.asarray(all_moving_meshes[instance][obj_i].vertices),
                                 np.asarray(all_moving_meshes[instance][obj_i].triangles), color='b',
-                                title='sampled from fixed', alpha=0.5)
+                                title='centroids - sampled displacements', alpha=0.5, label='GT mesh')
 
                 plt.show()
 
         # compile all transformations
         all_affine_transforms[obj_i] = np.stack(all_affine_transforms[obj_i], axis=0)
 
-    return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
-           {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T}
+    labels = np.array([1] * len(corresponding_pcs[0]) + [2] * len(corresponding_pcs[1]))
+    print(len(corresponding_pcs[0]), len(corresponding_pcs[1]))
+    return np.concatenate(corresponding_pcs, axis=1), np.stack(all_affine_transforms).swapaxes(0, 1), labels, \
+        {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
+         'cf': torch.tensor(cf_dists).T}
+    # return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
 
 
 if __name__ == '__main__':
-    mode = 'kmeans'
+    # mode = 'kmeans'
+    mode = 'cluster'
     # mode = 'simple'
 
     out_path = f'results/corresponding_points_{mode}'
@@ -161,13 +213,14 @@ if __name__ == '__main__':
     save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
 
     # register each image onto fixed
-    moving_meshes = [ds.get_fissure_meshes(m) for m in range(len(ds)) if m != f]
-    corr_points, transforms, evaluation = data_set_correspondences(
-        fixed_pcs, moving_meshes, img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
+    moving_meshes = [ds.get_fissure_meshes(m) for m in range(len(ds)) if m != f][-10:-5]
+    corr_points, transforms, labels, evaluation = data_set_correspondences(
+        fixed_pcs, moving_meshes, img_shape=img_fixed.shape, mode=mode, show=True, undo_affine_reg=undo_affine)
 
     mean_p2m = evaluation['mean']
     std_p2m = evaluation['std']
     hd_p2m = evaluation['hd']
+    cf_dists = evaluation['cf']
 
     # output results
     for m in range(len(corr_points)):
@@ -182,3 +235,4 @@ if __name__ == '__main__':
         writer.writerow(['mean p2m'] + [v.item() for v in mean_p2m.mean(0)] + [mean_p2m.mean().item()])
         writer.writerow(['std p2m'] + [v.item() for v in std_p2m.mean(0)] + [std_p2m.mean().item()])
         writer.writerow(['hd p2m'] + [v.item() for v in hd_p2m.mean(0)] + [hd_p2m.mean().item()])
+        writer.writerow(['chamfer'] + [v.item() for v in cf_dists.mean(0)] + [cf_dists.mean().item()])
