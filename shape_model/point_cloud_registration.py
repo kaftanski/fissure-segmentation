@@ -1,8 +1,8 @@
 import csv
+import math
 import os.path
 from typing import Union, Iterable, Sequence
 
-import math
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
@@ -10,9 +10,10 @@ import pycpd
 import torch
 from torch.nn import functional as F
 
-from data import ImageDataset
 from metrics import point_surface_distance
+from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from shape_model.ssm import save_shape
+from utils.tqdm_utils import tqdm_redirect
 from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
@@ -242,21 +243,23 @@ def simple_correspondence(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3
 
 
 if __name__ == '__main__':
-    out_path = 'results/corresponding_points_with_exhale'
+    lobes = True
+    base_path = 'results/corresponding_points_totalseg'
+    out_path = os.path.join(base_path, 'fissures' if not lobes else 'lobes')
     os.makedirs(out_path, exist_ok=True)
     undo_affine = False
     n_sample_points = 1024
 
-    ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
+    ds = TotalSegmentatorDataset()
 
     mean_p2m = []
     std_p2m = []
     hd_p2m = []
 
-    f = 0
+    f = 1
     sequence = ds.get_id(f)[1]
     # assert sequence == 'fixed'
-    fixed_meshes = ds.get_fissure_meshes(f)
+    fixed_meshes = ds.get_fissure_meshes(f) if not lobes else ds.get_lobe_meshes(f)
     img_fixed, _ = ds[f]
 
     # sample points from fixed
@@ -265,7 +268,7 @@ if __name__ == '__main__':
     save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
 
     # register each image onto fixed
-    for m in range(len(ds)):
+    for m in tqdm_redirect(range(len(ds))):
         if f == m:
             continue
 
@@ -274,8 +277,8 @@ if __name__ == '__main__':
         #     continue
 
         corr_points, fixed_pts, transforms, evaluation = \
-            simple_correspondence(fixed_pcs, ds.get_fissure_meshes(m), img_shape=img_fixed.shape, show=False,
-                                  undo_affine_reg=undo_affine)
+            simple_correspondence(fixed_pcs, ds.get_fissure_meshes(m) if not lobes else ds.get_lobe_meshes(f),
+                                  img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
 
         mean_p2m.append(evaluation['mean'])
         std_p2m.append(evaluation['std'])
