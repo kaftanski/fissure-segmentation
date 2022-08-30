@@ -6,21 +6,25 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
+from torch import nn
 
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
+from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset, \
+    CorrespondingPointDatasetSampled
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
 from losses.ssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
-from models.dgcnn import DGCNNSeg, SharedFullyConnected
+from models.dgcnn import DGCNNSeg
+from models.utils import init_weights
+from shape_model.ssm import LSSM
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map
-from visualization import visualize_point_cloud, visualize_trimesh
+from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
 def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir):
@@ -109,14 +113,10 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
                 visualize_point_cloud(all_points, labels=lbls, title=title_prefix + ' points prediction', show=show,
                                       savepath=None if plot_folder is None else os.path.join(plot_folder, f'{title_prefix}_point_cloud_pred.png'))
             else:
-                visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_predictions],
-                                  triangles_list=[np.asarray(m.triangles) for m in all_parts_predictions],
-                                  title=title_prefix + ' surface prediction', show=show,
-                                  savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_pred.png'))
+                visualize_o3d_mesh(all_parts_predictions, title=title_prefix + ' surface prediction', show=show,
+                                   savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_pred.png'))
 
-            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in all_parts_targets],
-                              triangles_list=[np.asarray(m.triangles) for m in all_parts_targets],
-                              title=title_prefix + ' surface target', show=show,
+            visualize_o3d_mesh(all_parts_targets, title=title_prefix + ' surface target', show=show,
                               savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_targ.png'))
 
     # compute average metrics

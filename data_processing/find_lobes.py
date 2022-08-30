@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from data import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
 from utils.utils import create_o3d_mesh
-from visualization import visualize_trimesh
+from visualization import visualize_o3d_mesh
 
 
 def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -226,9 +226,7 @@ if __name__ == '__main__':
             for m, mesh in enumerate(lobe_meshes):
                 o3d.io.write_triangle_mesh(os.path.join(data_path, f'{case}_mesh_{sequence}', f'{case}_lobe{m + 1}_{sequence}.obj'), mesh)
 
-            visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in lobe_meshes],
-                              triangles_list=[np.asarray(m.triangles) for m in lobe_meshes],
-                              title=f'{case} {sequence} lobe meshes')
+            visualize_o3d_mesh(lobe_meshes, title=f'{case} {sequence} lobe meshes')
             successes += 1
 
     print(f'\nResult: {successes} out of {total_lobes} succeeded.')

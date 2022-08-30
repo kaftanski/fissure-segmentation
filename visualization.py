@@ -1,6 +1,7 @@
-from typing import Sequence
+from typing import Sequence, Union
 
 import numpy as np
+import open3d
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
@@ -101,6 +102,16 @@ def point_cloud_on_axis(ax, points, c, cmap=None, marker='.', title='', label=''
         ax.legend()
 
 
+def visualize_o3d_mesh(mesh: Union[Sequence[open3d.geometry.TriangleMesh], open3d.geometry.TriangleMesh],
+                       title: str = '', show=True, savepath=None):
+    if not isinstance(mesh, Sequence):
+        mesh = [mesh]
+
+    visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in mesh],
+                      triangles_list=[np.asarray(m.triangles) for m in mesh],
+                      title=title, show=show, savepath=savepath)
+
+
 def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
                       show=True, savepath=None):
     """
@@ -114,7 +125,7 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    colors = ['r', 'g', 'b', 'y']
+    colors = ['r', 'g', 'b', 'y', 'c']
     for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
         trimesh_on_axis(ax, vertices, triangles, colors[i], title)
 
