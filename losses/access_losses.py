@@ -1,13 +1,10 @@
+from enum import Enum
+
 import torch
-from pytorch3d.loss import point_mesh_face_distance
-from pytorch3d.structures import Pointclouds
 from torch import nn
 
 from losses.dice_loss import GDL
-from enum import Enum
-
 from losses.recall_loss import BatchRecallLoss
-from losses.ssm_loss import CorrespondingPointDistance
 
 
 class Losses(Enum):
@@ -41,8 +38,8 @@ def assemble_nnunet_loss_function(class_weights: torch.Tensor = None):
 
 
 def asseble_dg_ssm_loss():
-    point_loss = CorrespondingPointDistance()
-    coefficient_loss = nn.MSELoss()
+    point_loss = nn.L1Loss()  # CorrespondingPointDistance()
+    coefficient_loss = nn.L1Loss()  # nn.MSELoss()
 
     def combined_loss(prediction, target):
         pred_shape, pred_weights = prediction
