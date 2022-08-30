@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from utils.utils import smooth, filter_1d
+from utils.utils import smooth, filter_1d, nms
 
 
 def structure_tensor(img, sigma):
@@ -65,11 +65,7 @@ def foerstner_kpts(img, mask, sigma=1.4, d=9, thresh=1e-8):
     # print(f'NMS with kernel size {kernel_size} and padding {pad}')
 
     # non-maximum suppression
-    pad1 = d // 2
-    pad2 = d - pad1 - 1
-    pad = (pad2, pad1, pad2, pad1, pad2, pad1)
-    kernel_size = d
-    maxfeat = F.max_pool3d(F.pad(dist, pad), kernel_size, stride=1)
+    maxfeat = nms(dist, d)
 
     # erode the keypoint mask (-> no kps at the edges)
     structure_element = torch.tensor([[[0., 0, 0],
