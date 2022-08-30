@@ -150,3 +150,20 @@ def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1., label=''
         handles, labels = plt.gca().get_legend_handles_labels()
         handles.append(Patch(facecolor=color, edgecolor=color, label=label, alpha=alpha))
         plt.legend(handles=handles)
+
+
+def plot_slice(img, s, b=0, c=0, dim=0, title='', save_path=None, show=True):
+    if isinstance(img, torch.Tensor):
+        img = img.detach().cpu()
+
+    index = [slice(b, b+1), slice(c, c+1)] + [slice(None)]*dim + [slice(s, s+1)]
+    plt.imshow(img[index].squeeze(), cmap='gray')
+    if title:
+        plt.title(title)
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
