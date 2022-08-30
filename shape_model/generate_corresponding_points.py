@@ -11,15 +11,46 @@ from sklearn.cluster import k_means, OPTICS
 
 from data import ImageDataset
 from metrics import point_surface_distance
+from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from shape_model.point_cloud_registration import register_cpd, visualize, inverse_transformation_at_sampled_points, \
-    inverse_affine_transform
+    inverse_affine_transform, simple_correspondence
 from shape_model.ssm import save_shape
+from utils.tqdm_utils import tqdm_redirect
 from visualization import trimesh_on_axis, point_cloud_on_axis
+
+
+def simple(fixed_pcs: Sequence[o3d.geometry.PointCloud],
+           all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
+           fixed_img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
+
+    all_corr_pts = []
+    all_transforms = []
+
+    mean_p2m = []
+    std_p2m = []
+    hd_p2m = []
+
+    # register each image onto fixed
+    for m in tqdm_redirect(range(len(all_moving_meshes))):
+
+        corr_points, _, transforms, evaluation = simple_correspondence(
+            fixed_pcs, all_moving_meshes[m], img_shape=fixed_img_shape,
+            show=show, undo_affine_reg=undo_affine_reg, n_sample_points=n_sample_points)
+
+        all_corr_pts.append(all_corr_pts)
+        all_transforms.append(transforms)
+
+        mean_p2m.append(evaluation['mean'])
+        std_p2m.append(evaluation['std'])
+        hd_p2m.append(evaluation['hd'])
+
+    return all_corr_pts, all_transforms, \
+           {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m), 'cf': []}
 
 
 def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
-                             img_shape, n_sample_points=1024, mode='cluster', undo_affine_reg=True, show=True):
+                             fixed_img_shape, n_sample_points=1024, mode='cluster', undo_affine_reg=True, show=True):
     all_affine_transforms = []
     all_moving_pcs = []
     corresponding_pcs = []
@@ -133,7 +164,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         for instance in range(len(moved_pcs)):
             sampled_pc = inverse_transformation_at_sampled_points(moved_pcs[instance],
                                                                   moving_displacements[instance],
-                                                                  sample_point_cloud=centroids, img_shape=img_shape)
+                                                                  sample_point_cloud=centroids, img_shape=fixed_img_shape)
 
             # optionally undo affine transformation
             sampled_pc_not_affine = inverse_affine_transform(sampled_pc, all_affine_transforms[obj_i][instance][:, :3].T,
@@ -181,41 +212,57 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         # compile all transformations
         all_affine_transforms[obj_i] = np.stack(all_affine_transforms[obj_i], axis=0)
 
-    labels = np.array([1] * len(corresponding_pcs[0]) + [2] * len(corresponding_pcs[1]))
-    print(len(corresponding_pcs[0]), len(corresponding_pcs[1]))
-    return np.concatenate(corresponding_pcs, axis=1), np.stack(all_affine_transforms).swapaxes(0, 1), labels, \
+    return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
         {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
          'cf': torch.tensor(cf_dists).T}
-    # return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
 
 
 if __name__ == '__main__':
+    ###### SETUP ######
+
     # mode = 'kmeans'
     mode = 'cluster'
     # mode = 'simple'
 
-    out_path = f'results/corresponding_points_{mode}'
-    os.makedirs(out_path, exist_ok=True)
+    lobes = True
+    total_segmentator = True
     undo_affine = False
     n_sample_points = 1024
+    show = False
 
-    ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
+    # data set
+    if total_segmentator:
+        ds = TotalSegmentatorDataset()
+        f = 1
+    else:
+        ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
+        f = 0
+    get_meshes = ds.get_fissure_meshes if not lobes else ds.get_lobe_meshes
 
-    f = 0
-    sequence = ds.get_id(f)[1]
-    # assert sequence == 'fixed'
-    fixed_meshes = ds.get_fissure_meshes(f)
-    img_fixed, _ = ds[f]
+    # set output path
+    out_path = f'results/corresponding_points/{mode}/{"lobes" if lobes else "fissures"}'
+    os.makedirs(out_path, exist_ok=True)
+
+    # get fixed meshes
+    fixed_meshes = get_meshes(f)
 
     # sample points from fixed
-    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points) for mesh in fixed_meshes]
+    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points, seed=42) for mesh in fixed_meshes]
     fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
     save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
 
     # register each image onto fixed
-    moving_meshes = [ds.get_fissure_meshes(m) for m in range(len(ds)) if m != f][-10:-5]
-    corr_points, transforms, labels, evaluation = data_set_correspondences(
-        fixed_pcs, moving_meshes, img_shape=img_fixed.shape, mode=mode, show=True, undo_affine_reg=undo_affine)
+    moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
+    moving_ids = [ds.get_id(m) for m in range(len(ds)) if m != f]  # prevent id mismatch
+
+    if mode == 'simple':
+        corr_points, transforms, evaluation = simple(
+            fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
+            show=show, undo_affine_reg=undo_affine)
+    else:
+        corr_points, transforms, evaluation = data_set_correspondences(
+            fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
+            mode=mode, show=show, undo_affine_reg=undo_affine)
 
     mean_p2m = evaluation['mean']
     std_p2m = evaluation['std']
@@ -224,7 +271,7 @@ if __name__ == '__main__':
 
     # output results
     for m in range(len(corr_points)):
-        save_shape(corr_points[m], os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts.npz'), transforms=transforms[m])
+        save_shape(corr_points[m], os.path.join(out_path, f'{"_".join(moving_ids[m])}_corr_pts.npz'), transforms=transforms[m])
 
     print('\n====== RESULTS ======')
     print(f'P2M distance: {mean_p2m.mean(0)} +- {std_p2m.mean(0)} (Hausdorff: {hd_p2m.mean(0)}')

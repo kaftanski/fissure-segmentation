@@ -1,19 +1,15 @@
-import csv
 import math
-import os.path
 from typing import Union, Iterable, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 import pycpd
+import pytorch3d
 import torch
 from torch.nn import functional as F
 
 from metrics import point_surface_distance
-from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from shape_model.ssm import save_shape
-from utils.tqdm_utils import tqdm_redirect
 from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
@@ -101,9 +97,9 @@ def register_cpd(fixed_pc_np, moving_pc_np):
 
     # deformable registration
     deformable = pycpd.DeformableRegistration(X=fixed_pc_np, Y=affine_prereg,
-                                              alpha=0.001,
+                                              alpha=0.01,
                                               # trade-off between regularization/smoothness (>1) and point fit (<1)
-                                              beta=2)  # gaussian kernel width of the regularization kernel
+                                              beta=10)  # gaussian kernel width of the regularization kernel
     deformed_pc_np, (trf_G, trf_W) = deformable.register()
 
     displacements = np.matmul(trf_G, trf_W)
@@ -166,11 +162,12 @@ def simple_correspondence(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3
     mean_p2m = []
     std_p2m = []
     hd_p2m = []
+    cf_dist = []
     affine_transforms = []
 
     # TODO: joint registration of left/right fissure
     for fixed_pc, moving in zip(fixed_pcs, moving_meshes):
-        moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points)
+        moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points, seed=23)
 
         fixed_pc_np = np.asarray(fixed_pc.points)
         moving_pc_np = np.asarray(moving_pc.points)
@@ -232,69 +229,17 @@ def simple_correspondence(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3
         std = dist_moved.std()
         hd = dist_moved.max()
         print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
+        cf, _ = pytorch3d.loss.chamfer_distance(torch.from_numpy(new_moving_pc_np_not_affine[None]).float(),
+                                                torch.from_numpy(moving_pc_np[None]).float())
+        print(f'Chamfer Distance: {cf:.4f}')
+
         mean_p2m.append(p2m)
         std_p2m.append(std)
         hd_p2m.append(hd)
+        cf_dist.append(cf)
 
     new_moving_pcs = np.stack(new_moving_pcs, axis=0)
     fixed_pcs = np.stack(fixed_pcs, axis=0)
     affine_transforms = np.stack(affine_transforms, axis=0)
-    return new_moving_pcs, fixed_pcs, affine_transforms, {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m)}
-
-
-if __name__ == '__main__':
-    lobes = True
-    base_path = 'results/corresponding_points_totalseg'
-    out_path = os.path.join(base_path, 'fissures' if not lobes else 'lobes')
-    os.makedirs(out_path, exist_ok=True)
-    undo_affine = False
-    n_sample_points = 1024
-
-    ds = TotalSegmentatorDataset()
-
-    mean_p2m = []
-    std_p2m = []
-    hd_p2m = []
-
-    f = 1
-    sequence = ds.get_id(f)[1]
-    # assert sequence == 'fixed'
-    fixed_meshes = ds.get_fissure_meshes(f) if not lobes else ds.get_lobe_meshes(f)
-    img_fixed, _ = ds[f]
-
-    # sample points from fixed
-    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points) for mesh in fixed_meshes]
-    fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
-    save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
-
-    # register each image onto fixed
-    for m in tqdm_redirect(range(len(ds))):
-        if f == m:
-            continue
-
-        # if not ds.get_id(m)[1] == sequence:
-        #     # use inhale scans for now only
-        #     continue
-
-        corr_points, fixed_pts, transforms, evaluation = \
-            simple_correspondence(fixed_pcs, ds.get_fissure_meshes(m) if not lobes else ds.get_lobe_meshes(f),
-                                  img_shape=img_fixed.shape, show=False, undo_affine_reg=undo_affine)
-
-        mean_p2m.append(evaluation['mean'])
-        std_p2m.append(evaluation['std'])
-        hd_p2m.append(evaluation['hd'])
-
-        save_shape(corr_points, os.path.join(out_path, f'{"_".join(ds.get_id(m))}_corr_pts.npz'), transforms=transforms)
-
-    mean_p2m = torch.stack(mean_p2m)
-    std_p2m = torch.stack(std_p2m)
-    hd_p2m = torch.stack(hd_p2m)
-    print('\n====== RESULTS ======')
-    print(f'P2M distance: {mean_p2m.mean(0)} +- {std_p2m.mean(0)} (Hausdorff: {hd_p2m.mean(0)}')
-    with open(os.path.join(out_path, 'results.csv'), 'w') as csv_results_file:
-        writer = csv.writer(csv_results_file)
-        writer.writerow(['Affine-Pre-Reg', str(not undo_affine)])
-        writer.writerow(['Object'] + [str(i+1) for i in range(mean_p2m.shape[1])] + ['mean'])
-        writer.writerow(['mean p2m'] + [v.item() for v in mean_p2m.mean(0)] + [mean_p2m.mean().item()])
-        writer.writerow(['std p2m'] + [v.item() for v in std_p2m.mean(0)] + [std_p2m.mean().item()])
-        writer.writerow(['hd p2m'] + [v.item() for v in hd_p2m.mean(0)] + [hd_p2m.mean().item()])
+    return new_moving_pcs, fixed_pcs, affine_transforms, \
+           {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m), 'cf': torch.stack(cf_dist)}
