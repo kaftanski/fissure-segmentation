@@ -1,4 +1,5 @@
 import os.path
+import shutil
 from glob import glob
 from typing import Iterable
 
@@ -14,11 +15,11 @@ from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 from utils.tqdm_utils import tqdm_redirect
 
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
-DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
+PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
 
 # IDs of images where the 5 lobes are present but cut off somewhere (determined manually)
-exclude_list = [57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
-                705, 762, 806, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386]
+EXCLUDE_LIST = (57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
+                705, 762, 806, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386)
 
 
 def find_non_zero_ranges(images: np.ndarray, axis: int = None):
@@ -192,19 +193,19 @@ def preprocess_ds():
         lung_mask = generate_lung_mask(lobe_labels_final)
 
         # write all results
-        sitk.WriteImage(img_z_crop, os.path.join(DATA_PATH, f'{patid}_img_fixed.nii.gz'))
-        sitk.WriteImage(lobe_labels_final, os.path.join(DATA_PATH, f'{patid}_lobes_fixed.nii.gz'))
-        sitk.WriteImage(fissure_labels, os.path.join(DATA_PATH, f'{patid}_fissures_fixed.nii.gz'))
-        sitk.WriteImage(lung_mask, os.path.join(DATA_PATH, f'{patid}_mask_fixed.nii.gz'))
+        sitk.WriteImage(img_z_crop, os.path.join(PROCESSED_DATA_PATH, f'{patid}_img_fixed.nii.gz'))
+        sitk.WriteImage(lobe_labels_final, os.path.join(PROCESSED_DATA_PATH, f'{patid}_lobes_fixed.nii.gz'))
+        sitk.WriteImage(fissure_labels, os.path.join(PROCESSED_DATA_PATH, f'{patid}_fissures_fixed.nii.gz'))
+        sitk.WriteImage(lung_mask, os.path.join(PROCESSED_DATA_PATH, f'{patid}_mask_fixed.nii.gz'))
 
 
 def create_meshes():
-    img_files = sorted(glob(os.path.join(DATA_PATH, '*_img_*.nii.gz')))
+    img_files = sorted(glob(os.path.join(PROCESSED_DATA_PATH, '*_img_*.nii.gz')))
 
-    for img_file in tqdm_redirect(img_files):
+    for img_file in tqdm_redirect(img_files[373:]):
         # load preprocessed data
         case, sequence = os.path.split(img_file)[1].replace('_img_', '_').replace('.nii.gz', '').split('_')
-        if int(case.replace('s', '')) in exclude_list:
+        if int(case.replace('s', '')) in EXCLUDE_LIST:
             print(f'Skipping {case} (incomplete lobes)')
             continue
 
@@ -215,11 +216,23 @@ def create_meshes():
 
         # generate fissure surface meshes with poisson
         regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)  # save poisson fissures?
-        save_meshes(fissure_meshes, DATA_PATH, case, sequence, obj_name='fissure')
+        save_meshes(fissure_meshes, PROCESSED_DATA_PATH, case, sequence, obj_name='fissure')
 
         # generate lobe surface meshes with marching cubes
         lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask)
-        save_meshes(lobe_meshes, DATA_PATH, case, sequence, 'lobe')
+        save_meshes(lobe_meshes, PROCESSED_DATA_PATH, case, sequence, 'lobe')
+
+
+def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
+    for id_num in exclude_list:
+        case_id = f's{id_num:04d}'
+        pat_files = glob(os.path.join(PROCESSED_DATA_PATH, f'{case_id}_*'))
+        print(sorted(pat_files))
+        for f in pat_files:
+            if os.path.isdir(f):
+                shutil.rmtree(f)
+            else:
+                os.remove(f)
 
 
 if __name__ == '__main__':
