@@ -439,14 +439,29 @@ class CorrespondingPointDataset(PointDataset):
                 m.translate(t[..., -1])
 
     def __getitem__(self, item):
-        pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
+        # pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
 
         # # combine the label meshes
         # concat_meshes = self.meshes[item][0]
         # for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
         #     concat_meshes += m
 
-        return pts, self.corr_points[item]  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
+        # SANITY CHECK: just use the ground truth mesh for now.
+        # pts = []
+        # for m in self.meshes[item][:2]:
+        #     pts.append(np.asarray(m.sample_points_poisson_disk(self.sample_points//2).points))
+        # pts = torch.from_numpy(np.concatenate(pts, axis=0)).float().T
+        # visualize_point_cloud(pts.T, torch.cat([torch.ones(512), torch.ones(512)+1]), title='input points')
+        # visualize_trimesh([np.asarray(m.vertices) for m in self.meshes[item][:2]], [np.asarray(m.triangles) for m in self.meshes[item][:2]], title='input mesh')
+        # return pts, self.corr_points[item]  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
+
+        # AE example: just reconstruct the shape
+        inputs = self.corr_points.normalized_points[item].T
+        return inputs, self.corr_points[item]
+
+    def get_full_pointcloud(self, i):
+        # TODO: remember to implement this for all tests!
+        return self[i]
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
@@ -482,6 +497,51 @@ class CorrespondingPointDataset(PointDataset):
     #         return torch.stack(pcs, dim=0), (torch.stack(corr_pts), join_meshes_as_batch(meshes))
     #
     #     return collate_fn
+
+
+class CorrespondingPointDatasetSampled(CustomDataset):
+    def __init__(self, sample_points, kp_mode,
+                 use_coords=True, patch_feat=None, corr_folder="./results/ssm_points_sampled"):
+        super(CorrespondingPointDatasetSampled, self).__init__(True, False, False)
+        self.corr_points = CorrespondingPoints(corr_folder)
+        self.ids = self.corr_points.ids
+
+    def __getitem__(self, item):
+        # AE example: just reconstruct the shape
+        inputs = self.corr_points.normalized_points[item].T
+        return inputs, self.corr_points[item]
+
+    def __len__(self):
+        return len(self.corr_points)
+
+    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+        train_ds = deepcopy(self)
+        val_ds = deepcopy(self)
+        split_index = 800
+        train_ds.corr_points.points = train_ds.corr_points.points[:split_index]
+        val_ds.corr_points.points = val_ds.corr_points.points[split_index:]
+
+        train_ds.corr_points.ids = train_ds.corr_points.ids[:split_index]
+        val_ds.corr_points.ids = val_ds.corr_points.ids[split_index:]
+
+        train_ds.corr_points.transforms = train_ds.corr_points.transforms[:split_index]
+        val_ds.corr_points.transforms = val_ds.corr_points.transforms[split_index:]
+        return train_ds, val_ds
+
+    def get_full_pointcloud(self, i):
+        # TODO: remember to implement this for all tests!
+        return self[i]
+
+    @property
+    def num_classes(self):
+        return self.corr_points.num_objects
+
+    def get_batch_collate_fn(self):
+        return None
+
+    def get_class_weights(self):
+        return None
+
 
 
 class CorrespondingPoints:

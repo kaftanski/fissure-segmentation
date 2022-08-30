@@ -1,15 +1,15 @@
 import time
 import warnings
+from abc import ABC, abstractmethod
 
 import torch
-from abc import ABC, abstractmethod
 from torch import nn
+from torch.nn import functional as F
 from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
 from utils.utils import pairwise_dist
-from torch.nn import functional as F
 
 
 def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None) -> torch.Tensor:
@@ -22,7 +22,7 @@ def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Ten
     """
     if fixed_knn_graph is None:
         # k nearest neighbors in feature space
-        knn_indices = knn(x, k, self_loop=False)  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+        knn_indices = knn(x, k, self_loop=True)  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
     else:
         knn_indices = fixed_knn_graph
 
@@ -209,15 +209,19 @@ class DGCNNReg(DGCNNBase):
         self.ec3 = EdgeConv(64, [128], self.k)
         self.ec4 = EdgeConv(128, [256], self.k)
 
-        self.global_feature = nn.Sequential(
-            SharedFullyConnected(2 * 64 + 128 + 256, 1024, dim=1),
-            nn.AdaptiveMaxPool1d(1)
-        )
+        # self.global_feature = nn.Sequential(
+        #     SharedFullyConnected(2 * 64 + 128 + 256, 1024, dim=1),
+        #     nn.AdaptiveMaxPool1d(1)
+        # )
+        self.global_feature = SharedFullyConnected(2 * 64 + 128 + 256, 1024, dim=1)
 
         self.regression = nn.Sequential(
-            SharedFullyConnected(1024, 512, dim=1),
+            SharedFullyConnected(1024*2, 512, dim=1),
             # nn.Dropout(p=0.5), TODO: use this?
-            SharedFullyConnected(512, 256, dim=1),
+            # SharedFullyConnected(512, 256, dim=1),
+            nn.Conv1d(512, 256, 1, bias=True),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(negative_slope=0.2),
             # nn.Dropout(p=0.5),
             SharedFullyConnected(256, self.num_classes, dim=1, last_layer=True)
         )
@@ -234,8 +238,10 @@ class DGCNNReg(DGCNNBase):
         multi_level_features = torch.cat([x1, x2, x3, x4], dim=1)
 
         global_features = self.global_feature(multi_level_features)
+        max_pooled = F.adaptive_max_pool1d(global_features, 1)
+        avg_pooled = F.adaptive_avg_pool1d(global_features, 1)
 
-        x = self.regression(global_features)
+        x = self.regression(torch.cat((max_pooled, avg_pooled), 1))
         return x
 
     def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):

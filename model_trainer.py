@@ -1,8 +1,8 @@
+import math
 import os
 from copy import deepcopy
 from time import time
 
-import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -12,6 +12,7 @@ from torch.utils.data import random_split, DataLoader
 import models.modelio
 from data import CustomDataset
 from models.dg_ssm import DGSSM
+from visualization import visualize_point_cloud
 
 
 class ModelTrainer:
@@ -111,16 +112,21 @@ class ModelTrainer:
             output = self.model(x)
 
             # UGLY SPECIAL CASE
+            y = y.to(self.device)
             if isinstance(self.model, DGSSM):
                 # use optimal SSM weights for supervision
                 with torch.no_grad():
-                    target_weights = self.model.ssm(y[0].to(self.device))
-                y = (y.to(self.device), target_weights)
-            else:
-                y = y.to(self.device)
+                    target_weights = self.model.ssm(y)
+                y = (y, target_weights)
 
             # loss computation
             loss = self.loss_function(output, y)
+
+            if (ep+1) % 100 == 0:
+                with torch.no_grad():
+                    visualize_point_cloud(x[0].cpu().T, torch.cat([torch.ones(1024), torch.ones(1024) + 1]), title='input points')
+                    visualize_point_cloud(y[0][0].cpu(), torch.cat([torch.ones(1024), torch.ones(1024) + 1]), title='target points')
+                    visualize_point_cloud(output[0][0].detach().cpu(), torch.cat([torch.ones(1024), torch.ones(1024) + 1]), title='predicted points')
 
         if isinstance(loss, tuple):
             loss, components = loss

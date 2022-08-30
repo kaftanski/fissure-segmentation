@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_dgcnn_ssm.py" />
-    <option name="PARAMETERS" value="--data fissures --coords --patch --batch 32 --gpu 2 --output results/DG-SSM --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --transformer --show --epochs 1000 --kp_mode cnn --lssm" />
+    <option name="PARAMETERS" value="--data fissures --coords --batch 16 --gpu 2 --output results/DG-SSM_AEtest_sampled_shapes --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --show --epochs 100 --kp_mode cnn --k 40" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

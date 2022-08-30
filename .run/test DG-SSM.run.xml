@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_dgcnn_ssm.py" />
-    <option name="PARAMETERS" value="--gpu 2 --output results/DG-SSM --show --test_only" />
+    <option name="PARAMETERS" value="--gpu 2 --output results/DG-SSM_AEtest_sampled_shapes --show --test_only" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

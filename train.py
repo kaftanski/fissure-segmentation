@@ -47,6 +47,11 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
             reconstructions = model.ssm.decode(model.ssm(train_shapes))
             error = corresponding_point_distance(reconstructions, train_shapes)
             print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
+    elif isinstance(ds, CorrespondingPointDatasetSampled):
+        model.ssm = LSSM.load('results/corresponding_points/ssm.pth', device).to(device)
+        model.config['ssm_modes'] = model.ssm.num_modes.data.item()
+        model.dgcnn.linear3 = nn.Linear(256, model.config['ssm_modes'])
+        model.dgcnn.apply(init_weights)
 
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)

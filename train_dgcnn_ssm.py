@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 
 from cli.cl_args import get_dgcnn_ssm_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from data import CorrespondingPointDataset
+from data import CorrespondingPointDataset, CorrespondingPointDatasetSampled
 from losses.ssm_loss import corresponding_point_distance
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     if args.exclude_rhf:
         warnings.warn('--exclude_rhf option has no effect when training the DG-SSM')
 
-    ds = CorrespondingPointDataset(sample_points=args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
+    ds = CorrespondingPointDatasetSampled(sample_points=args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
                                    patch_feat='mind' if args.patch else None)
 
     # setup model
