@@ -1,13 +1,13 @@
+import glob
+import os
 from typing import Sequence, List
 
-import numpy
 import numpy as np
 import open3d as o3d
-import os
-
-from pytorch3d.structures import Meshes
 import torch
 from numpy.typing import ArrayLike
+from pytorch3d.structures import Meshes
+from pytorch3d.transforms import Transform3d
 from torch.nn import functional as F
 
 
@@ -232,3 +232,42 @@ def points_to_label_map(pts, labels, out_shape, spacing):
     label_map[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]] = labels.squeeze()
 
     return label_map, pts_index
+
+
+def affine_point_transformation(points: torch.Tensor, transformation: torch.Tensor, normals: torch.Tensor = None):
+    """
+
+    :param points: expects single point cloud [N, 3] or batch [B, N, 3] to be transformed
+    :param transformation: expects single transformation matrix [3, 4] or [1, 3, 4], or batch [B, 3, 4]
+    :param normals: optional normal vector at each point of the point cloud (same shape as points)
+    :return: transformed point cloud
+    """
+    trfm = Transform3d().rotate(transformation[..., :3]).translate(transformation[..., -1]).to(points.device)
+    if normals is None:
+        return trfm.transform_points(points)
+    else:
+        return trfm.transform_points(points), trfm.transform_normals(normals)
+
+
+# def affine_mesh_transformation(mesh: o3d.geometry.TriangleMesh, transformation: torch.Tensor):
+#
+
+
+def nms(data: torch.Tensor, kernel_size: int):
+    """
+
+    :param data: 3d image tensor [B, C, D, H, W]
+    :param kernel_size: max pooling kernel size
+    :return: suppressed image tensor
+    """
+    # non-maximum suppression
+    pad1 = kernel_size // 2
+    pad2 = kernel_size - pad1 - 1
+    pad = (pad2, pad1, pad2, pad1, pad2, pad1)
+    maxfeat = F.max_pool3d(F.pad(data, pad, mode='replicate'), kernel_size, stride=1)
+    return maxfeat
+
+
+def load_meshes(base_dir, case, sequence, obj_name='fissure'):
+    meshlist = sorted(glob.glob(os.path.join(base_dir, f'{case}_mesh_{sequence}', f'{case}_{obj_name}*_{sequence}.obj')))
+    return tuple(o3d.io.read_triangle_mesh(m) for m in meshlist)
