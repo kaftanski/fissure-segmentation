@@ -129,7 +129,7 @@ def fissures_to_lobes(fissure_file: str, out_folder: str, spacing=1.25, exclude_
 
 
 if __name__ == '__main__':
-    data_path = '../data'
+    data_path = '../../data'
     out_path = 'results/fissures_to_lobes_mattias'
     os.makedirs(out_path, exist_ok=True)
     fissures = sorted(glob(os.path.join(data_path, 'EMPIRE*_fissures_poisson_*')))[21:22]
