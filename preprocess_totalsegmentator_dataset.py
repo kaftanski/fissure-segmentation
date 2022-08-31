@@ -14,7 +14,6 @@ from data import ImageDataset
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import create_o3d_mesh
 
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
 PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
@@ -245,25 +244,6 @@ def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
 class TotalSegmentatorDataset(ImageDataset):
     def __init__(self, do_augmentation=False):
         super(TotalSegmentatorDataset, self).__init__('../TotalSegmentator/ThoraxCrop', do_augmentation=do_augmentation)
-
-    def _flip_meshes(self, meshes, item):
-        # TODO: this is a quick fix until I redo the Poisson reconstruction with the flipped images
-        lb = self.get_lobes(item)
-        size = tuple(sz * sp for sz, sp in zip(lb.GetSize(), lb.GetSpacing()))
-        meshes_flipped = []
-        for m in meshes:
-            verts = np.asarray(m.vertices)
-            verts[:, :2] = (np.array(size[:2]) - verts[:, :2])
-            meshes_flipped.append(create_o3d_mesh(verts, np.asarray(m.triangles)))
-        return meshes_flipped
-
-    def get_fissure_meshes(self, item):
-        meshes = super(TotalSegmentatorDataset, self).get_fissure_meshes(item)
-        return self._flip_meshes(meshes, item)
-
-    def get_lobe_meshes(self, item):
-        meshes = super(TotalSegmentatorDataset, self).get_lobe_meshes(item)
-        return self._flip_meshes(meshes, item)
 
 
 if __name__ == '__main__':
