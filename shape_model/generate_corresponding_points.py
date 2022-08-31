@@ -1,5 +1,6 @@
 import csv
 import os
+import pickle
 from typing import Sequence
 
 import numpy as np
@@ -69,7 +70,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         fixed_pc_np = np.asarray(fixed.points)
 
         # register all moving objects into fixed space
-        for moving in all_moving_meshes:
+        for moving in tqdm_redirect(all_moving_meshes, desc=f'register moving PCs to fixed, object {obj_i+1}'):
             # sample points evenly from mesh
             moving_pc = moving[obj_i].sample_points_poisson_disk(number_of_points=n_sample_points)
             moving_pc_np = np.asarray(moving_pc.points)
@@ -161,7 +162,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         std_p2m.append([])
         hd_p2m.append([])
         cf_dists.append([])
-        for instance in range(len(moved_pcs)):
+        for instance in tqdm_redirect(range(len(moved_pcs)), desc=f'inverse transform on centroids, object {obj_i+1}'):
             sampled_pc = inverse_transformation_at_sampled_points(moved_pcs[instance],
                                                                   moving_displacements[instance],
                                                                   sample_point_cloud=centroids, img_shape=fixed_img_shape)
@@ -212,9 +213,17 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         # compile all transformations
         all_affine_transforms[obj_i] = np.stack(all_affine_transforms[obj_i], axis=0)
 
-    return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
+    # return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
+    #     {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
+    #      'cf': torch.tensor(cf_dists).T}
+
+    # concat because clustering with optics/dbscan yields different amount of points per object
+    labels = np.concatenate([np.full(len(corresponding_pcs[i][0]), i+1) for i in range(len(corresponding_pcs))])
+    print('Corresponding point labels (counts):', np.unique(labels, return_counts=True))
+    return np.concatenate(corresponding_pcs, axis=1), np.stack(all_affine_transforms).swapaxes(0, 1), labels, \
         {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
          'cf': torch.tensor(cf_dists).T}
+
 
 
 if __name__ == '__main__':
@@ -240,7 +249,7 @@ if __name__ == '__main__':
     get_meshes = ds.get_fissure_meshes if not lobes else ds.get_lobe_meshes
 
     # set output path
-    out_path = f'results/corresponding_points/{mode}/{"lobes" if lobes else "fissures"}'
+    out_path = f'results/corresponding_points{"_ts" if total_segmentator else ""}/{mode}/{"lobes" if lobes else "fissures"}'
     os.makedirs(out_path, exist_ok=True)
 
     # get fixed meshes
@@ -259,8 +268,9 @@ if __name__ == '__main__':
         corr_points, transforms, evaluation = simple(
             fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
             show=show, undo_affine_reg=undo_affine)
+        labels = None  # TODO
     else:
-        corr_points, transforms, evaluation = data_set_correspondences(
+        corr_points, transforms, labels, evaluation = data_set_correspondences(
             fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
             mode=mode, show=show, undo_affine_reg=undo_affine)
 
@@ -272,6 +282,8 @@ if __name__ == '__main__':
     # output results
     for m in range(len(corr_points)):
         save_shape(corr_points[m], os.path.join(out_path, f'{"_".join(moving_ids[m])}_corr_pts.npz'), transforms=transforms[m])
+    with open(os.path.join(out_path, 'labels.npz'), 'wb') as label_file:
+        pickle.dump(labels, label_file)
 
     print('\n====== RESULTS ======')
     print(f'P2M distance: {mean_p2m.mean(0)} +- {std_p2m.mean(0)} (Hausdorff: {hd_p2m.mean(0)}')
