@@ -173,7 +173,6 @@ def simple_correspondence(fixed_pcs: Union[Iterable[o3d.geometry.PointCloud], o3
     cf_dist = []
     affine_transforms = []
 
-    # TODO: joint registration of left/right fissure
     for fixed_pc, moving in zip(fixed_pcs, moving_meshes):
         moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points, seed=23)
 
@@ -277,6 +276,7 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
 
         corresponding = []
 
+        # TODO: joint registration of left/right fissure
         # register all moving objects into fixed space
         for obj_i, (fixed, moving) in enumerate(zip(fixed_pcs, moving_meshes)):
             fixed_pc_np = np.asarray(fixed.points)

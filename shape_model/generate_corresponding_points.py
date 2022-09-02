@@ -1,4 +1,5 @@
 import csv
+import glob
 import os
 import pickle
 from typing import Sequence
@@ -13,106 +14,38 @@ from sklearn.cluster import k_means, OPTICS
 from data import ImageDataset
 from metrics import point_surface_distance
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from shape_model.point_cloud_registration import register_cpd, visualize, inverse_transformation_at_sampled_points, \
-    inverse_affine_transform, simple_correspondence
+from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points, \
+    inverse_affine_transform
 from shape_model.ssm import save_shape
 from utils.tqdm_utils import tqdm_redirect
+from utils.utils import new_dir
 from visualization import trimesh_on_axis, point_cloud_on_axis
 
 
-def simple(fixed_pcs: Sequence[o3d.geometry.PointCloud],
-           all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
-           fixed_img_shape, n_sample_points=1024, undo_affine_reg=True, show=True):
-
-    all_corr_pts = []
-    all_transforms = []
-
-    mean_p2m = []
-    std_p2m = []
-    hd_p2m = []
-
-    # register each image onto fixed
-    for m in tqdm_redirect(range(len(all_moving_meshes))):
-
-        corr_points, _, transforms, evaluation = simple_correspondence(
-            fixed_pcs, all_moving_meshes[m], img_shape=fixed_img_shape,
-            show=show, undo_affine_reg=undo_affine_reg, n_sample_points=n_sample_points)
-
-        all_corr_pts.append(all_corr_pts)
-        all_transforms.append(transforms)
-
-        mean_p2m.append(evaluation['mean'])
-        std_p2m.append(evaluation['std'])
-        hd_p2m.append(evaluation['hd'])
-
-    return all_corr_pts, all_transforms, \
-           {'mean': torch.stack(mean_p2m), 'std': torch.stack(std_p2m), 'hd': torch.stack(hd_p2m), 'cf': []}
-
-
-def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
+def data_set_correspondences(fixed_pcs: np.ndarray,
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
-                             fixed_img_shape, n_sample_points=1024, mode='cluster', undo_affine_reg=True, show=True):
-    all_affine_transforms = []
-    all_moving_pcs = []
+                             all_moving_pcs: np.ndarray, all_affine_transforms: np.ndarray, all_moved_pcs: np.ndarray,
+                             all_displacements: np.ndarray, fixed_img_shape, plot_dir,
+                             mode='cluster', undo_affine_reg=True, show=True):
+
     corresponding_pcs = []
+    corresponding_fixed_pc = []
 
     mean_p2m = []
     std_p2m = []
     hd_p2m = []
     cf_dists = []
 
-    # register objects separately (TODO: joint registration?)
-    for obj_i, fixed in enumerate(fixed_pcs):
-        moved_pcs = []
-        moving_displacements = []
-        all_affine_transforms.append([])
-        all_moving_pcs.append([])
-        fixed_pc_np = np.asarray(fixed.points)
+    for obj_i in range(all_moved_pcs.shape[1]):
+        all_points = np.concatenate(all_moved_pcs[:, obj_i], axis=0)
 
-        # register all moving objects into fixed space
-        for moving in tqdm_redirect(all_moving_meshes, desc=f'register moving PCs to fixed, object {obj_i+1}'):
-            # sample points evenly from mesh
-            moving_pc = moving[obj_i].sample_points_poisson_disk(number_of_points=n_sample_points)
-            moving_pc_np = np.asarray(moving_pc.points)
-            all_moving_pcs[obj_i].append(moving_pc_np)
-
-            # register and check result
-            affine_prereg, affine_mat, affine_translation, deformed_pc_np, displacements = register_cpd(
-                fixed_pc_np, moving_pc_np)
-            deformed_pc = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(deformed_pc_np.astype(np.float32)))
-            reg_result = o3d.pipelines.registration.evaluate_registration(source=deformed_pc, target=fixed,
-                                                                          max_correspondence_distance=10)
-            print(reg_result)
-
-            moved_pcs.append(deformed_pc_np)
-            moving_displacements.append(displacements)
-
-            # remember affine transformation for later
-            # (pycpd defines affine transformation as x*A -> we transpose the matrix so we can use A^T*x)
-            all_affine_transforms[obj_i].append(np.concatenate([affine_mat.T, affine_translation[:, np.newaxis]], axis=1))
-
-            if show:
-                # VISUALIZATION
-                # show registration steps
-                fig = plt.figure()
-                ax1 = fig.add_subplot(131, projection='3d')
-                ax2 = fig.add_subplot(132, projection='3d')
-                ax3 = fig.add_subplot(133, projection='3d')
-
-                visualize('Initial PC', fixed_pc_np, moving_pc_np, ax1)
-                visualize('Affine', fixed_pc_np, affine_prereg, ax2)
-                visualize('Deformable', fixed_pc_np, deformed_pc_np, ax3)
-
-                plt.show()
-
-        all_points = np.concatenate(moved_pcs, axis=0)
         if mode == 'kmeans':
             # k-means to determine sampling locations
-            centroids, label, inertia = k_means(all_points, n_clusters=n_sample_points)
+            centroids, label, inertia = k_means(all_points, n_clusters=all_moved_pcs.shape[2])
 
         elif mode == 'cluster':
             eps_heuristic = (all_points.max() - all_points.min()) * 0.05
-            cluster_estimator = OPTICS(min_samples=len(all_moving_meshes), max_eps=eps_heuristic)
+            cluster_estimator = OPTICS(min_samples=len(all_moving_meshes) // 2, max_eps=eps_heuristic)  # TODO tune parameters
             clustering = cluster_estimator.fit_predict(all_points)
 
             # compute cluster centroids
@@ -146,15 +79,27 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             # dense_density = dense_density[..., 0].unsqueeze(1)
             # dense_density_nms = nms(dense_density, kernel_size=3)
             # top_k_val, top_k_ind = torch.topk(dense_density_nms, n_sample_points)
+        elif mode == 'simple':
+            # corresponding points by inverse transformation sampled at fixed points
+            # -> define the fixed points as centroids
+            centroids = fixed_pcs[obj_i]
+
         else:
             raise ValueError(f'No mode named {mode}.')
 
+        # centroids are the new fixed PC
+        corresponding_fixed_pc.append(centroids)
+
+        # visualize clustering result
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        point_cloud_on_axis(ax, fixed_pcs[obj_i], c='b', title='fixed vs. centroids', label='fixed pc')
+        point_cloud_on_axis(ax, centroids, c='r', label='centroids')
+        fig.savefig(os.path.join(plot_dir, f'clustering_obj{obj_i + 1}_centroids'), bbox_inches='tight', dpi=300)
         if show:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-            point_cloud_on_axis(ax, fixed_pc_np, c='g', title='fixed vs. centroids', label='fixed pc')
-            point_cloud_on_axis(ax, centroids, c='b', label='centroids')
             plt.show()
+        else:
+            plt.close(fig)
 
         # compute inverse transformations at centroids for each moved point cloud which yields corresponding points
         corresponding_pcs.append([])
@@ -162,18 +107,19 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         std_p2m.append([])
         hd_p2m.append([])
         cf_dists.append([])
-        for instance in tqdm_redirect(range(len(moved_pcs)), desc=f'inverse transform on centroids, object {obj_i+1}'):
-            sampled_pc = inverse_transformation_at_sampled_points(moved_pcs[instance],
-                                                                  moving_displacements[instance],
-                                                                  sample_point_cloud=centroids, img_shape=fixed_img_shape)
+        for instance in tqdm_redirect(range(len(all_moved_pcs)), desc=f'inverse transform on centroids, object {obj_i+1}'):
+            sampled_pc = inverse_transformation_at_sampled_points(
+                all_moved_pcs[instance, obj_i], all_displacements[instance, obj_i],
+                sample_point_cloud=centroids, img_shape=fixed_img_shape)
 
             # optionally undo affine transformation
-            sampled_pc_not_affine = inverse_affine_transform(sampled_pc, all_affine_transforms[obj_i][instance][:, :3].T,
-                                                             all_affine_transforms[obj_i][instance][:, 3])
+            sampled_pc_not_affine = inverse_affine_transform(sampled_pc,
+                                                             all_affine_transforms[instance, obj_i, :, :3].T,
+                                                             all_affine_transforms[instance, obj_i, :, 3])
             if undo_affine_reg:
                 corresponding_pcs[obj_i].append(sampled_pc_not_affine)
                 # affine transform was undone, just the identity is left
-                all_affine_transforms[obj_i][instance] = np.eye(3, 4)
+                all_affine_transforms[instance, obj_i] = np.eye(3, 4)
             else:
                 corresponding_pcs[obj_i].append(sampled_pc)
 
@@ -186,7 +132,7 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             hd = dist_moved.max()
             print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
             cf, _ = pytorch3d.loss.chamfer_distance(torch.from_numpy(sampled_pc_not_affine[None]).float(),
-                                                 torch.from_numpy(all_moving_pcs[obj_i][instance][None]).float())
+                                                 torch.from_numpy(all_moving_pcs[instance, obj_i, None]).float())
             print(f'Chamfer Distance: {cf:.4f}')
 
             mean_p2m[obj_i].append(p2m)
@@ -194,99 +140,106 @@ def data_set_correspondences(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             hd_p2m[obj_i].append(hd)
             cf_dists[obj_i].append(cf)
 
+            # visualize sampling and back-transformation
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', title='backtransformation', label='centroids-sampled_disp')
+            point_cloud_on_axis(ax, all_moving_pcs[instance, obj_i], c='b', label='original moving')
+            fig.savefig(os.path.join(plot_dir, f'instance{instance}_obj{obj_i+1}_backtrans'), bbox_inches='tight', dpi=300)
+
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', cmap=None, label='New PC')
+            trimesh_on_axis(ax, np.asarray(all_moving_meshes[instance][obj_i].vertices),
+                            np.asarray(all_moving_meshes[instance][obj_i].triangles), color='b',
+                            title='centroids - sampled displacements', alpha=0.5, label='GT mesh')
+            fig.savefig(os.path.join(plot_dir, f'instance{instance}_obj{obj_i+1}_backtrans_gtmesh'), bbox_inches='tight', dpi=300)
+
             if show:
-                # visualize sampling and back-transformation
-                fig = plt.figure()
-                ax = fig.add_subplot(111, projection='3d')
-                point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', title='backtransformation', label='centroids-sampled_disp')
-                point_cloud_on_axis(ax, all_moving_pcs[obj_i][instance], c='b', label='original moving')
-
-                fig = plt.figure()
-                ax = fig.add_subplot(111, projection='3d')
-                point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', cmap=None, label='New PC')
-                trimesh_on_axis(ax, np.asarray(all_moving_meshes[instance][obj_i].vertices),
-                                np.asarray(all_moving_meshes[instance][obj_i].triangles), color='b',
-                                title='centroids - sampled displacements', alpha=0.5, label='GT mesh')
-
                 plt.show()
-
-        # compile all transformations
-        all_affine_transforms[obj_i] = np.stack(all_affine_transforms[obj_i], axis=0)
+            else:
+                plt.close()
 
     # return np.stack(corresponding_pcs).swapaxes(0, 1), np.stack(all_affine_transforms).swapaxes(0, 1), \
     #     {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
     #      'cf': torch.tensor(cf_dists).T}
 
     # concat because clustering with optics/dbscan yields different amount of points per object
+    corresponding_fixed_pc = np.concatenate(corresponding_fixed_pc)
     labels = np.concatenate([np.full(len(corresponding_pcs[i][0]), i+1) for i in range(len(corresponding_pcs))])
     print('Corresponding point labels (counts):', np.unique(labels, return_counts=True))
-    return np.concatenate(corresponding_pcs, axis=1), np.stack(all_affine_transforms).swapaxes(0, 1), labels, \
+
+    return np.concatenate(corresponding_pcs, axis=1), all_affine_transforms, corresponding_fixed_pc, labels, \
         {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
          'cf': torch.tensor(cf_dists).T}
-
 
 
 if __name__ == '__main__':
     ###### SETUP ######
 
     # mode = 'kmeans'
-    mode = 'cluster'
-    # mode = 'simple'
+    # mode = 'cluster'
+    mode = 'simple'
 
     lobes = True
     total_segmentator = True
     undo_affine = False
-    n_sample_points = 1024
-    show = False
+    show = True
 
     # data set
     if total_segmentator:
         ds = TotalSegmentatorDataset()
-        f = 1
     else:
         ds = ImageDataset("../data", do_augmentation=False, resample_spacing=1.)
-        f = 0
     get_meshes = ds.get_fissure_meshes if not lobes else ds.get_lobe_meshes
 
     # set output path
-    out_path = f'results/corresponding_points{"_ts" if total_segmentator else ""}/{mode}/{"lobes" if lobes else "fissures"}'
-    os.makedirs(out_path, exist_ok=True)
+    base_path = f'results/corresponding_points{"_ts" if total_segmentator else ""}/{"lobes" if lobes else "fissures"}'
+    reg_dir = os.path.join(base_path, 'registrations')
+    out_path = new_dir(base_path, mode)
 
-    # get fixed meshes
-    fixed_meshes = get_meshes(f)
+    # load fixed point cloud
+    fixed_fn = glob.glob(os.path.join(base_path, '*.npz'))
+    assert len(fixed_fn) == 1
+    fixed_pcs = np.load(fixed_fn[0], allow_pickle=True)['shape']
+    f = ds.get_index(*os.path.split(fixed_fn[0])[1].replace('.npz', '').split('_'))
 
-    # sample points from fixed
-    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points, seed=42) for mesh in fixed_meshes]
-    fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
-    save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'), transforms=None)
+    # load all precomputed registrations
+    def load(fname):
+        return np.load(os.path.join(reg_dir, fname), allow_pickle=True)
 
-    # register each image onto fixed
-    moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
-    moving_ids = [ds.get_id(m) for m in range(len(ds)) if m != f]  # prevent id mismatch
+    all_displacements = load('displacements.npz')
+    all_moved_pcs = load('moved_pcs.npz')
+    all_moving_pcs = load('moving_pcs.npz')
+    all_affine_transforms = load('transforms.npz')
+    ids = load('ids.npz')
 
-    if mode == 'simple':
-        corr_points, transforms, evaluation = simple(
-            fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
-            show=show, undo_affine_reg=undo_affine)
-        labels = None  # TODO
-    else:
-        corr_points, transforms, labels, evaluation = data_set_correspondences(
-            fixed_pcs, moving_meshes, fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
-            mode=mode, show=show, undo_affine_reg=undo_affine)
+    moving_meshes = [get_meshes(m) for m in range(len(ds)-379) if m != f]
+    moving_ids = [ds.get_id(m) for m in range(len(ds)-379) if m != f]  # prevent id mismatch
 
+    corr_points, transforms, corr_fixed, labels, evaluation = data_set_correspondences(
+        fixed_pcs, moving_meshes, all_moving_pcs, all_affine_transforms, all_moved_pcs, all_displacements,
+        plot_dir=new_dir(out_path, 'plots'), fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
+        mode=mode, show=show, undo_affine_reg=undo_affine)
+
+    # output corresponding point clouds
+    save_shape(corr_fixed, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'))
+
+    for m in range(len(corr_points)):
+        save_shape(corr_points[m], os.path.join(out_path, f'{"_".join(moving_ids[m])}_corr_pts.npz'), transforms=transforms[m])
+
+    with open(os.path.join(out_path, 'labels.npz'), 'wb') as label_file:
+        pickle.dump(labels, label_file)
+
+    # evaluation results
     mean_p2m = evaluation['mean']
     std_p2m = evaluation['std']
     hd_p2m = evaluation['hd']
     cf_dists = evaluation['cf']
 
-    # output results
-    for m in range(len(corr_points)):
-        save_shape(corr_points[m], os.path.join(out_path, f'{"_".join(moving_ids[m])}_corr_pts.npz'), transforms=transforms[m])
-    with open(os.path.join(out_path, 'labels.npz'), 'wb') as label_file:
-        pickle.dump(labels, label_file)
-
     print('\n====== RESULTS ======')
     print(f'P2M distance: {mean_p2m.mean(0)} +- {std_p2m.mean(0)} (Hausdorff: {hd_p2m.mean(0)}')
+
     with open(os.path.join(out_path, 'results.csv'), 'w') as csv_results_file:
         writer = csv.writer(csv_results_file)
         writer.writerow(['Affine-Pre-Reg', str(not undo_affine)])
