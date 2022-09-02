@@ -183,7 +183,7 @@ def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: boo
     triangle_clusters = np.asarray(triangle_clusters)
     cluster_area = np.asarray(cluster_area)
 
-    if center_x is not None:
+    if center_x is not None and right is not None:
         all_verts = np.asarray(mesh.vertices)
         all_tris = np.asarray(mesh.triangles)
 

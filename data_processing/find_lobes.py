@@ -184,6 +184,14 @@ def find_lobes(fissure_seg: sitk.Image, lung_mask: sitk.Image, exclude_rhf: bool
 
 def compute_surface_mesh_marching_cubes(label_img: sitk.Image, mask_image: sitk.Image = None,
                                         max_label: int = None):
+    """
+
+    :param label_img: the label image to compute the surface of
+    :param mask_image: only voxels where mask==True are being considered.
+        Be sure to dilate the mask in order to not cut off som of the surface.
+    :param max_label: set it to ignore labels greater than this
+    :return: one mesh for each labelled object (excluding background)
+    """
     meshes = []
     if max_label is None:
         max_label = np.unique(sitk.GetArrayViewFromImage(label_img))[-1]

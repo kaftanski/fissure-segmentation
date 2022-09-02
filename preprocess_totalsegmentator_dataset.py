@@ -14,6 +14,7 @@ from data import ImageDataset
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 from utils.tqdm_utils import tqdm_redirect
+from utils.utils import remove_all_but_biggest_component
 
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
 PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
@@ -225,7 +226,10 @@ def create_meshes():
         sitk.WriteImage(regularized_fissures, img_file.replace('_img_', '_fissures_poisson_'))
 
         # generate lobe surface meshes with marching cubes
-        lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask)
+        # do not use the mask as it cuts off surface voxels
+        lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask_image=None)
+        for m in lobe_meshes:
+            remove_all_but_biggest_component(m)  # use only the biggest connected component
         save_meshes(lobe_meshes, PROCESSED_DATA_PATH, case, sequence, 'lobe')
 
 
