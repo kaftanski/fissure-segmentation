@@ -29,6 +29,12 @@ class RunningMean(torch.nn.Module):
         return self.mean
 
 
+def new_dir(*paths_to_join):
+    full_path = os.path.join(*paths_to_join)
+    os.makedirs(full_path, exist_ok=True)
+    return full_path
+
+
 def pairwise_dist(x):
     """ squared euclidean distance from each point in x to itself and others
 
