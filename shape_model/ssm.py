@@ -212,7 +212,7 @@ def load_shape(filepath, return_labels=False):
 if __name__ == '__main__':
     # load data
     shape_folder = "results/corresponding_points_ts/lobes/cluster/16"
-    files = glob.glob(os.path.join(shape_folder, '*_corr_pts.npz'))
+    files = sorted(glob.glob(os.path.join(shape_folder, '*_corr_pts.npz')))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])
@@ -223,7 +223,7 @@ if __name__ == '__main__':
     train_shapes = shapes[:train_index]
     test_shapes = shapes[train_index:]
 
-    sm = LSSM(alpha=3, target_variance=0.95)
+    sm = SSM(alpha=3, target_variance=0.95)
     sm.fit(shape2vector(train_shapes))
 
     # test reconstruction

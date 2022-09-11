@@ -24,7 +24,7 @@ def visualize_reconstruction(pred: torch.Tensor, targ: torch.Tensor, savepath: s
         plt.close(fig)
 
 
-def visualize_samples(model: SSM, n_samples: int, out_dir: str):
+def visualize_samples(model: SSM, n_samples: int, out_dir: str, show=False):
     os.makedirs(out_dir, exist_ok=True)
 
     # generate some samples
@@ -36,7 +36,10 @@ def visualize_samples(model: SSM, n_samples: int, out_dir: str):
         ax = fig.add_subplot(111, projection='3d')
         point_cloud_on_axis(ax, sample.cpu(), c='r', cmap=None, title='SSM sample')
         fig.savefig(os.path.join(out_dir, f'smpl_{i}.png'), dpi=300, bbox_inches='tight')
-        plt.show()
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
 
 
 def latent_interpolation(shape_from: torch.Tensor, shape_to: torch.Tensor, model: SSM, steps: int,
@@ -114,21 +117,26 @@ def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None, show=T
 
 if __name__ == '__main__':
     result_dir = './results/shape_models/'
+    show = False
 
     # load model
     device = 'cuda:3'
-    model = SSM.load('./results/corresponding_points/ssm.pth', device)
+    model = SSM.load('results/corresponding_points_ts/lobes/cluster/16/ssm.pth', device)
     model.to(device)
     model.eval()
 
     # load data
-    shape_folder = "results/corresponding_points"
-    files = glob.glob(os.path.join(shape_folder, '*_corr_pts.npz'))
+    shape_folder = "results/corresponding_points_ts/lobes/cluster/16"
+    files = sorted(glob.glob(os.path.join(shape_folder, '*_corr_pts.npz')))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])
 
     shapes = torch.stack(shapes, dim=0).to(device)
+    train_index = int(0.8 * len(shapes))
+    train_shapes = shapes[:train_index]
+    test_shapes = shapes[train_index:]
+    shapes = test_shapes
 
     # reconstruction
     weights = model(shapes)
@@ -139,7 +147,7 @@ if __name__ == '__main__':
     os.makedirs(rec_dir, exist_ok=True)
     errors = []
     for i, (pred, targ) in enumerate(zip(restored, shapes)):
-        visualize_reconstruction(pred, targ, os.path.join(rec_dir, f'rec_{i}.png'))
+        visualize_reconstruction(pred, targ, os.path.join(rec_dir, f'rec_{i}.png'), show=show)
         errors.append((pred-targ).pow(2).sum(-1).sqrt())
 
     errors = torch.stack(errors, dim=0)
@@ -157,7 +165,7 @@ if __name__ == '__main__':
     model.float()
 
     # visualize random samples
-    visualize_samples(model, 100, os.path.join(result_dir, 'samples'))
+    visualize_samples(model, 100, os.path.join(result_dir, 'samples'), show=show)
 
     # visualize interpolations
     interp_dir = os.path.join(result_dir, 'interpolations')
@@ -166,4 +174,4 @@ if __name__ == '__main__':
     for i in range(n):
         ind_from, ind_to = torch.randperm(len(shapes))[:2]
         latent_interpolation(shapes[ind_from:ind_from+1], shapes[ind_to:ind_to+1], model, steps=3,
-                             savepath=os.path.join(interp_dir, f'interp_{ind_from}_{ind_to}.png'), show=True)
+                             savepath=os.path.join(interp_dir, f'interp_{ind_from}_{ind_to}.png'), show=show)
