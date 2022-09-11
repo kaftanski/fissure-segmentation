@@ -188,16 +188,26 @@ def load_shape(filepath, return_labels=False):
     arr = file['shape']
     trf = torch.from_numpy(file['transform']).float()
 
-    # unpack all objects (first dimension)
-    arr_concat = torch.from_numpy(np.concatenate([*arr], axis=0)).float()
+    if arr.ndim == 3:
+        # unpack all objects (first dimension)
+        arr = torch.from_numpy(np.concatenate([*arr], axis=0)).float()
 
-    if return_labels:
-        # generate pointwise labels
-        labels = torch.from_numpy(
-            np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
-        return arr_concat, trf, labels
+        if return_labels:
+            # generate pointwise labels
+            labels = torch.from_numpy(
+                np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
+            return arr, trf, labels
+
     else:
-        return arr_concat, trf
+        # label file expected to be in the same folder as the shape
+        base_path = os.path.split(filepath)[0]
+
+        if return_labels:
+            labels = torch.from_numpy(
+                np.load(os.path.join(base_path, "labels.npz")))
+            return arr, trf, labels
+
+    return arr, trf
 
 
 if __name__ == '__main__':
