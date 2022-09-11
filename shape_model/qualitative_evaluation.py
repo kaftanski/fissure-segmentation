@@ -1,14 +1,12 @@
 import glob
-
 import os
 
 import torch
 from matplotlib import pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 
 from losses.ssm_loss import corresponding_point_distance
 from shape_model.ssm import SSM, load_shape
-from visualization import point_cloud_on_axis, visualize_point_cloud
+from visualization import point_cloud_on_axis
 
 
 def visualize_reconstruction(pred: torch.Tensor, targ: torch.Tensor, savepath: str = None, show: bool = True):
@@ -125,7 +123,7 @@ if __name__ == '__main__':
 
     # load data
     shape_folder = "results/corresponding_points"
-    files = glob.glob(os.path.join(shape_folder, '*.npz'))
+    files = glob.glob(os.path.join(shape_folder, '*_corr_pts.npz'))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])

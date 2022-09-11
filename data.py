@@ -490,7 +490,7 @@ class CorrespondingPoints:
         self.points = []
         self.transforms = []
         self.ids = []
-        files = sorted(glob(os.path.join(self.folder, '*.npz')))
+        files = sorted(glob(os.path.join(self.folder, '*_corr_pts.npz')))
         for f in files:
             s, t = load_shape(f)
             self.points.append(s)

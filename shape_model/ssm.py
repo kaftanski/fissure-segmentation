@@ -185,12 +185,12 @@ def save_shape(array, filepath, transforms=None):
 
 def load_shape(filepath, return_labels=False):
     file = np.load(filepath, allow_pickle=True)
-    arr = file['shape']
+    arr = torch.from_numpy(file['shape']).float()
     trf = torch.from_numpy(file['transform']).float()
 
     if arr.ndim == 3:
         # unpack all objects (first dimension)
-        arr = torch.from_numpy(np.concatenate([*arr], axis=0)).float()
+        arr = torch.cat([*arr], dim=0)
 
         if return_labels:
             # generate pointwise labels
@@ -199,10 +199,9 @@ def load_shape(filepath, return_labels=False):
             return arr, trf, labels
 
     else:
-        # label file expected to be in the same folder as the shape
-        base_path = os.path.split(filepath)[0]
-
         if return_labels:
+            # label file expected to be in the same folder as the shape
+            base_path = os.path.split(filepath)[0]
             labels = torch.from_numpy(
                 np.load(os.path.join(base_path, "labels.npz")))
             return arr, trf, labels
@@ -212,15 +211,15 @@ def load_shape(filepath, return_labels=False):
 
 if __name__ == '__main__':
     # load data
-    shape_folder = "results/corresponding_points"
-    files = glob.glob(os.path.join(shape_folder, '*.npz'))
+    shape_folder = "results/corresponding_points_ts/lobes/cluster/16"
+    files = glob.glob(os.path.join(shape_folder, '*_corr_pts.npz'))
     shapes = []
     for f in files:
         shapes.append(load_shape(f)[0])
 
     shapes = torch.stack(shapes, dim=0)
 
-    train_index = int(0.7 * len(shapes))
+    train_index = int(0.8 * len(shapes))
     train_shapes = shapes[:train_index]
     test_shapes = shapes[train_index:]
 
