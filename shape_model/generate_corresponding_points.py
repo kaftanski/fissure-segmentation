@@ -1,3 +1,4 @@
+import argparse
 import csv
 import glob
 import os
@@ -26,7 +27,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
                              all_moving_pcs: np.ndarray, all_affine_transforms: np.ndarray, all_moved_pcs: np.ndarray,
                              all_displacements: np.ndarray, fixed_img_shape, plot_dir,
-                             mode='cluster', undo_affine_reg=True, show=True):
+                             mode='cluster', undo_affine_reg=True, show=True, optics_minsamples_divisor=-1):
 
     corresponding_pcs = []
     corresponding_fixed_pc = []
@@ -45,7 +46,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
 
         elif mode == 'cluster':
             eps_heuristic = (all_points.max() - all_points.min()) * 0.05
-            cluster_estimator = OPTICS(min_samples=len(all_moving_meshes) // 2, max_eps=eps_heuristic)  # TODO tune parameters
+            cluster_estimator = OPTICS(min_samples=len(all_moving_meshes) // optics_minsamples_divisor, max_eps=eps_heuristic)
             clustering = cluster_estimator.fit_predict(all_points)
 
             # compute cluster centroids
@@ -175,16 +176,30 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["kmean", "cluster", "simple"], default="simple",
+                        help="method for determining correspondences")
+    parser.add_argument("--ts", const=True, default=False, nargs="?", help="use total segmentator dataset")
+    parser.add_argument("--undo_affine", const=True, default=False, nargs="?",
+                        help="undo affine transformation of the point cloud registration")
+    parser.add_argument("--show", const=True, default=False, nargs="?", help="show pyplot figures")
+    parser.add_argument("--lobes", const=True, default=False, nargs="?", help="use lobes instead of fissure objects")
+    parser.add_argument("--optics_divisor", type=int, default=16, help="divisor for OPTICS' min-samples parameter")
+    args = parser.parse_args()
+
     ###### SETUP ######
 
     # mode = 'kmeans'
     # mode = 'cluster'
-    mode = 'simple'
+    # mode = 'simple'
+    mode = args.mode
 
-    lobes = True
-    total_segmentator = True
-    undo_affine = False
-    show = True
+    lobes = args.lobes
+    total_segmentator = args.ts
+    undo_affine = args.undo_affine
+    show = args.show
+
+    optics_min_samples_divisor = args.optics_divisor
 
     # data set
     if total_segmentator:
@@ -197,6 +212,8 @@ if __name__ == '__main__':
     base_path = f'results/corresponding_points{"_ts" if total_segmentator else ""}/{"lobes" if lobes else "fissures"}'
     reg_dir = os.path.join(base_path, 'registrations')
     out_path = new_dir(base_path, mode)
+    if mode == "cluster":
+        out_path = new_dir(out_path, str(optics_min_samples_divisor))
 
     # load fixed point cloud
     fixed_fn = glob.glob(os.path.join(base_path, '*.npz'))
@@ -214,13 +231,13 @@ if __name__ == '__main__':
     all_affine_transforms = load('transforms.npz')
     ids = load('ids.npz')
 
-    moving_meshes = [get_meshes(m) for m in range(len(ds)-379) if m != f]
-    moving_ids = [ds.get_id(m) for m in range(len(ds)-379) if m != f]  # prevent id mismatch
+    moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
+    moving_ids = [ds.get_id(m) for m in range(len(ds)) if m != f]  # prevent id mismatch
 
     corr_points, transforms, corr_fixed, labels, evaluation = data_set_correspondences(
         fixed_pcs, moving_meshes, all_moving_pcs, all_affine_transforms, all_moved_pcs, all_displacements,
         plot_dir=new_dir(out_path, 'plots'), fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
-        mode=mode, show=show, undo_affine_reg=undo_affine)
+        mode=mode, show=show, undo_affine_reg=undo_affine, optics_minsamples_divisor=optics_min_samples_divisor)
 
     # output corresponding point clouds
     save_shape(corr_fixed, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'))
