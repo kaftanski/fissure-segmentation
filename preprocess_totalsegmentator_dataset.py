@@ -249,6 +249,10 @@ class TotalSegmentatorDataset(ImageDataset):
     def __init__(self, do_augmentation=False):
         super(TotalSegmentatorDataset, self).__init__('../TotalSegmentator/ThoraxCrop', do_augmentation=do_augmentation)
 
+        # remove ID s0743 as it does not have a middle lobe
+        id_to_remove = self.get_index('s0743', 'fixed')
+        self._pop_item(id_to_remove)
+
 
 if __name__ == '__main__':
     create_meshes()
