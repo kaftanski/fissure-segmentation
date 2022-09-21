@@ -1,12 +1,16 @@
+import os
 import time
 
 import SimpleITK as sitk
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter
 from scipy.ndimage.filters import _gaussian_kernel1d
 from skimage.filters.ridges import compute_hessian_eigenvalues
+from sklearn.metrics import RocCurveDisplay
 
+from utils.image_ops import resample_equal_spacing, apply_mask
 from utils.image_utils import filter_1d, smooth
 from visualization import plot_slice
 
@@ -46,7 +50,7 @@ def hessian_matrix(img: torch.Tensor, sigma: float):
     return H
 
 
-def hessian_based_enhancement_gpu(img: torch.Tensor, fissure_mu: float, fissure_sigma: float, device='cuda:0', show=False):
+def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissure_sigma: float, device='cuda:0', show=False):
     # ensure batch and channel dimensions
     img = img.squeeze()
     img = img.view(1, 1, *img.shape)
@@ -119,21 +123,92 @@ def hessian_based_enhancement(img: np.ndarray, fissure_mu: float, fissure_sigma:
     return F
 
 
-if __name__ == '__main__':
-    test_img = sitk.ReadImage('../data/EMPIRE01_img_fixed.nii.gz')
-    test_img_arr = sitk.GetArrayFromImage(test_img)
-    test_fissures = sitk.GetArrayFromImage(sitk.ReadImage('../data/EMPIRE01_fissures_poisson_fixed.nii.gz'))
+def get_enhanced_fissure_image(image: sitk.Image, fissures: sitk.Image, lung_mask: sitk.Image, resample_spacing: float = None, device='cuda:2', show=False):
+    if resample_spacing is not None:
+        image = resample_equal_spacing(image, target_spacing=resample_spacing)
+        fissures = resample_equal_spacing(fissures, target_spacing=resample_spacing, use_nearest_neighbor=True)
+        lung_mask = resample_equal_spacing(lung_mask, target_spacing=resample_spacing, use_nearest_neighbor=True)
+
+    img_arr = sitk.GetArrayFromImage(image)
+    fissures_arr = sitk.GetArrayFromImage(fissures)
 
     # compute fissure HU statistics
-    fissure_mu = test_img_arr[test_fissures != 0].mean()
-    fissure_sigma = test_img_arr[test_fissures != 0].std()
+    fissure_mu = img_arr[fissures_arr != 0].mean()
+    fissure_sigma = img_arr[fissures_arr != 0].std()
 
     # fissure enhancement
     start = time.time()
-    device = 'cuda:2'
-    # torch.cuda.set_device(device)  # fix for bug with cusolver
-    F = hessian_based_enhancement_gpu(torch.from_numpy(test_img_arr), fissure_mu, fissure_sigma, show=False, device=device).cpu()
+    F = hessian_based_enhancement_torch(torch.from_numpy(img_arr), fissure_mu, fissure_sigma,
+                                        show=show, device=device).cpu()
     print(f'{time.time() - start:.4f} s')
     enhanced_img = sitk.GetImageFromArray(F)
-    enhanced_img.CopyInformation(test_img)
+    enhanced_img.CopyInformation(image)
+
+    # apply lung mask
+    enhanced_img = apply_mask(enhanced_img, lung_mask)
+
+    if show:
+        plot_slice(sitk.GetArrayViewFromImage(enhanced_img)[None, None],
+                   s=sitk.GetArrayViewFromImage(enhanced_img).shape[1] // 2, dim=1, title='lung-masked')
+
+    roc_auc = threshold_curves(F.numpy(), fissures_arr, show=True)
+
+    return enhanced_img, roc_auc
+
+
+def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, show=False):
+    label_names = np.unique(labels)[1:]
+    label_names = label_names.tolist() + ['all']
+
+    # flatten all arrays
+    labels = labels.flatten()
+    pred_values = pred_values.flatten()
+
+    roc_auc = {}
+    avg_prec = {}
+    roc_display = None
+    prc_display = None
+    for lbl in label_names:
+        if lbl != 'all':
+            gt = labels == lbl
+            name = f'label {lbl}'
+        else:
+            gt = labels != 0
+            name = 'all labels'
+
+        roc_display = RocCurveDisplay.from_predictions(y_true=gt, y_pred=pred_values, name=name,
+                                                       ax=None if roc_display is None else roc_display.ax_)
+
+        # prc_display = PrecisionRecallDisplay.from_predictions(y_true=gt, y_pred=pred_values, name=name,
+        #                                                       ax=None if prc_display is None else prc_display.ax_)
+
+        # get area under ROC curve as measurement
+        roc_auc[lbl] = roc_display.roc_auc
+
+        # get average precision score
+        avg_prec[lbl] = None
+
+    if out_dir is not None:
+        roc_display.figure_.savefig(os.path.join(out_dir, 'roc.png'), dpi=300)
+        # prc_display.figure_.savefig(os.path.join(out_dir, 'prc.png'), dpi=300)
+
+    if show:
+        plt.show()
+    else:
+        plt.close(roc_display.figure_)
+        # plt.close(prc_display.figure_)
+
+    return roc_auc  #, avg_prec
+
+
+if __name__ == '__main__':
+    test_img = sitk.ReadImage('../data/EMPIRE01_img_fixed.nii.gz')
+    test_fissures = sitk.ReadImage('../data/EMPIRE01_fissures_poisson_fixed.nii.gz')
+    test_mask = sitk.ReadImage('../data/EMPIRE01_mask_fixed.nii.gz')
+
+    # enhanced_img = get_enhanced_fissure_image(test_img, test_fissures, test_mask, resample_spacing=1.5,
+    #                                           device='cuda:2', show=False)
+    enhanced_img, roc_auc = get_enhanced_fissure_image(test_img, test_fissures, test_mask, resample_spacing=1,
+                                                       device='cpu', show=False)
+    print(roc_auc)
     sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_GPU.nii.gz')
