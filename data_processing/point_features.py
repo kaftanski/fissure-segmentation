@@ -1,17 +1,17 @@
 import os.path
 import time
 
-from torch import nn
-
-from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
-from utils.image_ops import resample_equal_spacing, multiple_objects_morphology
 import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from torch import nn
 
 from data import LungData
-from utils.utils import pairwise_dist, filter_1d, smooth, kpts_to_grid
+from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
+from utils.image_ops import resample_equal_spacing, multiple_objects_morphology
+from utils.image_utils import filter_1d, smooth
+from utils.utils import pairwise_dist, kpts_to_grid
 
 POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
 

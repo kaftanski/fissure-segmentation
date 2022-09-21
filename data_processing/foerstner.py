@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from utils.utils import smooth, filter_1d, nms
+from utils.image_utils import filter_1d, smooth, nms
 
 
 def structure_tensor(img, sigma):

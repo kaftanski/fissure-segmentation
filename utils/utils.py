@@ -8,7 +8,6 @@ import torch
 from numpy.typing import ArrayLike
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import Transform3d
-from torch.nn import functional as F
 
 
 class RunningMean(torch.nn.Module):
@@ -73,38 +72,6 @@ def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None)
            torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location='cpu'), \
            torch.load(os.path.join(path, f'{case}_{feat}_{sequence}.pth'), map_location='cpu') if feat is not None \
                else None
-
-
-def filter_1d(img, weight, dim, padding_mode='replicate'):
-    B, C, D, H, W = img.shape
-    N = weight.shape[0]
-
-    padding = torch.zeros(6, )
-    padding[[4 - 2 * dim, 5 - 2 * dim]] = N // 2
-    padding = padding.long().tolist()
-
-    view = torch.ones(5, )
-    view[dim + 2] = -1
-    view = view.long().tolist()
-
-    return F.conv3d(F.pad(img.view(B * C, 1, D, H, W), padding, mode=padding_mode),
-                    weight.view(view)).view(B, C, D, H, W)
-
-
-def smooth(img, sigma):
-    device = img.device
-
-    sigma = torch.tensor([sigma], device=device)
-    N = torch.ceil(sigma * 3.0 / 2.0).long().item() * 2 + 1
-
-    weight = torch.exp(-torch.pow(torch.linspace(-(N // 2), N // 2, N, device=device), 2) / (2 * torch.pow(sigma, 2)))
-    weight /= weight.sum()
-
-    img = filter_1d(img, weight, 0)
-    img = filter_1d(img, weight, 1)
-    img = filter_1d(img, weight, 2)
-
-    return img
 
 
 def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
@@ -257,21 +224,6 @@ def affine_point_transformation(points: torch.Tensor, transformation: torch.Tens
 
 # def affine_mesh_transformation(mesh: o3d.geometry.TriangleMesh, transformation: torch.Tensor):
 #
-
-
-def nms(data: torch.Tensor, kernel_size: int):
-    """
-
-    :param data: 3d image tensor [B, C, D, H, W]
-    :param kernel_size: max pooling kernel size
-    :return: suppressed image tensor
-    """
-    # non-maximum suppression
-    pad1 = kernel_size // 2
-    pad2 = kernel_size - pad1 - 1
-    pad = (pad2, pad1, pad2, pad1, pad2, pad1)
-    maxfeat = F.max_pool3d(F.pad(data, pad, mode='replicate'), kernel_size, stride=1)
-    return maxfeat
 
 
 def load_meshes(base_dir, case, sequence, obj_name='fissure'):
