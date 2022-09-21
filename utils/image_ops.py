@@ -85,3 +85,16 @@ def write_image(img: torch.Tensor, filename: str, meta_src_img: sitk.Image = Non
     sitk.WriteImage(img, filename)
     return img
 
+
+def apply_mask(img: sitk.Image, mask: sitk.Image):
+    """ set all voxels where the mask != 0 to 0
+
+    :param img:
+    :param mask:
+    :return:
+    """
+    img_arr = sitk.GetArrayFromImage(img)
+    img_arr[np.logical_not(sitk.GetArrayViewFromImage(mask).astype(bool))] = 0
+    new_img = sitk.GetImageFromArray(img_arr)
+    new_img.CopyInformation(img)
+    return new_img

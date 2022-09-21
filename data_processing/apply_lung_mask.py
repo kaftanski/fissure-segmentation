@@ -1,15 +1,7 @@
 import SimpleITK as sitk
+
 from data import LungData
-
-
-def apply_mask(fissures, mask):
-    print('Masking fissures with lung mask.')
-    inv_mask = sitk.BinaryNot(mask)  # inverted lung mask
-    inv_mask *= 3  # make binary values 0 and 3
-    fissures = sitk.Cast(fissures, sitk.sitkInt16) - sitk.Cast(inv_mask, sitk.sitkInt16)  # subtract so that masked out values are <= 0
-    fissures = sitk.Cast(sitk.Clamp(fissures, lowerBound=0), sitk.sitkUInt8)  # values < 0 are set to 0
-    return fissures
-
+from utils.image_ops import apply_mask
 
 if __name__ == '__main__':
     ds = LungData(folder="../data")
