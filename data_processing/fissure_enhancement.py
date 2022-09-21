@@ -23,7 +23,7 @@ def gaussian_kernel_1d(sigma, order=0, truncate=4.0):
 
 
 def hessian_matrix(img: torch.Tensor, sigma: float):
-    kernel_1st_deriv = gaussian_kernel_1d(sigma, order=2)
+    kernel_1st_deriv = gaussian_kernel_1d(sigma, order=1)
     kernel_1st_deriv = torch.from_numpy(kernel_1st_deriv).float().to(img.device)
 
     kernel_2nd_deriv = gaussian_kernel_1d(sigma, order=2)
