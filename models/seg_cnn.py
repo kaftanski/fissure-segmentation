@@ -1,9 +1,10 @@
 import math
+
 import numpy as np
 import torch
-import torch.nn.functional as F
 from scipy.ndimage.filters import gaussian_filter
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
 
 from models.aspp_3d import ASPP
@@ -11,32 +12,12 @@ from models.mobilenet import MobileNet3D
 from models.modelio import LoadableModel, store_config_args
 
 
-class MobileNetASPP(LoadableModel):
-    @store_config_args
-    def __init__(self, num_classes):
-        super(MobileNetASPP, self).__init__()
-
+class PatchBasedModule(nn.Module):
+    def __init__(self, num_classes, activation=lambda x: x):
+        super().__init__()
         self.num_classes = num_classes
-
-        self.backbone = MobileNet3D()
-        self.aspp = ASPP(64, (2, 4, 8, 16), 128)
-        self.head = nn.Sequential(nn.Conv3d(128 + 16, 64, 1, padding=0, groups=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
-                                  nn.Conv3d(64, 64, 3, groups=1, padding=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
-                                  nn.Conv3d(64, self.num_classes, 1))
-
         self.gaussian_weight_map = None
-
-    def forward(self, x):
-        if self.training:
-            # necessary for running backwards through checkpointing
-            x.requires_grad = True
-
-        x1, x2 = checkpoint(self.backbone, x, preserve_rng_state=False)
-        y = checkpoint(self.aspp, x2, preserve_rng_state=False)
-        y = torch.cat([x1, F.interpolate(y, scale_factor=2)], dim=1)
-        y1 = checkpoint(self.head, y, preserve_rng_state=False)
-        output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
-        return output
+        self.activation = activation
 
     def predict_all_patches(self, img, patch_size=(128, 128, 128), min_overlap=0.5, use_gaussian=True):
         assert len(img.shape)-2 == len(patch_size)
@@ -78,7 +59,7 @@ class MobileNetASPP(LoadableModel):
 
                     before_padding = img_patch.shape[2:]
                     img_patch = maybe_pad_img_patch(img_patch, patch_shape=patch_size)
-                    out_patch = F.softmax(self(img_patch), dim=1)
+                    out_patch = self.activation(self(img_patch))
 
                     if use_gaussian:
                         # gaussian importance weighting
@@ -92,7 +73,7 @@ class MobileNetASPP(LoadableModel):
                     output[patch_region] += out_patch
 
         output /= output_normalization_map
-        return F.softmax(output, dim=1)
+        return self.activation(output)
 
     def _get_gaussian(self, patch_size, device, sigma_scale=1/8.):
         if self.gaussian_weight_map is None or \
@@ -115,6 +96,31 @@ class MobileNetASPP(LoadableModel):
             self.gaussian_weight_map = self.gaussian_weight_map.to(device)
 
         return self.gaussian_weight_map
+
+
+class MobileNetASPP(LoadableModel, PatchBasedModule):
+    @store_config_args
+    def __init__(self, num_classes):
+        LoadableModel.__init__(self)
+        PatchBasedModule.__init__(self, num_classes, activation=nn.Softmax(dim=1))
+
+        self.backbone = MobileNet3D()
+        self.aspp = ASPP(64, (2, 4, 8, 16), 128)
+        self.head = nn.Sequential(nn.Conv3d(128 + 16, 64, 1, padding=0, groups=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
+                                  nn.Conv3d(64, 64, 3, groups=1, padding=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
+                                  nn.Conv3d(64, self.num_classes, 1))
+
+    def forward(self, x):
+        if self.training:
+            # necessary for running backwards through checkpointing
+            x.requires_grad = True
+
+        x1, x2 = checkpoint(self.backbone, x, preserve_rng_state=False)
+        y = checkpoint(self.aspp, x2, preserve_rng_state=False)
+        y = torch.cat([x1, F.interpolate(y, scale_factor=2)], dim=1)
+        y1 = checkpoint(self.head, y, preserve_rng_state=False)
+        output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
+        return output
 
 
 def get_necessary_padding(img_dimensions, out_shape):
