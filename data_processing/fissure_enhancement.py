@@ -9,10 +9,78 @@ from scipy.ndimage import gaussian_filter
 from scipy.ndimage.filters import _gaussian_kernel1d
 from skimage.filters.ridges import compute_hessian_eigenvalues
 from sklearn.metrics import RocCurveDisplay
+from torch import nn
 
+from models.seg_cnn import PatchBasedModule
 from utils.image_ops import resample_equal_spacing, apply_mask
-from utils.image_utils import filter_1d, smooth
+from utils.image_utils import filter_1d
 from visualization import plot_slice
+
+
+class HessianEnhancementFilter(PatchBasedModule):
+    def __init__(self, fissure_mu, fissure_sigma, gaussian_smoothing_sigma=1., gaussian_derivation_sigma=1., show=False):
+        super(HessianEnhancementFilter, self).__init__(1)
+
+        self.fissure_mu = fissure_mu
+        self.fissure_sigma = fissure_sigma
+        self.show = show
+
+        self.register_parameter('kernel_1st_deriv',
+                                nn.Parameter(
+                                    torch.from_numpy(gaussian_kernel_1d(gaussian_derivation_sigma, order=1)).float(),
+                                    requires_grad=False))
+
+        self.register_parameter('kernel_2nd_deriv',
+                                nn.Parameter(
+                                    torch.from_numpy(gaussian_kernel_1d(gaussian_derivation_sigma, order=2)).float(),
+                                    requires_grad=False))
+
+        self.register_parameter('kernel_gaussian_smoothing',
+                                nn.Parameter(
+                                    torch.from_numpy(gaussian_kernel_1d(gaussian_smoothing_sigma)).float(),
+                                    requires_grad=False))
+
+    def forward(self, img):
+        # smooth image with gaussian kernel
+        img_smooth = img
+        for dim in range(len(img.shape)-2):
+            img_smooth = filter_1d(img_smooth, self.kernel_gaussian_smoothing, dim)
+
+        # compute hessian matrix
+        H = self.compute_hessian_matrix(img)
+
+        # get hessian eigenvalues
+        eigenvalues = torch.linalg.eigvalsh(H)
+
+        # sort by absolute value in descending order
+        abs_sorting = torch.argsort(torch.abs(eigenvalues), dim=-1, descending=True)
+        eigenvalues = torch.gather(eigenvalues, dim=-1, index=abs_sorting)
+
+        # compute the fissure enhanced image
+        fissure_enhanced = fissure_filter(img.squeeze(), eigenvalues[..., 0], eigenvalues[..., 1], self.fissure_mu,
+                                          self.fissure_sigma, show=self.show).unsqueeze(0).unsqueeze(0)
+
+        return fissure_enhanced
+
+    def compute_hessian_matrix(self, img):
+        H = torch.zeros(*img.squeeze().shape, 3, 3, device=img.device)
+        for first_dim in range(len(img.squeeze().shape)):
+            for second_dim in range(len(img.squeeze().shape)):
+                if first_dim == second_dim:
+                    # filter dimension with 2nd derivation of gaussian kernel
+                    H[..., first_dim, second_dim] = filter_1d(img, self.kernel_2nd_deriv, dim=first_dim).squeeze()
+
+                elif second_dim > first_dim:
+                    # filter with 1st derivation of gaussian kernel in both dimensions
+                    img_deriv = filter_1d(
+                        filter_1d(img, self.kernel_1st_deriv, dim=first_dim),
+                        self.kernel_1st_deriv, dim=second_dim).squeeze()
+
+                    # differentiation is linear -> sequence does not matter
+                    H[..., first_dim, second_dim] = img_deriv
+                    H[..., second_dim, first_dim] = img_deriv
+
+        return H
 
 
 def gaussian_kernel_1d(sigma, order=0, truncate=4.0):
@@ -56,22 +124,17 @@ def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissur
     img = img.view(1, 1, *img.shape)
     img = img.float().to(device)
 
-    # smooth image with gaussian kernel
-    img_smooth = smooth(img, sigma=1.)
+    hessian_filter = HessianEnhancementFilter(fissure_mu, fissure_sigma,
+                                              gaussian_smoothing_sigma=1., gaussian_derivation_sigma=1., show=show)
+    hessian_filter.to(device)
 
-    # compute hessian matrix
-    H = hessian_matrix(img_smooth, sigma=1.)
+    if device == 'cpu':
+        # no patch-based prediction needed
+        fissures_enhanced = hessian_filter(img)
+    else:
+        fissures_enhanced = hessian_filter.predict_all_patches(img, min_overlap=0.01, patch_size=(64, 64, 64))
 
-    # get hessian eigenvalues
-    eigenvalues = torch.linalg.eigvalsh(H)
-
-    # sort by absolute value in descending order
-    abs_sorting = torch.argsort(torch.abs(eigenvalues), dim=-1, descending=True)
-    eigenvalues = torch.gather(eigenvalues, dim=-1, index=abs_sorting)
-
-    # compute the fissure enhanced image
-    fissure_enhanced = fissure_filter(img.squeeze(), eigenvalues[..., 0], eigenvalues[..., 1], fissure_mu, fissure_sigma, show=show)
-    return fissure_enhanced
+    return fissures_enhanced.squeeze()
 
 
 def fissure_filter(img, hessian_lambda1, hessian_lambda2, fissure_mu, fissure_sigma, show=False):
@@ -151,8 +214,7 @@ def get_enhanced_fissure_image(image: sitk.Image, fissures: sitk.Image, lung_mas
         plot_slice(sitk.GetArrayViewFromImage(enhanced_img)[None, None],
                    s=sitk.GetArrayViewFromImage(enhanced_img).shape[1] // 2, dim=1, title='lung-masked')
 
-    roc_auc = threshold_curves(F.numpy(), fissures_arr, show=True)
-
+    roc_auc = threshold_curves(F.numpy(), fissures_arr, show=show)
     return enhanced_img, roc_auc
 
 
@@ -206,9 +268,12 @@ if __name__ == '__main__':
     test_fissures = sitk.ReadImage('../data/EMPIRE01_fissures_poisson_fixed.nii.gz')
     test_mask = sitk.ReadImage('../data/EMPIRE01_mask_fixed.nii.gz')
 
-    # enhanced_img = get_enhanced_fissure_image(test_img, test_fissures, test_mask, resample_spacing=1.5,
-    #                                           device='cuda:2', show=False)
+    enhanced_img, roc_auc = get_enhanced_fissure_image(test_img, test_fissures, test_mask, resample_spacing=1,
+                                                       device='cuda:2', show=False)
+    print(roc_auc)
+    sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_patch.nii.gz')
+
     enhanced_img, roc_auc = get_enhanced_fissure_image(test_img, test_fissures, test_mask, resample_spacing=1,
                                                        device='cpu', show=False)
     print(roc_auc)
-    sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_GPU.nii.gz')
+    sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_torch.nii.gz')
