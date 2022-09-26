@@ -23,21 +23,7 @@ class PatchBasedModule(nn.Module):
         assert len(img.shape)-2 == len(patch_size)
         assert 0 <= min_overlap < 1
 
-        patch_size = list(patch_size)
-        patch_starts = []
-        for i, (dim, patch) in enumerate(zip(img.shape[2:], patch_size)):
-            if patch >= dim:
-                # patch size exceeding image bounds (img will be padded later)
-                patch_starts.append([0])
-            else:
-                steps = math.ceil((dim - patch*min_overlap) / (patch - patch * min_overlap))
-                real_overlap = math.ceil(-(dim-steps*patch) / (steps-1))
-                assert real_overlap >= patch * min_overlap
-
-                residual = dim - (patch * steps - real_overlap * (steps - 1))
-                patch_starts.append([s*(patch-real_overlap) for s in range(steps)])
-                patch_starts[-1][-1] += residual
-                assert patch_starts[-1][-1] + patch == dim
+        patch_starts = get_patch_starts(img.shape[2:], min_overlap, patch_size)
 
         print(img.shape[2:])
         print(patch_starts)
@@ -96,6 +82,21 @@ class PatchBasedModule(nn.Module):
             self.gaussian_weight_map = self.gaussian_weight_map.to(device)
 
         return self.gaussian_weight_map
+
+
+def get_patch_starts(img_size, min_overlap, patch_size):
+    patch_size = list(patch_size)
+    patch_starts = []
+    for i, (dim, patch) in enumerate(zip(img_size, patch_size)):
+        if patch >= dim:
+            # patch size exceeding image bounds (img will be padded later)
+            patch_starts.append([0])
+        else:
+            steps = math.ceil((dim - patch * min_overlap) / (patch - patch * min_overlap))
+            actual_overlap = (steps * patch - dim) / (steps - 1)
+            patch_starts.append([math.floor(s * (patch - actual_overlap) + 0.5) for s in range(steps)])
+
+    return patch_starts
 
 
 class MobileNetASPP(LoadableModel, PatchBasedModule):
