@@ -12,6 +12,7 @@ from scipy.ndimage.filters import _gaussian_kernel1d
 from skimage.filters.ridges import compute_hessian_eigenvalues
 from sklearn.metrics import RocCurveDisplay
 from torch import nn
+from welford import Welford
 
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
@@ -21,6 +22,8 @@ from utils.image_utils import filter_1d
 from utils.tqdm_utils import tqdm_redirect
 from utils.utils import new_dir
 from visualization import plot_slice
+
+FISSURE_STATS_FILE = "./results/fissure_HU_mu_sigma.csv"
 
 
 class HessianEnhancementFilter(PatchBasedModule):
@@ -126,21 +129,23 @@ def hessian_matrix(img: torch.Tensor, sigma: float):
     return H
 
 
-def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissure_sigma: float, device='cuda:0', show=False):
+def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissure_sigma: float, device='cuda:0',
+                                    gaussian_smoothing_sigma=1., gaussian_derivation_sigma=1.):
     # ensure batch and channel dimensions
     img = img.squeeze()
     img = img.view(1, 1, *img.shape)
     img = img.float().to(device)
 
     hessian_filter = HessianEnhancementFilter(fissure_mu, fissure_sigma,
-                                              gaussian_smoothing_sigma=1., gaussian_derivation_sigma=1., show=False)
+                                              gaussian_smoothing_sigma=gaussian_smoothing_sigma,
+                                              gaussian_derivation_sigma=gaussian_derivation_sigma, show=False)
     hessian_filter.to(device)
 
     if device == 'cpu':
         # no patch-based prediction needed
         fissures_enhanced = hessian_filter(img)
     else:
-        fissures_enhanced = hessian_filter.predict_all_patches(img, min_overlap=0.25, patch_size=(64, 64, 64))
+        fissures_enhanced = hessian_filter.predict_all_patches(img, min_overlap=0.1, patch_size=(64, 64, 64))
 
     return fissures_enhanced.squeeze()
 
@@ -194,18 +199,14 @@ def hessian_based_enhancement(img: np.ndarray, fissure_mu: float, fissure_sigma:
     return F
 
 
-def get_enhanced_fissure_image(image: sitk.Image, fissures: sitk.Image, lung_mask: sitk.Image, device='cuda:2', show=False):
+def get_enhanced_fissure_image(image: sitk.Image, lung_mask: sitk.Image, fissure_stats_file=FISSURE_STATS_FILE,
+                               device='cuda:2', show=False):
     img_arr = sitk.GetArrayFromImage(image)
-    fissures_arr = sitk.GetArrayFromImage(fissures)
-
-    # compute fissure HU statistics
-    fissure_mu = img_arr[fissures_arr != 0].mean()
-    fissure_sigma = img_arr[fissures_arr != 0].std()
+    fissure_mu, fissure_sigma = load_fissure_stats(fissure_stats_file)
 
     # fissure enhancement
     start = time.time()
-    F = hessian_based_enhancement_torch(torch.from_numpy(img_arr), fissure_mu, fissure_sigma,
-                                        show=show, device=device).cpu()
+    F = hessian_based_enhancement_torch(torch.from_numpy(img_arr), fissure_mu, fissure_sigma, device=device).cpu()
     print(f'{time.time() - start:.4f} s')
     enhanced_img = sitk.GetImageFromArray(F)
     enhanced_img.CopyInformation(image)
@@ -233,6 +234,7 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
     thresholds = torch.linspace(0, 1, steps=21) if fixed_thresh is None else [fixed_thresh]
     dices = []
     recalls = []
+    accuracies = []
     for t in thresholds:
         fissure_prediction = sitk.BinaryThreshold(enhanced_img, upperThreshold=t.item(), insideValue=0, outsideValue=1)
         fissure_prediction_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissure_prediction).astype(bool))
@@ -240,9 +242,12 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
         dices.append(batch_dice(fissure_prediction_tensor[None], gt_fissures_binary[None], n_labels=2)[1])  # foreground
         recalls.append(binary_recall(fissure_prediction_tensor[None], gt_fissures_binary[None])[0])
 
+        accuracies.append((torch.sum(fissure_prediction_tensor == gt_fissures_binary) / torch.numel(fissure_prediction_tensor)).item())
+
     fig = plt.figure()
     plt.plot(thresholds, recalls, label='recall')
     plt.plot(thresholds, dices, label='dice')
+    plt.plot(thresholds, accuracies, label='accuracy')
     plt.title('thresholding fissure-enhanced image')
     plt.xlabel('threshold')
     plt.legend()
@@ -255,7 +260,7 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
     else:
         plt.close(fig)
 
-    return roc_auc, thresholds.numpy(), torch.stack(dices, dim=0).numpy(), torch.stack(recalls, dim=0).numpy()
+    return roc_auc, thresholds.numpy(), torch.stack(dices, dim=0).numpy(), torch.stack(recalls, dim=0).numpy(), torch.stack(accuracies, dim=0).numpy()
 
 
 def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, show=False):
@@ -310,6 +315,7 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
     all_roc_aucs = []
     all_dsc = []
     all_rec = []
+    all_acc = []
     for i in tqdm_redirect(range(len(ds))):
         # load data
         patid = ds.get_id(i)
@@ -328,20 +334,54 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
         sitk.WriteImage(enhanced_img, os.path.join(out_dir, f'{patid[0]}_fissures_enhanced_{patid[1]}.nii.gz'))
 
         # evaluation
-        roc_auc, thresh, dsc, rec = fissure_candidates(enhanced_img, fissures, show=show,
-                                                       img_dir=eval_dir, img_prefix=f'{patid[0]}_{patid[1]}_')
+        roc_auc, thresh, dsc, rec, acc = fissure_candidates(enhanced_img, fissures, show=show,
+                                                            img_dir=eval_dir, img_prefix=f'{patid[0]}_{patid[1]}_')
         all_roc_aucs.append(roc_auc)
         all_dsc.append(dsc)
         all_rec.append(rec)
+        all_acc.append(acc)
 
     all_rec = np.stack(all_rec, axis=0)
     all_dsc = np.stack(all_dsc, axis=0)
+    all_acc = np.stack(all_acc, axis=0)
     with open(os.path.join(eval_dir, 'results.csv'), 'w') as result_csv_file:
         writer = csv.writer(result_csv_file)
         writer.writerow(['Mean ROC-AUC'] + [np.array([roc_auc['all'] for roc_auc in all_roc_aucs]).mean()])
         writer.writerow(['Per-Threshold'] + thresh.tolist())
         writer.writerow(['Recall'] + all_rec.mean(0).tolist())
+        writer.writerow(['Accuracy'] + all_acc.mean(0).tolist())
         writer.writerow(['Dice'] + all_dsc.mean(0).tolist())
+
+
+def compute_dataset_fissure_statistics(ds: ImageDataset, save_to: str = FISSURE_STATS_FILE):
+    running_stats = Welford()
+    for i in tqdm_redirect(range(len(ds))):
+        img = ds.get_image(i)
+        fissures = ds.get_regularized_fissures(i)
+
+        img_arr = sitk.GetArrayViewFromImage(img)
+        fissures_arr = sitk.GetArrayViewFromImage(fissures)
+        if img_arr[fissures_arr != 0].astype(float).flatten().mean() < -1024:
+            continue
+        running_stats.add_all(img_arr[fissures_arr != 0].astype(float).flatten())
+        print(img_arr[fissures_arr != 0].mean(), running_stats.mean)
+        print(img_arr[fissures_arr != 0].var(ddof=1), running_stats.var_s)
+
+    mu = running_stats.mean.item()
+    sigma = np.sqrt(running_stats.var_s).item()
+
+    with open(save_to, 'w') as output_csv:
+        writer = csv.writer(output_csv)
+        writer.writerow([mu, sigma])
+
+
+def load_fissure_stats(load_from: str = FISSURE_STATS_FILE):
+    with open(load_from, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        row = next(reader)
+    mu = float(row[0])
+    sigma = float(row[1])
+    return mu, sigma
 
 
 if __name__ == '__main__':
@@ -367,7 +407,10 @@ if __name__ == '__main__':
     # print(roc_auc)
     # sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_torch.nii.gz')
 
-    ds = ImageDataset('../TotalSegmentator/ThoraxCrop', do_augmentation=False)
-    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'TotalSegmentator')
+    # compute_dataset_fissure_statistics(ImageDataset('../TotalSegmentator/ThoraxCrop'), save_to="./results/fissure_HU_mu_sigma_TS.csv")
+
+    ds = ImageDataset('../data', do_augmentation=False)
+    out_dir = new_dir('results', 'hessian_fissure_enhancement')
     eval_dir = new_dir(out_dir, 'eval')
-    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1.5, show=True, device='cuda:1')
+    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:1')
+
