@@ -330,7 +330,7 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
             lung_mask = resample_equal_spacing(lung_mask, target_spacing=resample_spacing, use_nearest_neighbor=True)
 
         # fissure enhancement
-        enhanced_img = get_enhanced_fissure_image(img, fissures, lung_mask, device=device, show=show)
+        enhanced_img = get_enhanced_fissure_image(img, lung_mask, device=device, show=show)
         sitk.WriteImage(enhanced_img, os.path.join(out_dir, f'{patid[0]}_fissures_enhanced_{patid[1]}.nii.gz'))
 
         # evaluation
@@ -410,7 +410,7 @@ if __name__ == '__main__':
     # compute_dataset_fissure_statistics(ImageDataset('../TotalSegmentator/ThoraxCrop'), save_to="./results/fissure_HU_mu_sigma_TS.csv")
 
     ds = ImageDataset('../data', do_augmentation=False)
-    out_dir = new_dir('results', 'hessian_fissure_enhancement')
+    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'new_stats')
     eval_dir = new_dir(out_dir, 'eval')
     enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:1')
 
