@@ -19,8 +19,13 @@ def resample_equal_spacing(img: sitk.Image, target_spacing: float = 1., use_near
     output_size = [round(size * factor)
                    for size, factor in zip(img.GetSize(), get_resample_factors(img.GetSpacing(), target_spacing))]
 
-    return sitk.Resample(img, size=list(output_size), outputSpacing=(target_spacing,)*3,
-                         interpolator=sitk.sitkNearestNeighbor if use_nearest_neighbor else sitk.sitkLinear)
+    if all(i == o for i, o in zip(img.GetSize(), output_size)):
+        return img
+    else:
+        return sitk.Resample(img, size=list(output_size), outputSpacing=(target_spacing,)*3,
+                             # set output space the same as input space
+                             outputOrigin=img.GetOrigin(), outputDirection=img.GetDirection(),
+                             interpolator=sitk.sitkNearestNeighbor if use_nearest_neighbor else sitk.sitkLinear)
 
 
 def multiple_objects_morphology(labelmap: sitk.Image, radius: Union[int, Sequence[int]], mode: str = 'dilate'):
