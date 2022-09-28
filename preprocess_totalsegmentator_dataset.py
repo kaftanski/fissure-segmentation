@@ -250,8 +250,10 @@ class TotalSegmentatorDataset(ImageDataset):
         super(TotalSegmentatorDataset, self).__init__('../TotalSegmentator/ThoraxCrop', do_augmentation=do_augmentation)
 
         # remove ID s0743 as it does not have a middle lobe
-        id_to_remove = self.get_index('s0743', 'fixed')
-        self._pop_item(id_to_remove)
+        self._pop_item(self.get_index('s0743', 'fixed'))
+
+        # remove ID s0864 because it does not have a correct CT image
+        self._pop_item(self.get_index('s0864', 'fixed'))
 
 
 if __name__ == '__main__':
