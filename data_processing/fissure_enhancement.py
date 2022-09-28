@@ -367,7 +367,7 @@ if __name__ == '__main__':
     # print(roc_auc)
     # sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_torch.nii.gz')
 
-    ds = ImageDataset('../data', do_augmentation=False)
-    out_dir = new_dir('results', 'hessian_fissure_enhancement')
+    ds = ImageDataset('../TotalSegmentator/ThoraxCrop', do_augmentation=False)
+    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'TotalSegmentator')
     eval_dir = new_dir(out_dir, 'eval')
-    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1., show=False)
+    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1.5, show=True, device='cuda:1')
