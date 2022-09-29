@@ -8,6 +8,9 @@ import torch
 from numpy.typing import ArrayLike
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import Transform3d
+from torch.nn import functional as F
+
+ALIGN_CORNERS = False
 
 
 class RunningMean(torch.nn.Module):
@@ -229,3 +232,42 @@ def affine_point_transformation(points: torch.Tensor, transformation: torch.Tens
 def load_meshes(base_dir, case, sequence, obj_name='fissure'):
     meshlist = sorted(glob.glob(os.path.join(base_dir, f'{case}_mesh_{sequence}', f'{case}_{obj_name}*_{sequence}.obj')))
     return tuple(o3d.io.read_triangle_mesh(m) for m in meshlist)
+
+
+def sample_patches_at_kpts(img: torch.Tensor, kpts_grid: torch.Tensor, patch_size: int):
+    """
+
+    :param img: tensor to sample from of shape [1, 1, D, H, W]
+    :param kpts_grid: pytorch grid points of shape [N, 3]
+    :param patch_size: size of the sample patch in each dimension
+    :return: sampled patches of shape [1, N, patch_size, patch_size, patch_size]
+    """
+    # make sure the points are in pytorch grid format [-1,1]
+    if not (kpts_grid.min() >= -1. and kpts_grid.max() <= 1.):
+        raise ValueError('Keypoints are not given in Pytorch grid coordinates')
+
+    if img.shape[1] != 1 or img.shape[0] != 1:
+        raise NotImplementedError('Cannot, for now, sample from batched or multichannel images.')
+
+    # whole image grid with patch-size as dimension (value range [-1, 1])
+    patch_grid = F.affine_grid(torch.eye(3, 4).unsqueeze(0), size=[1, 1] + [patch_size] * 3, align_corners=ALIGN_CORNERS).to(
+        img.device)
+
+    # limit to patch in pytorch grid coordinates
+    patch_grid = patch_grid * (patch_size / torch.tensor(img.shape[2:][::-1], device=img.device))
+
+    # broadcast the grid to every keypoint location
+    patch_grid_at_kpts = patch_grid + kpts_grid.view(kpts_grid.shape[0], 1, 1, 1, kpts_grid.shape[-1])
+
+    # reshape the grid to have shape: (B, n_keypoints, patch_size^3, 1, 3)
+    # that means the batch size is matched to the image and the spatial dims contain number of KPs and the flattened grid
+    patch_grid_at_kpts = patch_grid_at_kpts.flatten(start_dim=1, end_dim=-2).view(img.shape[0], kpts_grid.shape[0], patch_size**3, 1, 3)
+
+    # sample the voxels in the patches around keypoints
+    interpolation_mode = 'nearest' if patch_size % 2 == 1 else 'bilinear'
+    patches = F.grid_sample(img, patch_grid_at_kpts,
+                            mode=interpolation_mode, padding_mode='border', align_corners=ALIGN_CORNERS)
+
+    # restore the spatial dimensions and have the different patches in the channel dimension
+    patches = patches.view(img.shape[0], kpts_grid.shape[0], patch_size, patch_size, patch_size)
+    return patches

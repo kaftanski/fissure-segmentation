@@ -1,20 +1,18 @@
-import os.path
+import os
 import time
+import warnings
 
-import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from torch import nn
 
 from data import LungData
-from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints, \
-    get_hessian_fissure_enhancement_kpts
-from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
+from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
-from utils.utils import pairwise_dist, kpts_to_grid
+from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS
 
-POINT_DIR = '/home/kaftan/FissureSegmentation/point_data'
+FEATURE_MODES = ['mind', 'mind_ssc', 'enhancement']
 
 
 def distinctiveness(img, sigma):
@@ -151,116 +149,64 @@ def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = T
     return mind
 
 
+def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='mind', device='cuda:0'):
+    assert feature_mode in FEATURE_MODES
+    img_index = ds.get_index(case, sequence)
 
-
-def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True, enhanced_img_path: str=None):
-    print(f'Computing keypoints and point features for case {case}, {sequence}...')
-    device = 'cuda:2'
-    torch.cuda.empty_cache()
-
-    out_dir = os.path.join(out_dir, kp_mode)
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
-
-    # resample all images to unit spacing
-    img = resample_equal_spacing(img, target_spacing=1)
-    mask = resample_equal_spacing(mask, target_spacing=1, use_nearest_neighbor=True)
-    fissures = resample_equal_spacing(fissures, target_spacing=1, use_nearest_neighbor=True)
-    lobes = resample_equal_spacing(lobes, target_spacing=1, use_nearest_neighbor=True)
-
-    img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
-
-    # dilate fissures so that more keypoints get assigned foreground labels
-    fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
-    fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
-
-    # dilate lobes to fill gaps from the fissures  # TODO: use lobe filling?
-    lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
-
-    if kp_mode == 'foerstner':
-        kp = get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7)
-
-    elif kp_mode == 'noisy':
-        kp = get_noisy_keypoints(fissures_tensor, device)
-
-    elif kp_mode == 'cnn':
-        kp = get_cnn_keypoints(cv_dir='results/recall_loss', case=case, sequence=sequence, device=device)
-
-    elif kp_mode == 'enhancement':
-        assert enhanced_img_path is not None, \
-            'Tried to use fissure enhancement for keypoint extraction but no path to enhanced image given.'
-        enhanced_img = sitk.ReadImage(enhanced_img_path)
-        enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
-        kp = get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3)
-
-    else:
-        raise ValueError(f'No keypoint-mode named "{kp_mode}".')
-
-    # get label for each point
-    kp_cpu = kp.cpu()
-    labels = fissures_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
-    torch.save(labels.cpu(), os.path.join(out_dir, f'{case}_fissures_{sequence}.pth'))
-    print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
-
-    lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
-    lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
-    torch.save(lobes.cpu(), os.path.join(out_dir, f'{case}_lobes_{sequence}.pth'))
-    print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
-
-    # coordinate features: transform indices into physical points
-    spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
-    points = kpts_to_grid((kp * spacing).flip(-1), torch.tensor(img_tensor.shape[2:], device=device) * spacing.squeeze(),
-                          align_corners=True).transpose(0, 1)
-    torch.save(points.cpu(), os.path.join(out_dir, f'{case}_coords_{sequence}.pth'))
+    # load keypoints
+    kp, _, _, _ = load_points(kp_dir, case, sequence, feat=None)
+    kp = kp.transpose(0, 1).long()
 
     # image patch features
-    # TODO: option for enhanced fissures as features
-    if use_mind:
+    if feature_mode == 'mind' or feature_mode == 'mind_ssc':
         # hyperparameters
         mind_sigma = 0.8
         delta = 1
-        ssc = False
+        ssc = feature_mode == 'mind_ssc'
 
-        torch.cuda.empty_cache()
+        img = ds.get_image(img_index)
+        img = resample_equal_spacing(img, target_spacing=1)
+        img_tensor = sitk_image_to_tensor(img).to(device)
+        kp = kp.to(device)
+
         print('\tComputing MIND features')
         # compute mind features for image
-        mind_features = mind(img_tensor, sigma=mind_sigma, dilation=delta, ssc=ssc)
+        features = mind(img_tensor, sigma=mind_sigma, dilation=delta, ssc=ssc)
 
         # extract features for keypoints
-        mind_features = mind_features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
-        torch.save(mind_features.cpu(), os.path.join(out_dir,
-                                                     f'{case}_mind{"_ssc" if ssc else ""}_{sequence}.pth'))
+        features = features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
 
-    # # VISUALIZATION
-    # for i in range(-5, 5):
-    #     chosen_slice = img_tensor.squeeze().shape[1] // 2 + i
-    #     plt.imshow(img_tensor.squeeze()[:, chosen_slice].cpu(), 'gray')
-    #     keypoints_slice = kp_cpu[kp_cpu[:, 1] == chosen_slice]
-    #     plt.plot(keypoints_slice[:, 2], keypoints_slice[:, 0], '+')
-    #     plt.gca().invert_yaxis()
-    #     plt.axis('off')
-    #     plt.tight_layout()
-    #     plt.savefig(f'results/EMPIRE02_fixed_keypoints_{i+5}.png', bbox_inches='tight', dpi=300, pad_inches=0)
-    #     plt.show()
+    elif feature_mode == 'enhancement':
+        # hyperparameters
+        patch_size = 5
+
+        enhanced_img = ds.get_image(img_index)
+        enhanced_img = resample_equal_spacing(enhanced_img, target_spacing=1)
+        enhanced_tensor = sitk_image_to_tensor(enhanced_img)
+        warnings.warn('Keypoints are not given in Pytorch grid coordinates. I am assuming they are world coords.')
+        if not kp.min() >= -1. and kp.max() <= 1.:
+            kp = kpts_to_grid(
+                kp, shape=(torch.tensor(enhanced_tensor.shape) * torch.tensor(enhanced_img.GetSpacing()[::-1])).to(device),
+                align_corners=ALIGN_CORNERS)
+
+        features = sample_patches_at_kpts(enhanced_tensor.unsqueeze(0).unsqueeze(0), kp, patch_size)
+    else:
+        raise ValueError(f'No feature mode named {feature_mode}. Use one of {FEATURE_MODES}.')
+
+    torch.save(features.cpu(), os.path.join(kp_dir, f'{case}_{feature_mode}_{sequence}.pth'))
 
 
 if __name__ == '__main__':
     data_dir = '../data'
     ds = LungData(data_dir)
 
-    for i in range(len(ds)):
-        case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
-        sequence = sequence.replace('.nii.gz', '')
+    point_dir = '../point_data/enhancement'
 
-        print(f'Computing points for case {case}, {sequence}...')
+    for i in range(len(ds)):
+        case, sequence = ds.get_id(i)
+        print(f'Computing point features for case {case}, {sequence}...')
         if ds.fissures[i] is None:
             print('\tNo fissure segmentation found.')
             continue
 
-        img = ds.get_image(i)
-        fissures = ds.get_regularized_fissures(i)
-        lobes = ds.get_lobes(i)
-        mask = ds.get_lung_mask(i)
-
-        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='enhancement',
-                               enhanced_img_path=ds.fissures_enhanced[i])
+        compute_point_features(ds, case, sequence, point_dir, feature_mode='enhancement')
