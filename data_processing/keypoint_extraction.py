@@ -8,8 +8,8 @@ from data import ImageDataset, load_split_file
 from data_processing import foerstner
 from models.seg_cnn import MobileNetASPP
 
-
-KP_MODES = ['foerstner', 'noisy', 'cnn']
+KP_MODES = ['foerstner', 'noisy', 'cnn', 'enhancement']
+MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
 
 def get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7):
@@ -32,7 +32,7 @@ def get_noisy_keypoints(fissures_tensor, device):
     """
     # take all fissure points (limit to 20.000 for computational reasons)
     kp = torch.nonzero(fissures_tensor).float()
-    kp = kp[torch.randperm(len(kp))[:20000]].to(device)
+    kp = kp[torch.randperm(len(kp))[:MAX_KPTS]].to(device)
     # add some noise to them
     noise = torch.randn_like(kp, dtype=torch.float) * 3
     kp += noise.to(device)
@@ -72,6 +72,16 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
 
     kp = torch.nonzero(fissure_points) * torch.tensor((ds.resample_spacing,)*3, device=fissure_points.device)
     kp = kp.long()
+
+    # limit number of keypoints
+    if len(kp) > MAX_KPTS:
+        kp = kp[torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]]
+
+    return kp
+
+
+def get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3):
+    kp = torch.nonzero(enhanced_img_tensor > threshold).long()
     return kp
 
 

@@ -8,8 +8,9 @@ from matplotlib import pyplot as plt
 from torch import nn
 
 from data import LungData
-from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints
-from utils.image_ops import resample_equal_spacing, multiple_objects_morphology
+from data_processing.keypoint_extraction import get_foerstner_keypoints, get_noisy_keypoints, get_cnn_keypoints, \
+    get_hessian_fissure_enhancement_kpts
+from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
 from utils.image_utils import filter_1d, smooth
 from utils.utils import pairwise_dist, kpts_to_grid
 
@@ -106,7 +107,6 @@ def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = T
                                       [2, 1, 1],
                                       [1, 2, 1]]).long()
 
-
     if ssc:
         # compute self-similarity edges
 
@@ -151,9 +151,11 @@ def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = T
     return mind
 
 
-def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True):
+
+
+def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True, enhanced_img_path: str=None):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
-    device = 'cuda:1'
+    device = 'cuda:2'
     torch.cuda.empty_cache()
 
     out_dir = os.path.join(out_dir, kp_mode)
@@ -184,6 +186,13 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
     elif kp_mode == 'cnn':
         kp = get_cnn_keypoints(cv_dir='results/recall_loss', case=case, sequence=sequence, device=device)
 
+    elif kp_mode == 'enhancement':
+        assert enhanced_img_path is not None, \
+            'Tried to use fissure enhancement for keypoint extraction but no path to enhanced image given.'
+        enhanced_img = sitk.ReadImage(enhanced_img_path)
+        enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
+        kp = get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3)
+
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
 
@@ -205,6 +214,7 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
     torch.save(points.cpu(), os.path.join(out_dir, f'{case}_coords_{sequence}.pth'))
 
     # image patch features
+    # TODO: option for enhanced fissures as features
     if use_mind:
         # hyperparameters
         mind_sigma = 0.8
@@ -235,7 +245,7 @@ def compute_point_features(img, fissures, lobes, mask, out_dir, case, sequence, 
 
 
 if __name__ == '__main__':
-    data_dir = '/home/kaftan/FissureSegmentation/data'
+    data_dir = '../data'
     ds = LungData(data_dir)
 
     for i in range(len(ds)):
@@ -252,4 +262,5 @@ if __name__ == '__main__':
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
-        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='cnn')
+        compute_point_features(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='enhancement',
+                               enhanced_img_path=ds.fissures_enhanced[i])

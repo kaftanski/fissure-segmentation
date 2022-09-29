@@ -62,6 +62,7 @@ class LungData(Dataset):
         self.lobes = []
         self.lobe_meshes = []
         self.ids = []
+        self.fissures_enhanced = []
 
         # fill missing landmarks and fissure segmentations with None
         for img in self.images:
@@ -83,6 +84,12 @@ class LungData(Dataset):
             else:
                 self.lobes.append(None)
 
+            enhanced_file = img.replace('_img_', '_fissures_enhanced_')
+            if os.path.exists(lobes_file):
+                self.fissures_enhanced.append(enhanced_file)
+            else:
+                self.fissures_enhanced.append(None)
+
             case, _, sequence = img.split(os.sep)[-1].split('_')
             sequence = sequence.split('.')[0]
             self.ids.append((case, sequence))
@@ -103,6 +110,9 @@ class LungData(Dataset):
         # this specifies what data should be considered "regularized"
         return _load_files_from_file_list(item, [f.replace('_fissures_', '_fissures_poisson_') if f is not None
                                                  else None for f in self.fissures])
+
+    def get_enhanced_fissures(self, item):
+        return _load_files_from_file_list(item, self.fissures_enhanced)
 
     def get_landmarks(self, item):
         return _load_files_from_file_list(item, self.landmarks)
