@@ -12,7 +12,7 @@ from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
 from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS
 
-FEATURE_MODES = ['mind', 'mind_ssc', 'enhancement']
+FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement']
 
 
 def distinctiveness(img, sigma):
@@ -176,20 +176,22 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
         # extract features for keypoints
         features = features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
 
-    elif feature_mode == 'enhancement':
+    elif feature_mode == 'image' or feature_mode == 'enhancement':
         # hyperparameters
         patch_size = 5
 
-        enhanced_img = ds.get_image(img_index)
-        enhanced_img = resample_equal_spacing(enhanced_img, target_spacing=1)
-        enhanced_tensor = sitk_image_to_tensor(enhanced_img)
-        warnings.warn('Keypoints are not given in Pytorch grid coordinates. I am assuming they are world coords.')
+        # load the image to sample from and resample to unit spacing
+        feature_img = ds.get_enhanced_fissures(img_index) if feature_mode == 'enhancement' else ds.get_image(img_index)
+        feature_img = resample_equal_spacing(feature_img, target_spacing=1)
+        enhanced_tensor = sitk_image_to_tensor(feature_img)
         if not kp.min() >= -1. and kp.max() <= 1.:
+            warnings.warn('Keypoints are not given in Pytorch grid coordinates. I am assuming they are world coords.')
             kp = kpts_to_grid(
-                kp, shape=(torch.tensor(enhanced_tensor.shape) * torch.tensor(enhanced_img.GetSpacing()[::-1])).to(device),
+                kp, shape=(torch.tensor(enhanced_tensor.shape) * torch.tensor(feature_img.GetSpacing()[::-1])).to(device),
                 align_corners=ALIGN_CORNERS)
 
         features = sample_patches_at_kpts(enhanced_tensor.unsqueeze(0).unsqueeze(0), kp, patch_size)
+
     else:
         raise ValueError(f'No feature mode named {feature_mode}. Use one of {FEATURE_MODES}.')
 
