@@ -362,7 +362,7 @@ class PointDataset(CustomDataset):
             self.points.append(pts)
             self.labels.append(lbls)
             if feat is not None:
-                self.features.append(feat.squeeze().flatten(start_dim=1))
+                self.features.append(feat)
             else:
                 self.features.append(torch.empty(0, pts.shape[1]))
             self.ids.append((case, sequence))

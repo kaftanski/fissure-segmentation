@@ -191,7 +191,9 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
                 align_corners=ALIGN_CORNERS)
 
         features = sample_patches_at_kpts(enhanced_tensor.unsqueeze(0).unsqueeze(0), kp, patch_size)
-        features = features.squeeze().flatten(start_dim=1)  # make a feature vector out of the patch
+
+        # make a feature vector out of the patch and move features to the first dim
+        features = features.squeeze().flatten(start_dim=1).transpose(0, 1)
 
     else:
         raise ValueError(f'No feature mode named {feature_mode}. Use one of {FEATURE_MODES}.')
