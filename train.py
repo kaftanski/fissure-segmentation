@@ -379,6 +379,8 @@ def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epoch
 
 
 def run(ds, model, test_fn, args):
+    print(args)
+
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
         device = f'cuda:{args.gpu}'
@@ -417,8 +419,6 @@ if __name__ == '__main__':
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
-
-    print(args)
 
     # load data
     if args.data in ['fissures', 'lobes']:
