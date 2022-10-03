@@ -9,11 +9,12 @@ from cli.cl_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
-from utils.image_ops import write_image
 from metrics import batch_dice, binary_recall, binary_precision
 from models.seg_cnn import MobileNetASPP
 from train import run, write_results, compute_mesh_metrics
+from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
+from utils.image_ops import write_image
 from visualization import visualize_with_overlay
 
 
@@ -172,6 +173,7 @@ def test(ds: ImageDataset, device, out_dir, show):
 if __name__ == '__main__':
     parser = get_seg_cnn_train_parser()
     args = parser.parse_args()
+    maybe_run_detached_cli(args)
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)

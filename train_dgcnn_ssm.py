@@ -12,6 +12,7 @@ from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
 from train import run
+from utils.detached_run import maybe_run_detached_cli
 from visualization import point_cloud_on_axis
 
 
@@ -83,6 +84,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
 if __name__ == '__main__':
     parser = get_dgcnn_ssm_train_parser()
     args = parser.parse_args()
+    maybe_run_detached_cli(args)
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)

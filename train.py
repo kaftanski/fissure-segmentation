@@ -17,6 +17,7 @@ from losses.access_losses import get_loss_fn
 from losses.ssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
+from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map
@@ -228,12 +229,12 @@ def test(ds, device, out_dir, show):
             label = j+1
 
             if not ds.lobes:
-                if ds.kp_mode == 'cnn':
-                    # point cloud contains more foreground points because of pre-seg CNN
-                    depth = 6
-                else:
+                if ds.kp_mode == 'foerstner':
                     # using poisson reconstruction with octree-depth 3 because of sparse point cloud
                     depth = 3
+                else:
+                    # point cloud contains more foreground points because of pre-seg CNN or enhancement
+                    depth = 6
 
                 mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
                                                           depth=depth)
@@ -412,6 +413,7 @@ def run(ds, model, test_fn, args):
 if __name__ == '__main__':
     parser = get_dgcnn_train_parser()
     args = parser.parse_args()
+    maybe_run_detached_cli(args)
 
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)

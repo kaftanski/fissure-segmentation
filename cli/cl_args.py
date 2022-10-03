@@ -44,6 +44,10 @@ def get_generic_parser(description):
     parser.add_argument('--output', default='./results', help='output data path', type=str)
     parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
                         nargs='?')
+    parser.add_argument('--offline', const=True, default=False,
+                        help='Runs the script with nohup and detaches the script. Disables the --show option. '
+                             'Output logs will be saved to "./results/logs/<script_name>_<timestamp>.txt"',
+                        nargs='?')
 
     add_training_parameters(parser)
     add_data_parameters(parser)
