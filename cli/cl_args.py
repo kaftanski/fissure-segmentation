@@ -1,5 +1,7 @@
 import argparse
+
 from data_processing.keypoint_extraction import KP_MODES
+from data_processing.point_features import FEATURE_MODES
 from losses.access_losses import Losses
 
 
@@ -57,8 +59,8 @@ def get_dgcnn_train_parser():
     group.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
     group.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
     group.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
-    group.add_argument('--patch', const=True, default=False, help='use image patch around points as features',
-                       nargs='?')
+    group.add_argument('--patch', default=None, type=str,
+                       help=f'use image patch around points as features, one of {FEATURE_MODES}')
     group.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN',
                        nargs='?')
     group.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN',

@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train.py" />
-    <option name="PARAMETERS" value="--data fissures --kp_mode noisy --coords --patch --batch 32 --gpu 2 --output results/DGCNN_fissure_noisy --exclude_rhf --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --transformer --show" />
+    <option name="PARAMETERS" value="--data fissures --kp_mode noisy --coords --patch mind --batch 32 --gpu 2 --output results/DGCNN_fissure_noisy --exclude_rhf --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --transformer --show" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

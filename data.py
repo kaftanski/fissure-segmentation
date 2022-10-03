@@ -336,7 +336,6 @@ class PointDataset(CustomDataset):
             raise NotImplementedError(
                 'Binary prediction for lobe labels is not implemented. Use fissure data or remove the binary option.')
 
-        assert patch_feat in [None, 'mind', 'mind_ssc']
         if not use_coords:
             assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 

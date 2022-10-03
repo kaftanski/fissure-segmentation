@@ -6,21 +6,17 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
-from torch import nn
 
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset, \
-    CorrespondingPointDatasetSampled
+from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
 from losses.ssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
-from models.utils import init_weights
-from shape_model.ssm import LSSM
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map
@@ -429,8 +425,7 @@ if __name__ == '__main__':
                   'To specify, provide arguments --coords and/or --patch.')
         point_dir = '../point_data/'
         print(f'Using point data from {point_dir}')
-        features = 'mind' if args.patch else None
-        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=features,
+        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=args.patch,
                           exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
