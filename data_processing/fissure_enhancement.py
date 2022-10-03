@@ -145,7 +145,7 @@ def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissur
         # no patch-based prediction needed
         fissures_enhanced = hessian_filter(img)
     else:
-        fissures_enhanced = hessian_filter.predict_all_patches(img, min_overlap=0.1, patch_size=(64, 64, 64))
+        fissures_enhanced = hessian_filter.predict_all_patches(img, min_overlap=0.25, patch_size=(64, 64, 64))
 
     return fissures_enhanced.squeeze()
 
@@ -222,7 +222,7 @@ def get_enhanced_fissure_image(image: sitk.Image, lung_mask: sitk.Image, fissure
 
 
 def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_thresh: float = None, show=False,
-                       img_dir: str = None, img_prefix = ''):
+                       img_dir: str = None, img_prefix=''):
     enhanced_img_arr = sitk.GetArrayFromImage(enhanced_img)
     gt_fissures_arr = sitk.GetArrayFromImage(gt_fissures)
     gt_fissures_binary = torch.from_numpy(gt_fissures_arr != 0)
@@ -242,7 +242,7 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
         dices.append(batch_dice(fissure_prediction_tensor[None], gt_fissures_binary[None], n_labels=2)[1])  # foreground
         recalls.append(binary_recall(fissure_prediction_tensor[None], gt_fissures_binary[None])[0])
 
-        accuracies.append((torch.sum(fissure_prediction_tensor == gt_fissures_binary) / torch.numel(fissure_prediction_tensor)).item())
+        accuracies.append((torch.sum(fissure_prediction_tensor == gt_fissures_binary) / torch.numel(fissure_prediction_tensor)))
 
     fig = plt.figure()
     plt.plot(thresholds, recalls, label='recall')
@@ -413,4 +413,5 @@ if __name__ == '__main__':
     out_dir = new_dir('results', 'hessian_fissure_enhancement', 'new_stats')
     eval_dir = new_dir(out_dir, 'eval')
     enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:1')
+    # TODO: maybe run TS enhancement resampled to 1mm unit spacing?
 
