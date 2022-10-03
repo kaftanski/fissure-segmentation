@@ -5,7 +5,7 @@ import SimpleITK as sitk
 
 from data import LungData
 from data_processing.find_lobes import find_lobes
-from data_processing.point_features import compute_point_features
+from data_processing.keypoint_extraction import compute_keypoints
 from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 from utils.image_ops import apply_mask
 
@@ -47,7 +47,8 @@ def main(ds, index):
     save_meshes(lobe_meshes, IMG_DATA_DIR, case, sequence, obj_name='lobe')
 
     # 4. Point Features
-    compute_point_features(img, fissures_masked, lobes, mask, POINT_DATA_DIR, case, sequence)
+    compute_keypoints(img, fissures_masked, lobes, mask, POINT_DATA_DIR, case, sequence)
+    # TODO: compute features
 
 
 def run_all():
