@@ -49,7 +49,8 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     :param scale: scale, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :return:
     """
-    assert np.prod(points.shape) > 0, 'Error: Tried to reconstruct mesh from empty point cloud!'
+    if np.prod(points.shape) == 0:
+        raise ValueError('Error: Tried to reconstruct mesh from empty point cloud!')
 
     # convert to open3d point cloud object
     pcd = o3d.geometry.PointCloud()
@@ -135,6 +136,8 @@ def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spa
     label_tensor = torch.zeros(*shape, dtype=torch.long)
 
     for i, mesh in enumerate(o3d_meshes):
+        if len(mesh.vertices) == 0:
+            continue
         samples = mesh.sample_points_uniformly(number_of_points=n_samples)
         fissure_samples = torch.from_numpy(np.asarray(samples.points))
         fissure_samples /= torch.tensor(spacing)

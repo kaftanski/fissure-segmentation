@@ -20,7 +20,7 @@ from models.dgcnn import DGCNNSeg
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
-    points_to_label_map
+    points_to_label_map, create_o3d_mesh
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
@@ -227,24 +227,29 @@ def test(ds, device, out_dir, show):
         meshes_predict = []
         for j in range(len(meshes_target)):  # excluding background
             label = j+1
+            try:
+                if not ds.lobes:
+                    if ds.kp_mode == 'foerstner':
+                        # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                        depth = 3
+                    else:
+                        # point cloud contains more foreground points because of pre-seg CNN or enhancement
+                        depth = 6
 
-            if not ds.lobes:
-                if ds.kp_mode == 'foerstner':
-                    # using poisson reconstruction with octree-depth 3 because of sparse point cloud
-                    depth = 3
+                    mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
+                                                              depth=depth)
                 else:
-                    # point cloud contains more foreground points because of pre-seg CNN or enhancement
-                    depth = 6
+                    # extract the fissure points from labelmap
+                    fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,
+                                                      spacing=fissure_pred_img.GetSpacing())
 
-                mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
-                                                          depth=depth)
-            else:
-                # extract the fissure points from labelmap
-                fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,
-                                                  spacing=fissure_pred_img.GetSpacing())
+                    # fit surface to the points with depth 6, because points are dense
+                    mesh_predict = pointcloud_surface_fitting(fissure_pred_pts, crop_to_bbox=True, depth=6)
 
-                # fit surface to the points with depth 6, because points are dense
-                mesh_predict = pointcloud_surface_fitting(fissure_pred_pts, crop_to_bbox=True, depth=6)
+            except ValueError as e:
+                # no points have been predicted to be in this class
+                print(e)
+                mesh_predict = create_o3d_mesh(verts=np.array([]), tris=np.array([]))
 
             # post-process surfaces
             mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask

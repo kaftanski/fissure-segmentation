@@ -140,7 +140,8 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
 
 
 def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1., label=''):
-    ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=color, alpha=alpha)
+    if len(vertices) > 0:
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=color, alpha=alpha)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')

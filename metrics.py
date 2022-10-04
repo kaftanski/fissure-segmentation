@@ -1,6 +1,6 @@
-import numpy as np
 from typing import Sequence
 
+import numpy as np
 import open3d as o3d
 import torch
 from numpy.typing import ArrayLike
@@ -28,10 +28,13 @@ def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_t
 def assd(mesh_x: o3d.geometry.TriangleMesh, mesh_y: o3d.geometry.TriangleMesh):
     """ Symmetric surface distance between batches of meshes x and y, averaged over points.
 
-        :param mesh_x: first mesh
-        :param mesh_y: second mesh
-        :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
-        """
+    :param mesh_x: first mesh
+    :param mesh_y: second mesh
+    :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
+    """
+    if len(mesh_x.vertices) == 0 or len(mesh_y.vertices) == 0:
+        return (torch.tensor(float('inf')),) * 4
+
     dist_xy = point_surface_distance(query_points=mesh_x.vertices, trg_points=mesh_y.vertices, trg_tris=mesh_y.triangles)
     dist_yx = point_surface_distance(query_points=mesh_y.vertices, trg_points=mesh_x.vertices, trg_tris=mesh_x.triangles)
 

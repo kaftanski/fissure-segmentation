@@ -152,7 +152,10 @@ def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor
 
 
 def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: bool = None, center_x: float = None):
-    # TODO: if 2 big components are present, choose the "right" one -> right component for right fissure
+    if len(mesh.vertices) == 0:
+        # empty mesh
+        return
+
     # get connected components and select the biggest
     triangle_clusters, _, cluster_area = mesh.cluster_connected_triangles()
     print(f"found {len(cluster_area)} connected components in prediction")
