@@ -166,13 +166,13 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
     assert do_rotation or do_translation
 
     # output directories
-    out_dir = f'results/{model}_sanity_check/{model}{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
+    out_dir = f'results/affine_dgccn_experiments/{model}_sanity_check/{model}{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
     os.makedirs(out_dir, exist_ok=True)
     plot_dir = os.path.join(out_dir, 'plots')
     os.makedirs(plot_dir, exist_ok=True)
 
     # dataset
-    ds = CorrespondingPointDataset(1024, 'cnn')
+    ds = CorrespondingPointDataset(1024, 'cnn', corr_folder='results/corresponding_points/simple/fissures')
 
     # setup model
     model = MODELS[model](k=40, do_rotation=do_rotation, do_translation=do_translation).to(device)
@@ -337,6 +337,7 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
 
 
 if __name__ == '__main__':
+    #run_detached_from_pycharm()
     epochs = 1000
     steps_per_epoch = 10
     batch_size = 8
@@ -345,15 +346,15 @@ if __name__ == '__main__':
     device = 'cuda:2'
 
     model = 'DGCNN'
-    run_example(model, epochs, steps_per_epoch, batch_size, do_rotation=True, do_translation=False, use_point_loss=True,
-                use_param_loss=False, show=show, device=device)
+    # run_example(model, epochs, steps_per_epoch, batch_size, do_rotation=True, do_translation=False, use_point_loss=True,
+    #             use_param_loss=False, show=show, device=device)
 
-    # for do_rotation in [False, True]:
-    #     for do_translation in [False, True]:
-    #         if not (do_rotation or do_translation):
-    #             continue
-    #         for use_param_loss in [False, True]:
-    #             for use_point_loss in [False, True]:
-    #                 if not (use_param_loss or use_point_loss):
-    #                     continue
-    #                 run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
+    for do_rotation in [False, True]:
+        for do_translation in [False, True]:
+            if not (do_rotation or do_translation):
+                continue
+            for use_param_loss in [False, True]:
+                for use_point_loss in [False, True]:
+                    if not (use_param_loss or use_point_loss):
+                        continue
+                    run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_translation, use_point_loss, use_param_loss, show, device)
