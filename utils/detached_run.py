@@ -18,10 +18,19 @@ def maybe_run_detached_cli(args):
             pass
 
         # run script with modified argv
-        run_detached_from_pycharm()
+        _do_run(add_is_offline_arg=False)
 
 
 def run_detached_from_pycharm():
+    if '--is_offline' in sys.argv:
+        # script has been called with nohup.
+        # this prevents endless recursion of the scripts
+        return
+    else:
+        _do_run(add_is_offline_arg=True)
+
+
+def _do_run(add_is_offline_arg=True):
     script_name = os.path.split(sys.argv[0])[1]
     timestamp = datetime.now()
     readable_timestamp = timestamp.strftime("%Y-%m-%d_%H:%M:%S")
@@ -30,5 +39,5 @@ def run_detached_from_pycharm():
           f'stdout will be redirected to {output_file}')
 
     # run the script in a subprocess with nohup
-    subprocess.run(f'nohup {sys.executable} {" ".join(sys.argv)} >{output_file} &', shell=True)
+    subprocess.run(f'nohup {sys.executable} {" ".join(sys.argv)} {"--is_offline" if add_is_offline_arg else ""} >{output_file} &', shell=True)
     exit(0)
