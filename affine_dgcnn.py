@@ -14,6 +14,7 @@ from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDist
 from models.dgcnn import DGCNNReg
 from models.dgcnn_opensrc import DGCNN, PointNet
 from models.modelio import LoadableModel, store_config_args
+from utils.detached_run import run_detached_from_pycharm
 from visualization import point_cloud_on_axis
 
 
@@ -166,7 +167,7 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
     assert do_rotation or do_translation
 
     # output directories
-    out_dir = f'results/affine_dgccn_experiments/{model}_sanity_check/{model}{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
+    out_dir = f'results/affine_dgcnn_experiments/{model}_sanity_check/{model}{"_rot" if do_rotation else ""}{"_translation" if do_translation else ""}{"_pointloss" if use_point_loss else ""}{"_paramloss" if use_param_loss else ""}'
     os.makedirs(out_dir, exist_ok=True)
     plot_dir = os.path.join(out_dir, 'plots')
     os.makedirs(plot_dir, exist_ok=True)
@@ -337,7 +338,7 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
 
 
 if __name__ == '__main__':
-    #run_detached_from_pycharm()
+    run_detached_from_pycharm()
     epochs = 1000
     steps_per_epoch = 10
     batch_size = 8
