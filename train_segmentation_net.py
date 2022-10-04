@@ -55,8 +55,7 @@ def test(ds: ImageDataset, device, out_dir, show):
         img, label = ds[i]
         img, label = ds.get_batch_collate_fn()([(img, label)])
         with torch.no_grad():
-            softmax_pred = model.predict_all_patches(img.to(device), patch_size=(128, 128, 128),
-                                                     min_overlap=0.5, use_gaussian=True)
+            softmax_pred = model.predict_all_patches(img.to(device), min_overlap=0.5, use_gaussian=True)
         label_pred = torch.argmax(softmax_pred, dim=1)
 
         lung_mask = ds.get_lung_mask(i)
@@ -178,8 +177,15 @@ if __name__ == '__main__':
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
-    ds = ImageDataset('../data', exclude_rhf=args.exclude_rhf, binary=args.binary)
-    model = MobileNetASPP(num_classes=ds.num_classes)
+    if args.ds == 'data':
+        img_dir = '../data'
+    elif args.ds == 'ts':
+        img_dir = '../TotalSegmentator/ThoraxCrop'
+    else:
+        raise ValueError(f'No dataset named {args.ds}')
+
+    ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3)
+    model = MobileNetASPP(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
     run(ds, model, test, args)
     if not args.test_only:
