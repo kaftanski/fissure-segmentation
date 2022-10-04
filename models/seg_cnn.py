@@ -1,5 +1,4 @@
 import math
-
 import numpy as np
 import torch
 from scipy.ndimage.filters import gaussian_filter
@@ -99,17 +98,19 @@ def get_patch_starts(img_size, min_overlap, patch_size):
     return patch_starts
 
 
-class MobileNetASPP(LoadableModel, PatchBasedModule):
+class MobileNetASPP(LoadableModel):
     @store_config_args
-    def __init__(self, num_classes):
-        LoadableModel.__init__(self)
-        PatchBasedModule.__init__(self, num_classes, activation=nn.Softmax(dim=1))
+    def __init__(self, num_classes, patch_size=(128, 128, 128)):
+        super(MobileNetASPP, self).__init__()
 
         self.backbone = MobileNet3D()
         self.aspp = ASPP(64, (2, 4, 8, 16), 128)
         self.head = nn.Sequential(nn.Conv3d(128 + 16, 64, 1, padding=0, groups=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
                                   nn.Conv3d(64, 64, 3, groups=1, padding=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
-                                  nn.Conv3d(64, self.num_classes, 1))
+                                  nn.Conv3d(64, num_classes, 1))
+        self.patching = PatchBasedModule(num_classes, activation=nn.Softmax(dim=1))
+        self.patching.forward = self.forward
+        self.patch_size = patch_size
 
     def forward(self, x):
         if self.training:
@@ -122,6 +123,10 @@ class MobileNetASPP(LoadableModel, PatchBasedModule):
         y1 = checkpoint(self.head, y, preserve_rng_state=False)
         output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
         return output
+
+    def predict_all_patches(self, img, min_overlap=0.5, use_gaussian=True):
+        self.patching.predict_all_patches(
+            img, patch_size=self.patch_size, min_overlap=min_overlap, use_gaussian=use_gaussian)
 
 
 def get_necessary_padding(img_dimensions, out_shape):
