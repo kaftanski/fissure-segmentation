@@ -56,7 +56,7 @@ class AffineOpenDGCNN(LoadableModel):
         self.trans = do_translation
 
     def forward(self, x):
-        y = self.dgcnn(x)
+        y = self.dgcnn(x).squeeze()
         index = 0
         if self.rot:
             rot = y[:, :3]
@@ -334,7 +334,7 @@ def run_example(model, epochs, steps_per_epoch, batch_size, do_rotation, do_tran
         for title, values in metrics.items():
             writer.writerow([title] + values.tolist())
 
-        writer.writerow(['Initial Error [mm]', initial_error])
+        writer.writerow(['Initial Error [mm]', initial_error.item()])
 
 
 if __name__ == '__main__':
@@ -346,7 +346,7 @@ if __name__ == '__main__':
     show = False
     device = 'cuda:2'
 
-    model = 'DGCNN'
+    model = 'OpenDGCNN'
     # run_example(model, epochs, steps_per_epoch, batch_size, do_rotation=True, do_translation=False, use_point_loss=True,
     #             use_param_loss=False, show=show, device=device)
 
