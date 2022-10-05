@@ -12,6 +12,7 @@ from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
+from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
 from losses.ssm_loss import corresponding_point_distance
@@ -24,7 +25,7 @@ from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
-def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir):
+def train(model, ds, batch_size, loss, device, learn_rate, weight_decay, epochs, show, out_dir):
     # set up loss function
     class_weights = ds.get_class_weights()
     if class_weights is not None:
@@ -46,7 +47,7 @@ def train(model, ds, batch_size, loss, device, learn_rate, epochs, show, out_dir
             print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
     # run training
-    trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, batch_size, device, epochs, out_dir, show)
+    trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, weight_decay, batch_size, device, epochs, out_dir, show)
     trainer.run(initial_epoch=0)
 
     if isinstance(ds, CorrespondingPointDataset):
@@ -209,7 +210,7 @@ def test(ds, device, out_dir, show):
                 fissure_tensor, pts_index = points_to_label_map(pts, labels_pred.squeeze(), mask_tensor.shape, spacing=image.GetSpacing())
 
                 # infer right/left fissure labels from lung mask
-                fissure_tensor = binary_to_fissure_segmentation(fissure_tensor, lung_mask=mask_img)
+                fissure_tensor = binary_to_fissure_segmentation(fissure_tensor, lr_lung_mask=img_ds.get_left_right_lung_mask(i))
 
                 # assign labels to points
                 labels_pred = fissure_tensor[pts_index[:, 0], pts_index[:, 1], pts_index[:, 2]].unsqueeze(0)
@@ -324,7 +325,7 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                 writer.writerow([key, value])
 
 
-def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epochs, show, out_dir, test_fn, test_only=False):
+def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, weight_decay, epochs, show, out_dir, test_fn, test_only=False):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
     save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
@@ -342,7 +343,7 @@ def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, epoch
             os.makedirs(fold_dir, exist_ok=True)
             # reset model for the current fold
             model = type(model)(**model.config)
-            train(model, train_ds, batch_size, loss, device, learn_rate, epochs, show, fold_dir)
+            train(model, train_ds, batch_size, loss, device, learn_rate, weight_decay, epochs, show, fold_dir)
 
         mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
 
@@ -399,16 +400,16 @@ def run(ds, model, test_fn, args):
 
     if not args.test_only:
         if args.split is None:
-            train(model, ds, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output)
+            train(model, ds, args.batch, args.loss, device, args.lr, args.wd, args.epochs, args.show, args.output)
             test_fn(ds, device, args.output, args.show)
         else:
-            cross_val(model, ds, args.split, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output, test_fn)
+            cross_val(model, ds, args.split, args.batch, args.loss, device, args.lr, args.wd, args.epochs, args.show, args.output, test_fn)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            cross_val(model, ds, split_file, args.batch, args.loss, device, args.lr, args.epochs, args.show, args.output, test_fn,
+            cross_val(model, ds, split_file, args.batch, args.loss, device, args.lr, args.wd, args.epochs, args.show, args.output, test_fn,
                       test_only=True)
         else:
             # test with the specified fold from the split file
@@ -430,7 +431,14 @@ if __name__ == '__main__':
         if not args.coords and not args.patch:
             print('No features specified, defaulting to coords as features. '
                   'To specify, provide arguments --coords and/or --patch.')
-        point_dir = '../point_data/'
+
+        if args.ds == 'data':
+            point_dir = POINT_DIR if args.ds == 'data' else POINT_DIR_TS
+        elif args.ds == 'ts':
+            point_dir = POINT_DIR_TS
+        else:
+            raise ValueError(f'No dataset named {args.ds}')
+
         print(f'Using point data from {point_dir}')
         ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=args.patch,
                           exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)

@@ -63,6 +63,7 @@ class LungData(Dataset):
         self.lobe_meshes = []
         self.ids = []
         self.fissures_enhanced = []
+        self.left_right_masks = []
 
         # fill missing landmarks and fissure segmentations with None
         for img in self.images:
@@ -85,10 +86,16 @@ class LungData(Dataset):
                 self.lobes.append(None)
 
             enhanced_file = img.replace('_img_', '_fissures_enhanced_')
-            if os.path.exists(lobes_file):
+            if os.path.exists(enhanced_file):
                 self.fissures_enhanced.append(enhanced_file)
             else:
                 self.fissures_enhanced.append(None)
+
+            mask_lr_file = img.replace('_img_', '_masklr_')
+            if os.path.exists(mask_lr_file):
+                self.left_right_masks.append(mask_lr_file)
+            else:
+                self.left_right_masks.append(None)
 
             case, _, sequence = img.split(os.sep)[-1].split('_')
             sequence = sequence.split('.')[0]
@@ -119,6 +126,9 @@ class LungData(Dataset):
 
     def get_lung_mask(self, item):
         return _load_files_from_file_list(item, self.lung_masks)
+
+    def get_left_right_lung_mask(self, item):
+        return _load_files_from_file_list(item, self.left_right_masks)
 
     def get_filename(self, item):
         if isinstance(item, int):

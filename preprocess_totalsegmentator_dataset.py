@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from data import ImageDataset
+from data import ImageDataset, create_split
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction, save_meshes
 from utils.tqdm_utils import tqdm_redirect
@@ -257,4 +257,5 @@ class TotalSegmentatorDataset(ImageDataset):
 
 
 if __name__ == '__main__':
-    create_meshes()
+    # create_meshes()
+    create_split(5, TotalSegmentatorDataset(), filepath=os.path.join(PROCESSED_DATA_PATH, 'splits_final.pkl.gz'))

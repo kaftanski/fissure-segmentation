@@ -15,6 +15,7 @@ MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
 
 POINT_DIR = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data'
+POINT_DIR_TS = os.path.join(POINT_DIR, 'ts')
 
 
 def get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7):
@@ -78,10 +79,6 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     kp = torch.nonzero(fissure_points) * torch.tensor((ds.resample_spacing,)*3, device=fissure_points.device)
     kp = kp.long()
 
-    # limit number of keypoints
-    if len(kp) > MAX_KPTS:
-        kp = kp[torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]]
-
     return kp
 
 
@@ -90,9 +87,8 @@ def get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3):
     return kp
 
 
-def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', use_mind=True, enhanced_img_path: str=None):
+def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', enhanced_img_path: str=None, device='cuda:2'):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
-    device = 'cuda:2'
     torch.cuda.empty_cache()
 
     out_dir = os.path.join(out_dir, kp_mode)
@@ -128,10 +124,14 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
             'Tried to use fissure enhancement for keypoint extraction but no path to enhanced image given.'
         enhanced_img = sitk.ReadImage(enhanced_img_path)
         enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
-        kp = get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3)
+        kp = get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.5)
 
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
+
+    # limit number of keypoints
+    if len(kp) > MAX_KPTS:
+        kp = kp[torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]]
 
     # get label for each point
     kp_cpu = kp.cpu()
@@ -184,4 +184,4 @@ if __name__ == '__main__':
         mask = ds.get_lung_mask(i)
 
         compute_keypoints(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='enhancement',
-                          enhanced_img_path=ds.fissures_enhanced[i])
+                          enhanced_img_path=ds.fissures_enhanced[i], device='cuda:3')

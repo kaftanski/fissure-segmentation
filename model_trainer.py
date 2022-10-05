@@ -1,8 +1,8 @@
+import math
 import os
 from copy import deepcopy
 from time import time
 
-import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -10,13 +10,13 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import random_split, DataLoader
 
 import models.modelio
-from data import CustomDataset
+from data import CustomDataset, ImageDataset
 from models.dg_ssm import DGSSM
 
 
 class ModelTrainer:
-    def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, learning_rate: float, batch_size: int, device: str,
-                 epochs: int, out_dir: str, show: bool):
+    def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, learning_rate: float,
+                 weight_decay: float, batch_size: int, device: str, epochs: int, out_dir: str, show: bool):
 
         self.model = model
         self.ds = ds
@@ -32,7 +32,7 @@ class ModelTrainer:
         self.checkpoint_every = 50
 
         # setup optimization
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
                                                                     patience=math.ceil(0.05*epochs),
                                                                     threshold=1e-4, cooldown=math.ceil(0.05*epochs),
@@ -45,7 +45,7 @@ class ModelTrainer:
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
         val_split = int(len(self.ds) * 0.2)
         ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
-        num_workers = 0#4
+        num_workers = 4 if isinstance(ds, ImageDataset) else 0
         drop_last = len(ds) // 2 >= self.batch_size
         self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading

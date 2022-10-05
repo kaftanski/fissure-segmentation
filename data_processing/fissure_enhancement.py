@@ -17,6 +17,8 @@ from welford import Welford
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.seg_cnn import PatchBasedModule
+from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
+from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, apply_mask
 from utils.image_utils import filter_1d
 from utils.tqdm_utils import tqdm_redirect
@@ -408,9 +410,9 @@ if __name__ == '__main__':
     # sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_torch.nii.gz')
 
     # compute_dataset_fissure_statistics(ImageDataset('../TotalSegmentator/ThoraxCrop'), save_to="./results/fissure_HU_mu_sigma_TS.csv")
-
-    ds = ImageDataset('../data', do_augmentation=False)
-    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'new_stats')
+    run_detached_from_pycharm()
+    ds = TotalSegmentatorDataset()
+    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'TS_unit_spacing')
     eval_dir = new_dir(out_dir, 'eval')
     enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:1')
     # TODO: maybe run TS enhancement resampled to 1mm unit spacing?

@@ -12,8 +12,9 @@ def add_training_parameters(parser):
     group.add_argument('--lr', default=0.001, help='learning rate', type=float)
     group.add_argument('--batch', default=32, help='batch size', type=int)
     group.add_argument('--loss', help='loss function for training. "nnunet" is cross entropy + DICE loss, '
-                                       '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
+                       '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
                        type=str, choices=Losses.list())
+    group.add_argument('--wd', default=1e-5, help='weight decay parameter for Adam optimizer', type=float)
 
 
 def add_test_parameters(parser):
@@ -28,7 +29,10 @@ def add_test_parameters(parser):
 def add_data_parameters(parser):
     group = parser.add_argument_group('Data Parameters')
 
-    group.add_argument('--data', help='data set', default='fissures', type=str, choices=['fissures', 'lobes'])
+    group.add_argument('--data', help='type of data, either fissures or lobes',
+                       default='fissures', type=str, choices=['fissures', 'lobes'])
+    group.add_argument('--ds', help='dataset to use',
+                       default='data', type=str, choices=['data', 'ts'])
     group.add_argument('--kp_mode', default='foerstner', help='keypoint extraction mode', type=str, choices=KP_MODES)
     group.add_argument('--exclude_rhf', const=True, default=False,
                        help='exclude the right horizontal fissure from the model', nargs='?')
@@ -77,6 +81,10 @@ def get_dgcnn_train_parser():
 
 def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
+
+    group = parser.add_argument_group('3D CNN parameters')
+    group.add_argument('--patch_size', help='patch size used for each dimension during training', default=96, type=int)
+
     return parser
 
 

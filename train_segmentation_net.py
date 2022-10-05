@@ -58,10 +58,10 @@ def test(ds: ImageDataset, device, out_dir, show):
             softmax_pred = model.predict_all_patches(img.to(device), min_overlap=0.5, use_gaussian=True)
         label_pred = torch.argmax(softmax_pred, dim=1)
 
-        lung_mask = ds.get_lung_mask(i)
         if model.num_classes == 2:  # binary prediction
             # reconstruct left/right fissure
-            label_pred = binary_to_fissure_segmentation(label_pred, lung_mask, resample_spacing=ds.resample_spacing)
+            label_pred = binary_to_fissure_segmentation(label_pred.squeeze(), ds.get_left_right_lung_mask(i),
+                                                        resample_spacing=ds.resample_spacing).unsqueeze(0)
 
         label = label.to(device)
         test_dice[i] += batch_dice(label_pred, label, n_labels=ds.num_classes).squeeze().cpu()
@@ -114,11 +114,11 @@ def test(ds: ImageDataset, device, out_dir, show):
                 # TODO: measure with non-dilated fissures
                 # TODO: test-time aug mirroring (for more uncertainty)
 
-        fig.savefig(os.path.join(out_dir, f'{case}_fissures_pred_{sequence}.png'), bbox_inches='tight', dpi=300)
+        fig.savefig(os.path.join(plot_dir, f'{case}_fissures_pred_{sequence}.png'), bbox_inches='tight', dpi=300)
         plt.close(fig)
 
         # reconstruct meshes from predicted labelmap
-        _, predicted_meshes = poisson_reconstruction(label_pred_img, lung_mask)
+        _, predicted_meshes = poisson_reconstruction(label_pred_img, ds.get_lung_mask(i))
         for j, m in enumerate(predicted_meshes):
             # save reconstructed mesh
             o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{j + 1}_{sequence}.obj'), m)

@@ -1,4 +1,5 @@
 import math
+
 import numpy as np
 import torch
 from scipy.ndimage.filters import gaussian_filter
@@ -103,6 +104,7 @@ class MobileNetASPP(LoadableModel):
     def __init__(self, num_classes, patch_size=(128, 128, 128)):
         super(MobileNetASPP, self).__init__()
 
+        self.num_classes = num_classes
         self.backbone = MobileNet3D()
         self.aspp = ASPP(64, (2, 4, 8, 16), 128)
         self.head = nn.Sequential(nn.Conv3d(128 + 16, 64, 1, padding=0, groups=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
@@ -125,7 +127,7 @@ class MobileNetASPP(LoadableModel):
         return output
 
     def predict_all_patches(self, img, min_overlap=0.5, use_gaussian=True):
-        self.patching.predict_all_patches(
+        return self.patching.predict_all_patches(
             img, patch_size=self.patch_size, min_overlap=min_overlap, use_gaussian=use_gaussian)
 
 
