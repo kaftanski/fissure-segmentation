@@ -442,9 +442,6 @@ if __name__ == '__main__':
     net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes,
                    spatial_transformer=args.transformer, dynamic=not args.static)
 
-    # run the chosen configuration
-    run(ds, net, test, args)
-
     # save setup
     setup_dict = {
         'data': ds.folder,
@@ -464,5 +461,9 @@ if __name__ == '__main__':
         writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
         writer.writeheader()
         writer.writerow(setup_dict)
+
     if not args.test_only:
         store_args(args=args, out_dir=args.output)
+
+    # run the chosen configuration
+    run(ds, net, test, args)

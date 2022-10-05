@@ -105,6 +105,8 @@ if __name__ == '__main__':
                   spatial_transformer=args.transformer, dynamic=not args.static,
                   ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm)
 
-    run(ds, model, test, args)
+    # save setup
     if not args.test_only:
         store_args(args=args, out_dir=args.output)
+
+    run(ds, model, test, args)

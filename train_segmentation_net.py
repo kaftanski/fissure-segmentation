@@ -187,6 +187,8 @@ if __name__ == '__main__':
     ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3)
     model = MobileNetASPP(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
-    run(ds, model, test, args)
+    # save setup
     if not args.test_only:
         store_args(args=args, out_dir=args.output)
+
+    run(ds, model, test, args)
