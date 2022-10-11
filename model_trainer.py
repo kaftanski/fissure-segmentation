@@ -17,7 +17,7 @@ from models.dg_ssm import DGSSM
 
 class ModelTrainer:
     def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, learning_rate: float,
-                 weight_decay: float, batch_size: int, device: str, epochs: int, out_dir: str, show: bool):
+                 weight_decay: float, scheduler: str, batch_size: int, device: str, epochs: int, out_dir: str, show: bool):
 
         self.model = model
         self.ds = ds
@@ -34,10 +34,19 @@ class ModelTrainer:
 
         # setup optimization
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
-                                                                    patience=math.ceil(0.05*epochs),
-                                                                    threshold=1e-4, cooldown=math.ceil(0.05*epochs),
-                                                                    verbose=True)
+
+        if scheduler == 'plateau':
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
+                                                                        patience=math.ceil(0.05*epochs),
+                                                                        threshold=1e-4, cooldown=math.ceil(0.05*epochs),
+                                                                        verbose=True)
+        elif scheduler == 'cosine':
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=self.epochs, eta_min=learning_rate, verbose=True)
+        elif scheduler == 'none':
+            self.scheduler = None
+        else:
+            raise ValueError(f'Scheduler "{scheduler}" undefined.')
 
         # loss function
         self.loss_function = loss_function
@@ -159,7 +168,8 @@ class ModelTrainer:
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
-        self.scheduler.step(self.validation_history['total_loss'][ep])
+        if self.scheduler is not None:
+            self.scheduler.step(self.validation_history['total_loss'][ep])
 
         # status output
         print(f'\nEPOCH {epoch} ({time() - self.epoch_start:.4f} seconds)')

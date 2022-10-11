@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_pc_ae.py" />
-    <option name="PARAMETERS" value="--k 20 --pts 2048 --output results/pc_ae --shape plane --latent 512 --epochs 1000 --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --show" />
+    <option name="PARAMETERS" value="--k 20 --pts 2048 --output results/pc_ae --shape plane --latent 512 --epochs 1000 --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --show --scheduler cosine" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
