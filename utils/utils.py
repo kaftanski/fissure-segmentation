@@ -1,6 +1,6 @@
 import glob
 import os
-from typing import Sequence, List
+from typing import Sequence, List, Tuple
 
 import numpy as np
 import open3d as o3d
@@ -232,7 +232,7 @@ def affine_point_transformation(points: torch.Tensor, transformation: torch.Tens
 #
 
 
-def load_meshes(base_dir, case, sequence, obj_name='fissure'):
+def load_meshes(base_dir, case, sequence, obj_name='fissure') -> Tuple[o3d.geometry.TriangleMesh]:
     meshlist = sorted(glob.glob(os.path.join(base_dir, f'{case}_mesh_{sequence}', f'{case}_{obj_name}*_{sequence}.obj')))
     return tuple(o3d.io.read_triangle_mesh(m) for m in meshlist)
 

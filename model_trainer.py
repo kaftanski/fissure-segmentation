@@ -11,6 +11,7 @@ from torch.utils.data import random_split, DataLoader
 
 import models.modelio
 from data import CustomDataset, ImageDataset
+from losses.chamfer_loss import ChamferLoss
 from models.dg_ssm import DGSSM
 
 
@@ -120,6 +121,9 @@ class ModelTrainer:
                 y = y.to(self.device)
 
             # loss computation
+            if isinstance(self.loss_function, ChamferLoss):
+                y = y.float()
+                output = output.float()
             loss = self.loss_function(output, y)
 
         if isinstance(loss, tuple):

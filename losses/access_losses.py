@@ -1,11 +1,10 @@
-import torch
-from pytorch3d.loss import point_mesh_face_distance
-from pytorch3d.structures import Pointclouds
-from torch import nn
-
-from losses.dice_loss import GDL
 from enum import Enum
 
+import torch
+from torch import nn
+
+from losses.chamfer_loss import ChamferLoss
+from losses.dice_loss import GDL
 from losses.recall_loss import BatchRecallLoss
 from losses.ssm_loss import CorrespondingPointDistance
 
@@ -22,6 +21,9 @@ class Losses(Enum):
 
     SSM = "ssm"
     """ ssm loss (chamfer distance for now) """  # TODO: implement point to mesh distance
+
+    CHAMFER = "chamfer"
+    """ chamfer distance between predicted and target point cloud"""
 
     @classmethod
     def list(cls):
@@ -73,5 +75,8 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
 
     if loss == Losses.SSM.value:
         return asseble_dg_ssm_loss()
+
+    if loss == Losses.CHAMFER.value:
+        return ChamferLoss()
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

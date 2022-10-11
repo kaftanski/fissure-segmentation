@@ -3,6 +3,7 @@ import argparse
 from data_processing.keypoint_extraction import KP_MODES
 from data_processing.point_features import FEATURE_MODES
 from losses.access_losses import Losses
+from models.folding_net import SHAPE_TYPES
 
 
 def add_training_parameters(parser):
@@ -102,3 +103,17 @@ def get_dgcnn_ssm_train_parser():
 
     parser.set_defaults(loss='ssm')
     return parser
+
+
+def get_pc_ae_train_parser():
+    parser = get_dgcnn_train_parser()
+    parser.description = 'Train DGCNN+FoldingNet Encoder+Decoder'
+
+    group = parser.add_argument_group('FoldingNet parameters')
+    group.add_argument("--latent", help="Dimensionality of latent shape code (z).", default=512, type=int)
+    group.add_argument("--shape", help="Shape type to be folded by the FoldingNet decoder.", choices=SHAPE_TYPES,
+                       default='plane')
+
+    parser.set_defaults(loss='chamfer')
+    return parser
+

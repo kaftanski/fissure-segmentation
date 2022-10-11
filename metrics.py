@@ -48,11 +48,20 @@ def label_mesh_assd(labelmap: torch.Tensor, mesh: o3d.geometry.TriangleMesh, spa
     :param labelmap: binary labelmap (all non-zero elements are considered foreground)
     :param mesh: triangle mesh
     :param spacing: the image spacing for the labelmap (used to convert pixel into world coordinates
-    :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
+    :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance and the extracted points
     """
     # compute point cloud from foreground pixels in labelmap
     points = mask_to_points(labelmap, spacing)
+    return pseudo_symmetric_point_to_mesh_distance(points, mesh), points
 
+
+def pseudo_symmetric_point_to_mesh_distance(points: ArrayLike, mesh: o3d.geometry.TriangleMesh):
+    """
+
+    :param points: points to query distance to mesh for
+    :param mesh: reference mesh
+    :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
+    """
     # distance from labelmap (point cloud) to mesh
     dist_pts_to_mesh = point_surface_distance(query_points=points, trg_points=mesh.vertices, trg_tris=mesh.triangles)
 
@@ -64,7 +73,7 @@ def label_mesh_assd(labelmap: torch.Tensor, mesh: o3d.geometry.TriangleMesh, spa
     print(dist_pts_to_mesh.mean(), dist_mesh_to_points.mean())
 
     mean, std, hd, hd95 = _symmetric_point_distances(dist_pts_to_mesh, dist_mesh_to_points)
-    return mean, std, hd, hd95, points
+    return mean, std, hd, hd95
 
 
 def label_label_assd(labelmap1, labelmap2, spacing: Sequence[float] = (1., 1., 1.)):

@@ -184,13 +184,11 @@ class CustomDataset(Dataset, ABC):
         self.do_augmentation = do_augmentation
         self.binary = binary
 
-    @abstractmethod
     def get_class_weights(self):
-        pass
+        return None
 
-    @abstractmethod
     def get_batch_collate_fn(self):
-        pass
+        return None
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds = deepcopy(self)
@@ -295,9 +293,6 @@ class ImageDataset(LungData, CustomDataset):
         img_array = (img_array - IMG_MIN) / (IMG_MAX - IMG_MIN) * 2 - 1
 
         return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
-
-    def get_class_weights(self):
-        return None
 
     def get_batch_collate_fn(self):
         def collate_fn(list_of_samples):
@@ -413,10 +408,6 @@ class PointDataset(CustomDataset):
         print(f'Class weights: {class_weights.tolist()}')
 
         return class_weights
-
-    def get_batch_collate_fn(self):
-        # point data needs no special collate function, the point sampling is already handled in __get_item__
-        return None
 
     def get_full_pointcloud(self, i):
         if self.use_coords:
