@@ -35,14 +35,15 @@ class ModelTrainer:
         # setup optimization
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
+        min_lr = learning_rate * 0.05
         if scheduler == 'plateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
                                                                         patience=math.ceil(0.05*epochs),
                                                                         threshold=1e-4, cooldown=math.ceil(0.05*epochs),
-                                                                        verbose=True)
+                                                                        verbose=True, min_lr=min_lr)
         elif scheduler == 'cosine':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer, T_max=self.epochs, eta_min=learning_rate, verbose=True)
+                self.optimizer, T_max=self.epochs, eta_min=min_lr, verbose=True)
         elif scheduler == 'none':
             self.scheduler = None
         else:
@@ -168,8 +169,10 @@ class ModelTrainer:
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
-        if self.scheduler is not None:
+        if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             self.scheduler.step(self.validation_history['total_loss'][ep])
+        elif self.scheduler is not None:
+            self.scheduler.step()
 
         # status output
         print(f'\nEPOCH {epoch} ({time() - self.epoch_start:.4f} seconds)')
