@@ -103,3 +103,16 @@ def apply_mask(img: sitk.Image, mask: sitk.Image):
     new_img = sitk.GetImageFromArray(img_arr)
     new_img.CopyInformation(img)
     return new_img
+
+
+def load_image_metadata(img_path):
+    if not 'nii' in img_path:
+        raise NotImplementedError("Only nifty headers supported for now.")
+
+    reader = sitk.ImageFileReader()
+    reader.LoadPrivateTagsOn()
+    reader.SetFileName(img_path)
+    reader.ReadImageInformation()
+    size = tuple(eval(reader.GetMetaData(f'dim[{d}]')) for d in range(1, 4))
+    spacing = tuple(eval(reader.GetMetaData(f'pixdim[{d}]')) for d in range(1, 4))
+    return size, spacing

@@ -11,7 +11,8 @@ from losses.chamfer_loss import ChamferLoss
 from metrics import pseudo_symmetric_point_to_mesh_distance
 from models.folding_net import DGCNNFoldingNet
 from train import run, write_results
-from utils.utils import load_meshes, new_dir
+from utils.image_ops import load_image_metadata
+from utils.utils import load_meshes, new_dir, kpts_to_grid, ALIGN_CORNERS, kpts_to_world
 from visualization import point_cloud_on_axis
 
 
@@ -27,11 +28,16 @@ class SampleFromMeshDS(CustomDataset):
 
         self.ids = []
         self.meshes = []
+        self.img_sizes = []
         for mesh_dir in mesh_dirs:
             case, sequence = os.path.basename(mesh_dir).split("_mesh_")
             meshes = load_meshes(folder, case, sequence, obj_name='fissure' if not lobes else 'lobe')
             self.meshes.append(meshes)
             self.ids.append((case, sequence))
+
+            size, spacing = load_image_metadata(os.path.join(folder, f"{case}_img_{sequence}.nii.gz"))
+            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
+            self.img_sizes.append(size_world)
 
     def __len__(self):
         return len(self.ids)
@@ -44,24 +50,32 @@ class SampleFromMeshDS(CustomDataset):
 
         # sample point cloud from meshes
         samples_per_component = []
-        normalization_params = []
         for m in meshes:
-            # TODO: use poisson disk sampling?
             samples = m.sample_points_uniformly(number_of_points=self.sample_points)
             samples = torch.from_numpy(np.asarray(samples.points)).float()
 
-            # z-standardize
-            mu = samples.mean(dim=0, keepdim=True)
-            sigma = samples.std()  # global stddev so that proportions don't get warped between axes
-            samples = (samples - mu) / sigma
-
+            # normalize to pytorch grid coordinates
+            samples = self.normalize_sampled_pc(samples, item)
             samples_per_component.append(samples.transpose(0, 1))
-            normalization_params.append((mu, sigma))
 
-        if self.return_norm_params:
-            return samples_per_component[self.fixed_object], samples_per_component[self.fixed_object], normalization_params[self.fixed_object]
-        else:
-            return samples_per_component[self.fixed_object], samples_per_component[self.fixed_object]
+        return samples_per_component[self.fixed_object], samples_per_component[self.fixed_object]
+
+    def normalize_sampled_pc(self, samples, index):
+        return kpts_to_grid(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+    def unnormalize_sampled_pc(self, samples, index):
+        return kpts_to_world(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+
+def normalize_pc_zstd(pc):
+    mu = pc.mean(dim=0, keepdim=True)
+    sigma = pc.std()  # global stddev so that proportions don't get warped between axes
+    pc = (pc - mu) / sigma
+    return pc, mu, sigma
+
+
+def unnormalize_zstd(pc, mu, sigma):
+    return pc * sigma + mu
 
 
 def test(ds: SampleFromMeshDS, device, out_dir, show):
@@ -96,17 +110,15 @@ def test(ds: SampleFromMeshDS, device, out_dir, show):
     hd95_assd = []
     criterion = ChamferLoss()
     for i in range(len(ds)):
-        x, _, (mu, sigma) = ds[i]
+        x, _ = ds[i]
         x = x.unsqueeze(0).to(device)
 
         with torch.no_grad():
             x_reconstruct = model(x)
 
         # unnormalize point cloud
-        mu = mu.view(1, 3, 1).to(device)
-        sigma = sigma.item()
-        x = x * sigma + mu
-        x_reconstruct = x_reconstruct * sigma + mu
+        x = ds.unnormalize_sampled_pc(x, i)
+        x_reconstruct = ds.unnormalize_sampled_pc(x_reconstruct, i)
 
         # compute chamfer distance
         chamfer_dists.append(criterion(x_reconstruct, x).item())
