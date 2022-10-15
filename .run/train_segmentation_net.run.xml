@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="train 3D CNN" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="3D CNN train" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />

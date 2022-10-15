@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="train PC AE" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="PC AE train" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_pc_ae.py" />
-    <option name="PARAMETERS" value="--k 20 --pts 2048 --output results/pc_ae --shape plane --latent 512 --epochs 1000 --split ../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl --show --scheduler cosine" />
+    <option name="PARAMETERS" value="--k 20 --pts 2048 --output results/pc_ae_mesh --shape plane --latent 512 --epochs 300 --split ../TotalSegmentator/ThoraxCrop/splits_final.pkl.gz --show --deform --scheduler cosine --ds ts --mesh --gpu 3 --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

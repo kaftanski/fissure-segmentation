@@ -21,7 +21,7 @@ PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
 
 # IDs of images where the 5 lobes are present but cut off somewhere (determined manually)
 EXCLUDE_LIST = (57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
-                705, 762, 806, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386)
+                705, 743, 762, 806, 864, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386)
 
 
 def find_non_zero_ranges(images: np.ndarray, axis: int = None):
@@ -248,12 +248,6 @@ def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
 class TotalSegmentatorDataset(ImageDataset):
     def __init__(self, do_augmentation=False):
         super(TotalSegmentatorDataset, self).__init__('../TotalSegmentator/ThoraxCrop', do_augmentation=do_augmentation)
-
-        # remove ID s0743 as it does not have a middle lobe
-        self._pop_item(self.get_index('s0743', 'fixed'))
-
-        # remove ID s0864 because it does not have a correct CT image
-        self._pop_item(self.get_index('s0864', 'fixed'))
 
 
 if __name__ == '__main__':

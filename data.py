@@ -4,7 +4,7 @@ import glob
 import os.path
 import pickle
 import warnings
-from abc import ABC, abstractmethod
+from abc import ABC
 from copy import deepcopy
 from glob import glob
 from typing import OrderedDict
@@ -197,7 +197,7 @@ class CustomDataset(Dataset, ABC):
         # check if nnUnet format is used or not
         nnu = ('_img_' not in split['train'][0])
 
-        for i in range(len(self) - 1, -1, -1):
+        for i in range(len(self.ids) - 1, -1, -1):
             case, sequence = self.ids[i]
             if not nnu:
                 # my own split file creation method

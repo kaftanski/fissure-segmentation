@@ -14,10 +14,10 @@ from skimage.measure import marching_cubes
 from torch import nn
 from tqdm import tqdm
 
-from data import image2tensor
+from data import image2tensor, ImageDataset
 from metrics import point_surface_distance
 
-SHOW_3D_PLOTS = False
+SHOW_3D_PLOTS = True
 
 
 class Plane(nn.Module):
@@ -357,3 +357,10 @@ def mesh2labelmap_dist(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], outp
     label_tensor = torch.zeros(*output_shape, dtype=torch.long)
     label_tensor[query_indices[:, 0], query_indices[:, 1], query_indices[:, 2]] = labelled_points.squeeze()
     return label_tensor
+
+
+if __name__ == '__main__':
+    ds = ImageDataset('../data')
+    i = 0
+    plane_img = fit_plane_to_fissure(ds.get_fissures(i), ds.get_lung_mask(i))
+    sitk.WriteImage(plane_img, 'results/fit_plane.nii.gz')

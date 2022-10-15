@@ -5,6 +5,7 @@ from torch import nn
 
 from losses.chamfer_loss import ChamferLoss
 from losses.dice_loss import GDL
+from losses.mesh_loss import RegularizedMeshLoss
 from losses.recall_loss import BatchRecallLoss
 from losses.ssm_loss import CorrespondingPointDistance
 
@@ -24,6 +25,9 @@ class Losses(Enum):
 
     CHAMFER = "chamfer"
     """ chamfer distance between predicted and target point cloud"""
+
+    MESH = "mesh"
+    """ regularized mesh loss """
 
     @classmethod
     def list(cls):
@@ -78,5 +82,9 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
 
     if loss == Losses.CHAMFER.value:
         return ChamferLoss()
+
+    if loss == Losses.MESH.value:
+        # use weights from MeshDeformNet
+        return RegularizedMeshLoss(w_chamfer=1., w_edge_length=1., w_normal_consistency=0.1, w_laplacian=0.1)
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

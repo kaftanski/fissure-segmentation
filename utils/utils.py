@@ -95,6 +95,10 @@ def o3d_to_pt3d_meshes(o3d_meshes: List[o3d.geometry.TriangleMesh]):
     return Meshes(verts, faces, verts_normals=vert_normals)
 
 
+def pt3d_to_o3d_meshes(pt3d_meshes: Meshes):
+    return [create_o3d_mesh(m.verts_padded().squeeze().cpu(), m.faces_padded().squeeze().cpu()) for m in pt3d_meshes]
+
+
 def kpts_to_grid(kpts_world, shape, align_corners=None):
     """ expects points in xyz format from a tensor with given shape
 

@@ -12,6 +12,7 @@ from torch.utils.data import random_split, DataLoader
 import models.modelio
 from data import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
+from losses.mesh_loss import RegularizedMeshLoss
 from models.dg_ssm import DGSSM
 
 
@@ -51,6 +52,7 @@ class ModelTrainer:
 
         # loss function
         self.loss_function = loss_function
+        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss))
 
         # create data loaders
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
@@ -66,7 +68,7 @@ class ModelTrainer:
                                    collate_fn=self.ds.get_batch_collate_fn())
 
         # automatic mixed precision
-        self.scaler = GradScaler()
+        self.scaler = GradScaler(enabled=self.autocast_enabled)
 
         # history
         self.training_history = {}
@@ -115,7 +117,7 @@ class ModelTrainer:
     def forward_step(self, x, y, ep, train):
         # TODO: support additional validation metrics
 
-        with autocast():
+        with autocast(enabled=self.autocast_enabled):
             x = x.to(self.device)
 
             # forward pass
@@ -131,9 +133,6 @@ class ModelTrainer:
                 y = y.to(self.device)
 
             # loss computation
-            if isinstance(self.loss_function, ChamferLoss):
-                y = y.float()
-                output = output.float()
             loss = self.loss_function(output, y)
 
         if isinstance(loss, tuple):

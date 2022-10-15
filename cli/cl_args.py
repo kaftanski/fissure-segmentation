@@ -115,7 +115,13 @@ def get_pc_ae_train_parser():
     group.add_argument("--latent", help="Dimensionality of latent shape code (z).", default=512, type=int)
     group.add_argument("--shape", help="Shape type to be folded by the FoldingNet decoder.", choices=SHAPE_TYPES,
                        default='plane')
+    group.add_argument("--mesh", default=False, const=True,
+                       help="Make the decoder fold a mesh instead of a point cloud.", nargs='?')
+    group.add_argument("--deform", default=False, const=True,
+                       help="Use deforming decoder instead of folding.", nargs='?')
+    group.add_argument("--obj", help="Only use the index of this object (use all objects per default)", type=int,
+                       default=None)
 
-    parser.set_defaults(loss='chamfer')
+    parser.set_defaults(loss='mesh')
     return parser
 

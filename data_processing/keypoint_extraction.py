@@ -75,7 +75,7 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     fissure_points = torch.zeros(softmax_pred.shape[2:], device=device)
     for lbl in range(1, model.num_classes):
         fissure_points = torch.logical_or(fissure_points, softmax_pred[0, lbl] > softmax_threshold)
-
+    # TODO: apply lung mask
     kp = torch.nonzero(fissure_points) * torch.tensor((ds.resample_spacing,)*3, device=fissure_points.device)
     kp = kp.long()
 

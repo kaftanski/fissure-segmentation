@@ -1,3 +1,4 @@
+import math
 from typing import Sequence, Union
 
 import numpy as np
@@ -5,11 +6,73 @@ import open3d
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
-from matplotlib.patches import Patch
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.patches import Patch, Rectangle
 from numpy.typing import ArrayLike
+from skimage.color import lab2rgb
 
 plt.rcParams['image.cmap'] = 'gray'
 plt.rcParams["image.origin"] = 'lower'
+
+
+class HandlerColorvalues(HandlerBase):
+    """
+    Handler to put a colormap into a legend. Adapted from: https://stackoverflow.com/a/55501861
+    """
+    def __init__(self, colors, square_lengths=4, alpha=1., **kw):
+        HandlerBase.__init__(self, **kw)
+        self.alpha = alpha
+        try:
+            self.num_x = square_lengths
+            self.num_y = square_lengths
+            self.colors = colors.reshape(int(math.sqrt(len(colors))), int(math.sqrt(len(colors))), colors.shape[-1])
+            subsample_x = self.colors.shape[0] // square_lengths
+            subsample_y = self.colors.shape[1] // square_lengths
+            self.colors = self.colors[::subsample_x, ::subsample_y][:square_lengths, :square_lengths]
+
+        except ValueError:
+            self.num_x = square_lengths**2
+            self.num_y = 1
+            subsample_factor = len(colors) // self.num_x
+            self.colors = colors[::subsample_factor][:self.num_x, None]
+
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        stripes = []
+        for j in range(self.num_y):
+            for i in range(self.num_x):
+                s = Rectangle([xdescent + i * width / self.num_x, ydescent + j * width / self.num_y],
+                              width / self.num_x, height / self.num_y,
+                              fc=self.colors[i, j], transform=trans, alpha=self.alpha)
+                stripes.append(s)
+        return stripes
+
+
+class HandlerBremmCmap(HandlerBase):
+    """
+    Handler to put a colormap into a legend. Adapted from: https://stackoverflow.com/a/55501861
+    """
+    def __init__(self, num_x=10, num_y=5, alpha=1., **kw):
+        HandlerBase.__init__(self, **kw)
+        self.alpha = alpha
+        self.num_x = num_x
+        self.num_y = num_y
+        x = torch.linspace(-1., 1, steps=num_x)
+        y = torch.linspace(-1., 1, steps=num_y)
+        points = torch.stack([arr.reshape(-1) for arr in torch.meshgrid(x, y)], dim=1)
+        colors = color_2d_points_bremm(points)
+        self.colors = colors.reshape(num_x, num_y, colors.shape[-1])
+
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        stripes = []
+        for j in range(self.num_y):
+            for i in range(self.num_x):
+                s = Rectangle([xdescent + i * width / self.num_x, ydescent + j * height / self.num_y],
+                              width / self.num_x, height / self.num_y,
+                              fc=self.colors[i, j], transform=trans, alpha=self.alpha)
+                stripes.append(s)
+        return stripes
 
 
 def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None):
@@ -139,9 +202,13 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
         plt.close(fig)
 
 
-def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1., label=''):
+def trimesh_on_axis(ax, vertices, triangles, color='', title='', alpha=1., label='', facecolors=None):
     if len(vertices) > 0:
-        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, color=color, alpha=alpha)
+        collection = ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, alpha=alpha)
+        if color:
+            collection.set_color(color)
+        elif facecolors is not None:
+            collection.set_facecolor(facecolors)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
@@ -149,8 +216,21 @@ def trimesh_on_axis(ax, vertices, triangles, color, title='', alpha=1., label=''
         ax.set_title(title)
     if label:
         handles, labels = plt.gca().get_legend_handles_labels()
-        handles.append(Patch(facecolor=color, edgecolor=color, label=label, alpha=alpha))
-        plt.legend(handles=handles)
+        if color:
+            handles.append(Patch(facecolor=color, edgecolor=color, label=label, alpha=alpha))
+            handler_map = None
+        elif facecolors is not None:
+            # proxy handle
+            handle = Rectangle((0, 0), 1, 1, label=label)
+            handles.append(handle)
+
+            # handler which actually makes the legend entry
+            handler = HandlerBremmCmap(alpha=alpha)
+            handler_map = {handle: handler}
+        else:
+            return
+
+        plt.legend(handles=handles, handler_map=handler_map)
 
 
 def plot_slice(img, s, b=0, c=0, dim=0, title='', save_path=None, show=True):
@@ -168,3 +248,30 @@ def plot_slice(img, s, b=0, c=0, dim=0, title='', save_path=None, show=True):
         plt.show()
     else:
         plt.close()
+
+
+def color_2d_points_bremm(points: torch.Tensor):
+    """ Bremm et al.: "Assisted Descriptor Selection Based on Visual Comparative Data Analysis" (2011)
+
+    :param points: x y coordinates (Nx2)
+    :return:
+    """
+    # CIELab colorspace
+    # fixed lightness value:
+    L = 55
+
+    # coordinates are a and b values (stretched to [-100,100])
+    ab_range = [-100, 100]
+    p_min = points.min(dim=0, keepdim=True)[0]
+    p_max = points.max(dim=0, keepdim=True)[0]
+    points_norm = (points - p_min) / (p_max - p_min)
+    points_to_ab = points_norm * (ab_range[1] - ab_range[0]) + ab_range[0]
+
+    colors = lab2rgb(np.concatenate([np.full((len(points), 1), fill_value=L), points_to_ab.cpu().numpy()], axis=1))
+    return colors
+
+
+def color_2d_mesh_bremm(vertices: torch.Tensor, triangles: torch.Tensor):
+    tri_coords = torch.gather(vertices.unsqueeze(2).repeat(1, 1, 3), dim=0, index=triangles.unsqueeze(1).repeat(1, 2, 1))
+    vertex_centroids = tri_coords.mean(2)  # arithmetic mean of the three vertices of a triangle are its centroid
+    return color_2d_points_bremm(vertex_centroids)

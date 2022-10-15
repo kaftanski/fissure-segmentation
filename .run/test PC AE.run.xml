@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="test PC AE" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="PC AE test" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_pc_ae.py" />
-    <option name="PARAMETERS" value="--output results/pc_ae --test_only" />
+    <option name="PARAMETERS" value="--output results/pc_ae_testing --test_only --fold 0 --show" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
