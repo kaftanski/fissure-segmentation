@@ -183,6 +183,13 @@ class CustomDataset(Dataset, ABC):
         self.exclude_rhf = exclude_rhf
         self.do_augmentation = do_augmentation
         self.binary = binary
+        try:
+            getattr(self, 'ids')
+        except AttributeError:
+            self.ids = []
+
+    def __len__(self):
+        return len(self.ids)
 
     def get_class_weights(self):
         return None
@@ -350,7 +357,6 @@ class PointDataset(CustomDataset):
         self.use_coords = use_coords
         self.lobes = lobes
         self.sample_points = sample_points
-        self.ids = []
         self.points = []
         self.features = []
         self.labels = []
@@ -391,9 +397,6 @@ class PointDataset(CustomDataset):
             return x[:, sample], (lbls[sample] != 0).long()
         else:
             return x[:, sample], lbls[sample]
-
-    def __len__(self):
-        return len(self.points)
 
     def get_class_weights(self):
         frequency = torch.zeros(self.num_classes)
