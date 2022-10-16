@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_pc_ae.py" />
-    <option name="PARAMETERS" value="--output results/pc_ae_testing --test_only --fold 0 --show" />
+    <option name="PARAMETERS" value="--output results/pc_ae_mesh --test_only --fold 0 --show" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

@@ -192,38 +192,41 @@ def test(ds: SampleFromMeshDS, device, out_dir, show):
 
         # visualize reconstruction
         fig = plt.figure()
-        ax1 = fig.add_subplot(121, projection='3d')
-        ax2 = fig.add_subplot(122, projection='3d')
-        point_cloud_on_axis(ax1, x.cpu(), 'b', title='input', label='input')
         if output_is_mesh:
-            trimesh_on_axis(ax2, x_reconstruct.verts_padded().cpu().squeeze(), faces, facecolors=color_values, title='reconstruction', alpha=0.5, label='reconstruction')
+            ax1 = fig.add_subplot(111, projection='3d')
+            point_cloud_on_axis(ax1, x.cpu(), 'k', label='input', alpha=0.3)
+            trimesh_on_axis(ax1, x_reconstruct.verts_padded().cpu().squeeze(), faces, facecolors=color_values, alpha=0.7, label='reconstruction')
         else:
+            ax1 = fig.add_subplot(121, projection='3d')
+            ax2 = fig.add_subplot(122, projection='3d')
+            point_cloud_on_axis(ax1, x.cpu(), 'k', title='input')
             point_cloud_on_axis(ax2, x_reconstruct.cpu(), color_values, title='reconstruction')
+
         fig.savefig(os.path.join(plot_dir,
-            f'{"_".join(ds.get_id(i))}_{"fissure" if not ds.lobes else "lobe"}{cur_obj+1}_reconstruction.png'),
-            dpi=300, bbox_inches='tight')
+                                 f'{"_".join(ds.get_id(i))}_{"fissure" if not ds.lobes else "lobe"}{cur_obj+1}_reconstruction.png'),
+                    dpi=300, bbox_inches='tight')
         if show:
             plt.show()
         else:
             plt.close(fig)
 
     # compute average metrics
-    mean_assd = all_mean_assd.mean(0, keepdim=True)
-    std_assd = all_mean_assd.std(0, keepdim=True)
+    mean_assd = all_mean_assd.mean(0)
+    std_assd = all_mean_assd.std(0)
 
-    mean_sdsd = all_mean_sdsd.mean(0, keepdim=True)
-    std_sdsd = all_mean_sdsd.std(0, keepdim=True)
+    mean_sdsd = all_mean_sdsd.mean(0)
+    std_sdsd = all_mean_sdsd.std(0)
 
-    mean_hd = all_hd_assd.mean(0, keepdim=True)
-    std_hd = all_hd_assd.std(0, keepdim=True)
+    mean_hd = all_hd_assd.mean(0)
+    std_hd = all_hd_assd.std(0)
 
-    mean_hd95 = all_hd95_assd.mean(0, keepdim=True)
-    std_hd95 = all_hd95_assd.std(0, keepdim=True)
+    mean_hd95 = all_hd95_assd.mean(0)
+    std_hd95 = all_hd95_assd.std(0)
 
-    dice_dummy = torch.zeros_like(all_mean_assd)
+    dice_dummy = torch.zeros_like(mean_assd)
 
     write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy,
-                  all_mean_assd, std_assd, all_mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+                  mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
     return dice_dummy, dice_dummy, \
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
