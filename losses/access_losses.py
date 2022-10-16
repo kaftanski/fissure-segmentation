@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import List
 
 import torch
 from torch import nn
@@ -64,7 +65,7 @@ def asseble_dg_ssm_loss():
     return combined_loss
 
 
-def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
+def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: List[float] = None):
     if isinstance(loss, Losses):
         loss = loss.value
 
@@ -84,7 +85,15 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None):
         return ChamferLoss()
 
     if loss == Losses.MESH.value:
-        # use weights from MeshDeformNet
-        return RegularizedMeshLoss(w_chamfer=1., w_edge_length=1., w_normal_consistency=0.1, w_laplacian=0.1)
+        if term_weights is not None:
+            assert len(term_weights) == 4
+            return RegularizedMeshLoss(
+                w_chamfer=term_weights[0],
+                w_edge_length=term_weights[1],
+                w_normal_consistency=term_weights[2],
+                w_laplacian=term_weights[3])
+        else:
+            # default weights
+            return RegularizedMeshLoss()
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

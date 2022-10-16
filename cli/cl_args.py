@@ -121,6 +121,8 @@ def get_pc_ae_train_parser():
                        help="Use deforming decoder instead of folding.", nargs='?')
     group.add_argument("--obj", help="Only use the index of this object (use all objects per default)", type=int,
                        default=None)
+    group.add_argument("--loss_weights", nargs='+', default=None, type=float,
+                       help="Weights for the components of loss function. Implemented only for Mesh-Loss for now. This takes 4 weights for example.")
 
     parser.set_defaults(loss='mesh')
     return parser

@@ -31,7 +31,7 @@ def train(model, ds, device, out_dir, args):
     if class_weights is not None:
         class_weights = class_weights.to(device)
 
-    criterion = get_loss_fn(args.loss, class_weights)
+    criterion = get_loss_fn(args.loss, class_weights, args.loss_weights)
 
     if isinstance(ds, CorrespondingPointDataset):
         train_shapes = ds.corr_points.get_shape_datamatrix().to(device)

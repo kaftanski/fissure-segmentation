@@ -4,7 +4,16 @@ from torch import nn
 
 
 class RegularizedMeshLoss(nn.Module):
-    def __init__(self, w_chamfer, w_edge_length, w_normal_consistency, w_laplacian, n_samples=2048):
+    def __init__(self, w_chamfer=1., w_edge_length=1., w_normal_consistency=0.1, w_laplacian=0.1, n_samples=2048):
+        """ default weights are from voxel2mesh (or the pytorch3d mesh fitting tutorial at
+        https://pytorch3d.org/tutorials/deform_source_mesh_to_target_mesh)
+
+        :param w_chamfer:
+        :param w_edge_length:
+        :param w_normal_consistency:
+        :param w_laplacian:
+        :param n_samples:
+        """
         super(RegularizedMeshLoss, self).__init__()
         self.w_chamfer = w_chamfer
         self.w_edge_length = w_edge_length
