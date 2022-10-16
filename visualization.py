@@ -148,13 +148,13 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
         plt.close(fig)
 
 
-def point_cloud_on_axis(ax, points, c, cmap=None, marker='.', title='', label=''):
+def point_cloud_on_axis(ax, points, c, cmap=None, marker='.', title='', label='', alpha=1.):
     if isinstance(points, torch.Tensor):
         points = points.cpu()
 
     points = points.squeeze()
 
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker, label=label)
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c, cmap=cmap, marker=marker, label=label, alpha=alpha)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
@@ -230,7 +230,8 @@ def trimesh_on_axis(ax, vertices, triangles, color='', title='', alpha=1., label
         else:
             return
 
-        plt.legend(handles=handles, handler_map=handler_map)
+        labels.append(label)
+        ax.legend(handles=handles, labels=labels, handler_map=handler_map)
 
 
 def plot_slice(img, s, b=0, c=0, dim=0, title='', save_path=None, show=True):
