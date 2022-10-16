@@ -25,13 +25,13 @@ from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
-def train(model, ds, batch_size, loss, device, learn_rate, weight_decay, scheduler, epochs, show, out_dir):
+def train(model, ds, device, out_dir, args):
     # set up loss function
     class_weights = ds.get_class_weights()
     if class_weights is not None:
         class_weights = class_weights.to(device)
 
-    criterion = get_loss_fn(loss, class_weights)
+    criterion = get_loss_fn(args.loss, class_weights)
 
     if isinstance(ds, CorrespondingPointDataset):
         train_shapes = ds.corr_points.get_shape_datamatrix().to(device)
@@ -47,7 +47,7 @@ def train(model, ds, batch_size, loss, device, learn_rate, weight_decay, schedul
             print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
     # run training
-    trainer = model_trainer.ModelTrainer(model, ds, criterion, learn_rate, weight_decay, scheduler, batch_size, device, epochs, out_dir, show)
+    trainer = model_trainer.ModelTrainer(model, ds, criterion, out_dir, device, args)
     trainer.run(initial_epoch=0)
 
     if isinstance(ds, CorrespondingPointDataset):
@@ -325,10 +325,10 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                 writer.writerow([key, value])
 
 
-def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, weight_decay, scheduler, epochs, show, out_dir, test_fn, test_only=False):
+def cross_val(model, ds, split_file, device, test_fn, args):
     print('============ CROSS-VALIDATION ============')
     split = load_split_file(split_file)
-    save_split_file(split, os.path.join(out_dir, 'cross_val_split.np.pkl'))
+    save_split_file(split, os.path.join(args.output, 'cross_val_split.np.pkl'))
     test_dice = []
     test_assd = []
     test_sdsd = []
@@ -338,14 +338,14 @@ def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, weigh
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
 
-        fold_dir = os.path.join(out_dir, f'fold{fold}')
-        if not test_only:
+        fold_dir = os.path.join(args.output, f'fold{fold}')
+        if not args.test_only:
             os.makedirs(fold_dir, exist_ok=True)
             # reset model for the current fold
             model = type(model)(**model.config)
-            train(model, train_ds, batch_size, loss, device, learn_rate, weight_decay, scheduler, epochs, show, fold_dir)
+            train(model, train_ds, device, fold_dir, args)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, show)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, args.show)
 
         test_dice.append(mean_dice)
         test_assd.append(mean_assd)
@@ -381,7 +381,7 @@ def cross_val(model, ds, split_file, batch_size, loss, device, learn_rate, weigh
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
-    write_results(os.path.join(out_dir, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+    write_results(os.path.join(args.output, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
 def run(ds, model, test_fn, args):
@@ -400,17 +400,16 @@ def run(ds, model, test_fn, args):
 
     if not args.test_only:
         if args.split is None:
-            train(model, ds, args.batch, args.loss, device, args.lr, args.wd, args.scheduler, args.epochs, args.show, args.output)
+            train(model, ds, device, args.output, args)
             test_fn(ds, device, args.output, args.show)
         else:
-            cross_val(model, ds, args.split, args.batch, args.loss, device, args.lr, args.wd, args.scheduler, args.epochs, args.show, args.output, test_fn)
+            cross_val(model, ds, args.split, device, test_fn, args)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
         if args.fold is None:
             # test with all folds
-            cross_val(model, ds, split_file, args.batch, args.loss, device, args.lr, args.wd, args.scheduler, args.epochs, args.show, args.output, test_fn,
-                      test_only=True)
+            cross_val(model, ds, split_file, device, test_fn, args)
         else:
             # test with the specified fold from the split file
             folder = os.path.join(args.output, f'fold{args.fold}')

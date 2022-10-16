@@ -1,5 +1,6 @@
 import math
 import os
+from argparse import Namespace
 from copy import deepcopy
 from time import time
 
@@ -17,16 +18,16 @@ from models.dg_ssm import DGSSM
 
 
 class ModelTrainer:
-    def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, learning_rate: float,
-                 weight_decay: float, scheduler: str, batch_size: int, device: str, epochs: int, out_dir: str, show: bool):
+    def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, out_dir: str,
+                 device: str, args: Namespace):
 
         self.model = model
         self.ds = ds
-        self.batch_size = batch_size
+        self.batch_size = args.batch_size
         self.device = device
-        self.epochs = epochs
+        self.epochs = args.epochs
         self.out_dir = out_dir
-        self.show = show
+        self.show = args.show
 
         self.initial_epoch = 0
 
@@ -34,21 +35,21 @@ class ModelTrainer:
         self.checkpoint_every = 50
 
         # setup optimization
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
-        min_lr = learning_rate * 0.05
-        if scheduler == 'plateau':
+        min_lr = args.learning_rate * 0.05
+        if args.scheduler == 'plateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
-                                                                        patience=math.ceil(0.05*epochs),
-                                                                        threshold=1e-4, cooldown=math.ceil(0.05*epochs),
+                                                                        patience=math.ceil(0.05*self.epochs),
+                                                                        threshold=1e-4, cooldown=math.ceil(0.05*self.epochs),
                                                                         verbose=True, min_lr=min_lr)
-        elif scheduler == 'cosine':
+        elif args.scheduler == 'cosine':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer, T_max=self.epochs, eta_min=min_lr, verbose=True)
-        elif scheduler == 'none':
+        elif args.scheduler == 'none':
             self.scheduler = None
         else:
-            raise ValueError(f'Scheduler "{scheduler}" undefined.')
+            raise ValueError(f'Scheduler "{args.scheduler}" undefined.')
 
         # loss function
         self.loss_function = loss_function
