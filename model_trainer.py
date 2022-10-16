@@ -23,7 +23,7 @@ class ModelTrainer:
 
         self.model = model
         self.ds = ds
-        self.batch_size = args.batch_size
+        self.batch_size = args.batch
         self.device = device
         self.epochs = args.epochs
         self.out_dir = out_dir
@@ -35,9 +35,9 @@ class ModelTrainer:
         self.checkpoint_every = 50
 
         # setup optimization
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
-        min_lr = args.learning_rate * 0.05
+        min_lr = args.lr * 0.05
         if args.scheduler == 'plateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.8,
                                                                         patience=math.ceil(0.05*self.epochs),
