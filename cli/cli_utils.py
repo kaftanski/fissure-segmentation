@@ -24,5 +24,10 @@ def load_args_for_testing(from_dir, current_args):
     args_from_file['gpu'] = current_args.gpu
     args_from_file['fold'] = current_args.fold
 
+    # add keys that may have been added since the training run
+    for key in current_args.__dict__.keys():
+        if key not in args_from_file.keys():
+            args_from_file[key] = getattr(current_args, key)
+
     current_args.__dict__ = args_from_file
     return current_args
