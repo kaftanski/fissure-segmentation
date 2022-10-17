@@ -7,6 +7,7 @@ import torch
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.seg_cnn import MobileNetASPP
+from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
 from utils.utils import kpts_to_grid, ALIGN_CORNERS
 
@@ -82,7 +83,9 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     return kp
 
 
-def get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.3):
+def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
+    enhanced_img = sitk.DiscreteGaussian(enhanced_img, variance=(1, 1, 1), useImageSpacing=True)
+    enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
     kp = torch.nonzero(enhanced_img_tensor > threshold).long()
     return kp
 
@@ -123,8 +126,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
         assert enhanced_img_path is not None, \
             'Tried to use fissure enhancement for keypoint extraction but no path to enhanced image given.'
         enhanced_img = sitk.ReadImage(enhanced_img_path)
-        enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
-        kp = get_hessian_fissure_enhancement_kpts(enhanced_img_tensor, threshold=0.5)
+        kp = get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.25)
 
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
@@ -166,7 +168,9 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 
 
 if __name__ == '__main__':
-    data_dir = '../data'
+    run_detached_from_pycharm()
+
+    data_dir = '../TotalSegmentator/ThoraxCrop'
     ds = LungData(data_dir)
 
     for i in range(len(ds)):
@@ -183,5 +187,5 @@ if __name__ == '__main__':
         lobes = ds.get_lobes(i)
         mask = ds.get_lung_mask(i)
 
-        compute_keypoints(img, fissures, lobes, mask, POINT_DIR, case, sequence, kp_mode='enhancement',
-                          enhanced_img_path=ds.fissures_enhanced[i], device='cuda:3')
+        compute_keypoints(img, fissures, lobes, mask, POINT_DIR_TS, case, sequence, kp_mode='enhancement',
+                          enhanced_img_path=ds.fissures_enhanced[i], device='cuda:1')
