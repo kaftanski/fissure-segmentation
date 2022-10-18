@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import torch
 from torch import nn
 
+from augmentations import compose_transform, transform_points_with_centering
 from models.dgcnn_opensrc import DGCNN
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
@@ -12,9 +13,10 @@ from shape_model.ssm import SSM, LSSM
 class DGSSM(LoadableModel):
     @store_config_args
     def __init__(self, k, in_features, spatial_transformer=False, dynamic=True, image_feat_module=False,
-                 ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1, lssm=False):
+                 predict_affine_params=True, ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1, lssm=False):
         super(DGSSM, self).__init__()
         SSMClass = SSM if not lssm else LSSM
+        self.predict_affine_params = predict_affine_params
         self.ssm = SSMClass(ssm_alpha, ssm_targ_var)
         # self.dgcnn = DGCNNReg(k, in_features, dgcnn_out_features,  # placeholder number of modes, has to be updated after training SSM
         #                       spatial_transformer, dynamic, image_feat_module)
@@ -29,11 +31,13 @@ class DGSSM(LoadableModel):
         self.ssm.assert_trained()
 
         coefficients = self.dgcnn(x)  # predict the coefficient multipliers for the eigenvalues
+        if self.predict_affine_params:
+            coefficients, so3_rotation, translation = coefficients.split([self.ssm.num_modes.data, 3, 3], dim=1)
         pred_weights = coefficients.squeeze() * self.ssm.eigenvalues
         reconstructions = self.ssm.decode(pred_weights)
-        # pred_points = self.dgcnn(x)
-        # pred_weights = self.ssm(pred_points)
-        # reconstructions = self.ssm.decode(pred_weights)
+
+        if self.predict_affine_params:
+            reconstructions = transform_points_with_centering(reconstructions, compose_transform(so3_rotation, translation))
         return reconstructions, pred_weights.squeeze()
 
     def fit_ssm(self, shapes):
@@ -43,7 +47,7 @@ class DGSSM(LoadableModel):
         # # make the model regress the correct number of modes for the SSM
         # self.dgcnn.regression[-1] = SharedFullyConnected(256, self.ssm.num_modes, dim=1, last_layer=True).to(next(self.parameters()).device)
         # self.dgcnn.init_weights()
-        self.dgcnn.linear3 = nn.Linear(256, self.config['ssm_modes'])
+        self.dgcnn.linear3 = nn.Linear(256, self.config['ssm_modes'] + 6 if self.predict_affine_params else 0)
         self.dgcnn.apply(init_weights)
 
     @classmethod
