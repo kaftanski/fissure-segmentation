@@ -18,6 +18,7 @@ from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points, \
     inverse_affine_transform
 from shape_model.ssm import save_shape
+from utils.detached_run import maybe_run_detached_cli
 from utils.tqdm_utils import tqdm_redirect
 from utils.utils import new_dir
 from visualization import trimesh_on_axis, point_cloud_on_axis
@@ -177,7 +178,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["kmean", "cluster", "simple"], default="simple",
+    parser.add_argument("--mode", choices=["kmeans", "cluster", "simple"], default="simple",
                         help="method for determining correspondences")
     parser.add_argument("--ts", const=True, default=False, nargs="?", help="use total segmentator dataset")
     parser.add_argument("--undo_affine", const=True, default=False, nargs="?",
@@ -185,7 +186,9 @@ if __name__ == '__main__':
     parser.add_argument("--show", const=True, default=False, nargs="?", help="show pyplot figures")
     parser.add_argument("--lobes", const=True, default=False, nargs="?", help="use lobes instead of fissure objects")
     parser.add_argument("--optics_divisor", type=int, default=16, help="divisor for OPTICS' min-samples parameter")
+    parser.add_argument("--offline", const=True, default=False, nargs="?", help="run detached from pycharm")
     args = parser.parse_args()
+    maybe_run_detached_cli(args)
 
     ###### SETUP ######
 
@@ -231,8 +234,23 @@ if __name__ == '__main__':
     all_affine_transforms = load('transforms.npz')
     ids = load('ids.npz')
 
-    moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
+    # remove any ids that might have been removed after the registration
+    mask = np.ones(len(ids), dtype=bool)
+    for i, loaded_id in enumerate(ids):
+        try:
+            ds.get_index(*loaded_id)
+        except ValueError:
+            mask[i] = False
+    all_displacements = all_displacements[mask, ...]
+    all_moved_pcs = all_moved_pcs[mask, ...]
+    all_moving_pcs = all_moving_pcs[mask, ...]
+    all_affine_transforms = all_affine_transforms[mask, ...]
+    ids = ids[mask, ...]
+
+    # load meshes
     moving_ids = [ds.get_id(m) for m in range(len(ds)) if m != f]  # prevent id mismatch
+    assert np.all(np.array(moving_ids)==ids), 'Mismatch between current data set and registrations loaded.'
+    moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
 
     corr_points, transforms, corr_fixed, labels, evaluation = data_set_correspondences(
         fixed_pcs, moving_meshes, all_moving_pcs, all_affine_transforms, all_moved_pcs, all_displacements,
