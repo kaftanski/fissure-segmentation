@@ -5,10 +5,10 @@ import torch
 from torch import nn
 
 from losses.chamfer_loss import ChamferLoss
+from losses.dgssm_loss import DGSSMLoss
 from losses.dice_loss import GDL
 from losses.mesh_loss import RegularizedMeshLoss
 from losses.recall_loss import BatchRecallLoss
-from losses.ssm_loss import CorrespondingPointDistance
 
 
 class Losses(Enum):
@@ -47,24 +47,6 @@ def assemble_nnunet_loss_function(class_weights: torch.Tensor = None):
     return combined_loss
 
 
-def asseble_dg_ssm_loss():
-    point_loss = CorrespondingPointDistance()
-    coefficient_loss = nn.MSELoss()
-
-    def combined_loss(prediction, target):
-        pred_shape, pred_weights = prediction
-        targ_shape, targ_weights = target
-        # pl = point_loss(pred_shape, targ_shape)
-
-        # convert predicted shape to pt3d point cloud
-        # pl = point_mesh_face_distance(targ_shape, pcl_pred)
-        pl = point_loss(pred_shape, targ_shape)
-        wl = coefficient_loss(pred_weights, targ_weights)  # TODO: is it better to use regularization w^T * Sigma^-1 * w
-        return pl + 0.5 * wl, {'Point-Loss': pl, 'Coefficients': wl}
-
-    return combined_loss
-
-
 def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: List[float] = None):
     if isinstance(loss, Losses):
         loss = loss.value
@@ -79,7 +61,14 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
         return BatchRecallLoss()
 
     if loss == Losses.SSM.value:
-        return asseble_dg_ssm_loss()
+        if term_weights is not None:
+            assert len(term_weights) == 2
+            return DGSSMLoss(
+                w_point=term_weights[0],
+                w_coefficients=term_weights[1])
+        else:
+            # default weights
+            return DGSSMLoss()
 
     if loss == Losses.CHAMFER.value:
         return ChamferLoss()

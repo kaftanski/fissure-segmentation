@@ -15,6 +15,8 @@ def add_training_parameters(parser):
     group.add_argument('--loss', help='loss function for training. "nnunet" is cross entropy + DICE loss, '
                        '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
                        type=str, choices=Losses.list())
+    group.add_argument("--loss_weights", nargs='+', default=None, type=float,
+                       help="Weights for the components of loss function. Implemented only for Mesh-Loss for now. This takes 4 weights for example.")
     group.add_argument('--wd', default=1e-5, help='weight decay parameter for Adam optimizer', type=float)
     group.add_argument('--scheduler', default='plateau', help='the learn rate scheduler to use', type=str,
                        choices=['cosine', 'plateau', 'none'])
@@ -121,8 +123,6 @@ def get_pc_ae_train_parser():
                        help="Use deforming decoder instead of folding.", nargs='?')
     group.add_argument("--obj", help="Only use the index of this object (use all objects per default)", type=int,
                        default=None)
-    group.add_argument("--loss_weights", nargs='+', default=None, type=float,
-                       help="Weights for the components of loss function. Implemented only for Mesh-Loss for now. This takes 4 weights for example.")
 
     parser.set_defaults(loss='mesh')
     return parser
