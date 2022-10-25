@@ -7,10 +7,11 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from torch import nn
 
-from data import LungData
+from data import LungData, normalize_img
+from data_processing.keypoint_extraction import KP_MODES
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
-from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS
+from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world
 
 FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement']
 
@@ -155,7 +156,7 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
     # load keypoints
     kp, _, _, _ = load_points(kp_dir, case, sequence, feat=None)
-    kp = kp.transpose(0, 1).long()
+    kp = kp.transpose(0, 1)
 
     # image patch features
     if feature_mode == 'mind' or feature_mode == 'mind_ssc':
@@ -171,10 +172,11 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
         print('\tComputing MIND features')
         # compute mind features for image
-        features = mind(img_tensor, sigma=mind_sigma, dilation=delta, ssc=ssc)
+        features = mind(img_tensor.view(1, 1, *img_tensor.shape), sigma=mind_sigma, dilation=delta, ssc=ssc)
 
         # extract features for keypoints
-        features = features[..., kp[:, 0], kp[:, 1], kp[:, 2]].squeeze()
+        kp_index = kpts_to_world(kp, img_tensor.shape, align_corners=ALIGN_CORNERS).long()
+        features = features[..., kp_index[:, 2], kp_index[:, 1], kp_index[:, 0]].squeeze()
 
     elif feature_mode == 'image' or feature_mode == 'enhancement':
         # hyperparameters
@@ -183,17 +185,21 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
         # load the image to sample from and resample to unit spacing
         feature_img = ds.get_enhanced_fissures(img_index) if feature_mode == 'enhancement' else ds.get_image(img_index)
         feature_img = resample_equal_spacing(feature_img, target_spacing=1)
-        enhanced_tensor = sitk_image_to_tensor(feature_img)
+        feature_tensor = sitk_image_to_tensor(feature_img)
         if not kp.min() >= -1. and kp.max() <= 1.:
             warnings.warn('Keypoints are not given in Pytorch grid coordinates. I am assuming they are world coords.')
             kp = kpts_to_grid(
-                kp, shape=(torch.tensor(enhanced_tensor.shape) * torch.tensor(feature_img.GetSpacing()[::-1])).to(device),
+                kp, shape=(torch.tensor(feature_tensor.shape) * torch.tensor(feature_img.GetSpacing()[::-1])).to(device),
                 align_corners=ALIGN_CORNERS)
 
-        features = sample_patches_at_kpts(enhanced_tensor.unsqueeze(0).unsqueeze(0), kp, patch_size)
+        features = sample_patches_at_kpts(feature_tensor.unsqueeze(0).unsqueeze(0), kp, patch_size)
 
         # make a feature vector out of the patch and move features to the first dim
         features = features.squeeze().flatten(start_dim=1).transpose(0, 1)
+
+        if feature_mode == 'image':
+            # normalize image intensities
+            features = normalize_img(features, max_val=0)  # normalize to HU of water (0) being 1
 
     else:
         raise ValueError(f'No feature mode named {feature_mode}. Use one of {FEATURE_MODES}.')
@@ -202,16 +208,20 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
 
 if __name__ == '__main__':
+    # run_detached_from_pycharm()
+
     data_dir = '../data'
     ds = LungData(data_dir)
 
-    point_dir = '../point_data/enhancement'
+    for kp_mode in KP_MODES:
+        point_dir = f'../point_data/{kp_mode}'
 
-    for i in range(len(ds)):
-        case, sequence = ds.get_id(i)
-        print(f'Computing point features for case {case}, {sequence}...')
-        if ds.fissures[i] is None:
-            print('\tNo fissure segmentation found.')
-            continue
+        for feat_mode in FEATURE_MODES:
+            for i in range(len(ds)):
+                case, sequence = ds.get_id(i)
+                print(f'Computing point features for case {case}, {sequence}...')
+                if ds.fissures[i] is None:
+                    print('\tNo fissure segmentation found.')
+                    continue
 
-        compute_point_features(ds, case, sequence, point_dir, feature_mode='enhancement')
+                compute_point_features(ds, case, sequence, point_dir, feature_mode=feat_mode, device='cuda:3')

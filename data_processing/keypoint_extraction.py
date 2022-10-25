@@ -170,22 +170,28 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 if __name__ == '__main__':
     run_detached_from_pycharm()
 
-    data_dir = '../TotalSegmentator/ThoraxCrop'
+    # data_dir = '../TotalSegmentator/ThoraxCrop'
+    data_dir = '../data'
     ds = LungData(data_dir)
 
-    for i in range(len(ds)):
-        case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
-        sequence = sequence.replace('.nii.gz', '')
-
-        print(f'Computing points for case {case}, {sequence}...')
-        if ds.fissures[i] is None:
-            print('\tNo fissure segmentation found.')
+    for mode in KP_MODES:
+        if mode == 'noisy':
             continue
 
-        img = ds.get_image(i)
-        fissures = ds.get_regularized_fissures(i)
-        lobes = ds.get_lobes(i)
-        mask = ds.get_lung_mask(i)
+        print('MODE:', mode)
+        for i in range(len(ds)):
+            case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
+            sequence = sequence.replace('.nii.gz', '')
 
-        compute_keypoints(img, fissures, lobes, mask, POINT_DIR_TS, case, sequence, kp_mode='enhancement',
-                          enhanced_img_path=ds.fissures_enhanced[i], device='cuda:1')
+            print(f'Computing points for case {case}, {sequence}...')
+            if ds.fissures[i] is None:
+                print('\tNo fissure segmentation found.')
+                continue
+
+            img = ds.get_image(i)
+            fissures = ds.get_regularized_fissures(i)
+            lobes = ds.get_lobes(i)
+            mask = ds.get_lung_mask(i)
+
+            compute_keypoints(img, fissures, lobes, mask, POINT_DIR_TS, case, sequence, kp_mode='enhancement',
+                              enhanced_img_path=ds.fissures_enhanced[i], device='cuda:3')

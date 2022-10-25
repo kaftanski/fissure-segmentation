@@ -297,7 +297,7 @@ class ImageDataset(LungData, CustomDataset):
             img_array, label_array = image_augmentation(img_array, label_array, patch_size=self.patch_size)
 
         # get inputs into range [-1, 1]
-        img_array = (img_array - IMG_MIN) / (IMG_MAX - IMG_MIN) * 2 - 1
+        img_array = normalize_img(img)
 
         return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
 
@@ -327,15 +327,8 @@ class ImageDataset(LungData, CustomDataset):
         return collate_fn
 
 
-def preprocessing_generator(dataloader, preproc_fn, **preproc_kwargs):
-    for x_batch, y_batch in dataloader:
-        yield preproc_fn(x_batch, y_batch, **preproc_kwargs)
-
-
-def preprocess(img, label, device):
-    img = (img.float().to(device) + IMG_MIN) / (IMG_MAX - IMG_MIN) * 2 - 1  # get inputs into range [-1, 1]
-    label = label.long().to(device)
-    return img, label
+def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
+    return (img - min_val) / (max_val - min_val) * 2 - 1  # get inputs into range [-1, 1]
 
 
 class PointDataset(CustomDataset):
