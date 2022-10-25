@@ -15,11 +15,11 @@ import open3d as o3d
 import torch
 from torch.utils.data import Dataset
 
-from augmentations import image_augmentation
+from augmentations import image_augmentation, point_augmentation
 from shape_model.ssm import load_shape
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
-    get_resample_factors
-from utils.utils import load_points, load_meshes
+    get_resample_factors, load_image_metadata
+from utils.utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform
 
 IMG_MIN = -1000
 IMG_MAX = 1500
@@ -340,16 +340,17 @@ def preprocess(img, label, device):
 
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode, folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/', use_coords=True,
-                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False):
+                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
 
-        super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=False, binary=binary)
+        super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary)
 
         if lobes and binary:
             raise NotImplementedError(
                 'Binary prediction for lobe labels is not implemented. Use fissure data or remove the binary option.')
 
         if not use_coords:
-            assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
+            raise ValueError('Coords have to be present for this to work...')
+            # assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 
         self.folder = os.path.join(folder, kp_mode)
         files = sorted(glob(os.path.join(self.folder, '*_coords_*')))
@@ -386,6 +387,10 @@ class PointDataset(CustomDataset):
         feat = self.features[item]
         if self.use_coords:
             pts = self.points[item]
+            if self.do_augmentation:
+                # random transform of the coordinates
+                pts, transform = point_augmentation(pts.unsqueeze(0)).squeeze(0)
+
             x = torch.cat([pts, feat], dim=0)
         else:
             x = feat
@@ -431,35 +436,59 @@ class PointDataset(CustomDataset):
 class CorrespondingPointDataset(PointDataset):
     def __init__(self, sample_points, kp_mode, point_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/',
                  use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
-                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data/'):
-        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat, exclude_rhf=True)
-        self.corr_points = CorrespondingPoints(corr_folder)
+                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data/',
+                 do_augmentation=True, undo_affine_reg=False):
+        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat,
+                                                        exclude_rhf=True, do_augmentation=False)
+        self.corr_points = CorrespondingPoints(corr_folder, undo_affine_reg=undo_affine_reg)
+        self.do_augmentation_correspondingly = do_augmentation
 
-        # load meshes for supervision
-        self.meshes = []
-        for case, sequence in self.ids:
-            meshes = load_meshes(image_folder, case, sequence, obj_name='fissure')
-            self.meshes.append(meshes)
+        # # load meshes for supervision
+        # self.meshes = []
+        # for case, sequence in self.ids:
+        #     meshes = load_meshes(image_folder, case, sequence, obj_name='fissure')
+        #     self.meshes.append(meshes)
 
         # remove non-matched data points
         self._remove_non_matched_from_corr_points()
 
-        # affine transform the ground truth meshes to fit the corresponding points
-        for meshes, transforms in zip(self.meshes, self.corr_points.transforms):
-            for m, t in zip(meshes, transforms):
-                # rotate around [0,0,0] (o3d uses the PC's center of mass by default)
-                m.rotate(t[..., :3], center=np.zeros([3, 1]))
-                m.translate(t[..., -1])
+        # load img sizes for pytorch grid normalization
+        self.img_sizes = []
+        for case, sequence in self.ids:
+            size, spacing = load_image_metadata(os.path.join(image_folder, f"{case}_img_{sequence}.nii.gz"))
+            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
+            self.img_sizes.append(size_world)
+
+        # # affine transform the ground truth meshes to fit the corresponding points
+        # for meshes, transforms in zip(self.meshes, self.corr_points.transforms):
+        #     for m, t in zip(meshes, transforms):
+        #         # rotate around [0,0,0] (o3d uses the PC's center of mass by default)
+        #         m.rotate(t[..., :3], center=np.zeros([3, 1]))
+        #         m.translate(t[..., -1])
 
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
+        target_corr_pts = self.normalize_pc(self.corr_points[item], item)
+
+        # we want the network to predict the inverse rigid transformation (back into moving space)
+        target_scale = 1 / self.corr_points.transforms[item]['scale']
+        target_rotation = torch.linalg.inv(self.corr_points.transforms[item]['rotation'])
+        target_translation = - self.normalize_pc(self.corr_points.transforms[item]['translation'].unsqueeze(0), item)
+
+        # augmentations
+        if self.do_augmentation_correspondingly:
+            pts_augment, (log_rotation_matrix, random_translations, random_rescale) = \
+                point_augmentation(pts[:3].unsqueeze(0))
+            pts[:3] = pts_augment.squeeze(0)
+
+            # augmentations need to be predicted as well (happen in moving space, therefore matrix multiply left
 
         # # combine the label meshes
         # concat_meshes = self.meshes[item][0]
         # for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
         #     concat_meshes += m
 
-        return pts, self.corr_points[item]  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
+        return pts, target_corr_pts  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
@@ -482,6 +511,15 @@ class CorrespondingPointDataset(PointDataset):
                 self.corr_points.transforms.pop(i)
                 self.corr_points.ids.pop(i)
 
+    def normalize_pc(self, pc, index):
+        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+    def unnormalize_pc(self, pc, index):
+        return kpts_to_world(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+    def get_normalized_corr_datamatrix_with_affine_reg(self):
+        return torch.stack([self.normalize_pc(pts, i) for i, pts in enumerate(self.corr_points.points)], dim=0)
+
     # def get_batch_collate_fn(self):
     #     def collate_fn(list_of_samples):
     #         pcs = []
@@ -498,8 +536,9 @@ class CorrespondingPointDataset(PointDataset):
 
 
 class CorrespondingPoints:
-    def __init__(self, folder="./results/corresponding_points"):
+    def __init__(self, folder="./results/corresponding_points", undo_affine_reg=False):
         self.folder = folder
+        self.undo_affine_reg = undo_affine_reg
         self.points = []
         self.transforms = []
         self.ids = []
@@ -516,19 +555,32 @@ class CorrespondingPoints:
         self.label = load_shape(files[0], return_labels=True)[-1]
         self.num_objects = len(np.unique(self.label))
 
-    @property
-    def normalized_points(self):
-        pts_tensor = torch.stack(self.points)
-        return (pts_tensor - pts_tensor.mean(dim=(0, 1), keepdim=True)) / pts_tensor.std(dim=(0, 1), keepdim=True)  # TODO: use isotropic rescaling?
-
     def __getitem__(self, item):
-        return self.points[item]
+        if self.undo_affine_reg:
+            return self.get_points_without_affine_reg(item)
+        else:
+            return self.points[item]
 
     def __len__(self):
         return len(self.points)
 
-    def get_shape_datamatrix(self):
+    def get_shape_datamatrix_with_affine_reg(self):
         return torch.stack(self.points, dim=0)
+
+    def get_points_without_affine_reg(self, index):
+        points_registered = self.points[index]
+        return self.inverse_affine_transform(points_registered, index)
+
+    def inverse_affine_transform(self, pts_affine, index):
+        unregistered = []
+        trf = self.transforms[index]
+        rot = trf['rotation'].to(pts_affine.device)
+        trans = trf['translation'].to(pts_affine.device)
+        for i, lbl in enumerate(self.label.unique()):
+            unregistered.append(inverse_affine_transform(pts_affine[self.label == lbl], scaling=trf['scale'],
+                                                         rotation_mat=rot, affine_translation=trans))
+
+        return torch.concat(unregistered, dim=0)
 
 
 def load_landmarks(filepath):

@@ -1,19 +1,15 @@
 import csv
-import json
 import os
 
 import matplotlib.pyplot as plt
 import torch
-from math import sqrt
-from pytorch3d.structures import Meshes, Pointclouds
+from pytorch3d.structures import Meshes
 from pytorch3d.transforms import random_rotations
 from pytorch3d.transforms.transform3d import Transform3d
-from pytorch3d.loss import point_mesh_face_distance
 from torch import optim, nn
 
 from data import CorrespondingPointDataset
-from losses.access_losses import get_loss_fn, Losses
-from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
+from losses.dgssm_loss import CorrespondingPointDistance, corresponding_point_distance
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from visualization import visualize_point_cloud
@@ -75,7 +71,7 @@ os.makedirs(plot_dir, exist_ok=True)
 device = 'cuda:3'
 
 ds = CorrespondingPointDataset(1024, 'cnn')
-shapes = ds.corr_points.get_shape_datamatrix().to(device)
+shapes = ds.corr_points.get_shape_datamatrix_with_affine_reg().to(device)
 
 # # augment shapes with random transformations
 # n_augment = 10  # times the data set

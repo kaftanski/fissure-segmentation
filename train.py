@@ -15,7 +15,7 @@ from data_processing.find_lobes import lobes_to_fissures
 from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
-from losses.ssm_loss import corresponding_point_distance
+from losses.dgssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from utils.detached_run import maybe_run_detached_cli
@@ -34,7 +34,7 @@ def train(model, ds, device, out_dir, args):
     criterion = get_loss_fn(args.loss, class_weights, args.loss_weights)
 
     if isinstance(ds, CorrespondingPointDataset):
-        train_shapes = ds.corr_points.get_shape_datamatrix().to(device)
+        train_shapes = ds.get_normalized_corr_datamatrix_with_affine_reg().to(device)
         model.fit_ssm(train_shapes)
 
         ev_before = model.ssm.eigenvectors.data.clone()
@@ -432,7 +432,7 @@ if __name__ == '__main__':
                   'To specify, provide arguments --coords and/or --patch.')
 
         if args.ds == 'data':
-            point_dir = POINT_DIR if args.ds == 'data' else POINT_DIR_TS
+            point_dir = POINT_DIR
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
         else:

@@ -25,20 +25,22 @@ class DGSSM(LoadableModel):
             emb_dims=1024,  # length of global feature vector
             dropout=0.
         )
-        self.dgcnn = DGCNN(dgcnn_args, output_channels=ssm_modes)
+        self.dgcnn = DGCNN(dgcnn_args, input_channels=in_features,
+                           output_channels=ssm_modes + 6 if predict_affine_params else 0)
 
     def forward(self, x):
         self.ssm.assert_trained()
 
         coefficients = self.dgcnn(x)  # predict the coefficient multipliers for the eigenvalues
         if self.predict_affine_params:
-            coefficients, so3_rotation, translation = coefficients.split([self.ssm.num_modes.data, 3, 3], dim=1)
+            coefficients, so3_rotation, translation = self.split_prediction(coefficients)
         pred_weights = coefficients.squeeze() * self.ssm.eigenvalues
         reconstructions = self.ssm.decode(pred_weights)
 
         if self.predict_affine_params:
-            reconstructions = transform_points_with_centering(reconstructions, compose_transform(so3_rotation, translation))
-        return reconstructions, pred_weights.squeeze()
+            reconstructions = transform_points_with_centering(
+                reconstructions.transpose(1, 2), compose_transform(so3_rotation.squeeze(-1), translation.squeeze(-1)))
+        return reconstructions.transpose(1, 2), torch.cat((pred_weights.squeeze(), so3_rotation, translation), dim=1)
 
     def fit_ssm(self, shapes):
         self.ssm.fit(shapes)
@@ -49,6 +51,13 @@ class DGSSM(LoadableModel):
         # self.dgcnn.init_weights()
         self.dgcnn.linear3 = nn.Linear(256, self.config['ssm_modes'] + 6 if self.predict_affine_params else 0)
         self.dgcnn.apply(init_weights)
+
+    def split_prediction(self, dgcnn_pred):
+        if self.predict_affine_params:
+            return dgcnn_pred.split([self.ssm.num_modes.data, 3, 3], dim=1)
+        else:
+            bs = dgcnn_pred.shape[0]
+            return dgcnn_pred, torch.zeros(bs, 3).to(dgcnn_pred), torch.zeros(bs, 3).to(dgcnn_pred)
 
     @classmethod
     def load(cls, path, device):

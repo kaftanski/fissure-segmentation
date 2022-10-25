@@ -1,8 +1,8 @@
 import torch
 from torch import optim, nn
 
-from data import CorrespondingPointDataset, CorrespondingPoints
-from losses.ssm_loss import CorrespondingPointDistance, corresponding_point_distance
+from data import CorrespondingPoints
+from losses.dgssm_loss import CorrespondingPointDistance, corresponding_point_distance
 from shape_model.ssm import LSSM, vector2shape, shape2vector
 
 
@@ -16,7 +16,7 @@ def sanity_check():
 
     ds = CorrespondingPoints()
 
-    shapes = ds.get_shape_datamatrix().to(device)
+    shapes = ds.get_shape_datamatrix_with_affine_reg().to(device)
 
     ssm = LSSM()
     ssm.fit(shapes)
@@ -66,7 +66,7 @@ def sanity_check2():
 
     ds = CorrespondingPoints()
 
-    shapes = ds.get_shape_datamatrix().to(device)
+    shapes = ds.get_shape_datamatrix_with_affine_reg().to(device)
 
     ssm = LSSM()
     ssm.fit(shapes)
@@ -108,7 +108,7 @@ def sanity_check3():
 
     ds = CorrespondingPoints()
 
-    shapes = ds.get_shape_datamatrix().to(device)
+    shapes = ds.get_shape_datamatrix_with_affine_reg().to(device)
 
     ssm = LSSM()
     ssm.fit(shapes)

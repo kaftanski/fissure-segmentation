@@ -1,9 +1,9 @@
-import math
 import os
 from argparse import Namespace
 from copy import deepcopy
 from time import time
 
+import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -13,6 +13,7 @@ from torch.utils.data import random_split, DataLoader
 import models.modelio
 from data import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
+from losses.dgssm_loss import DGSSMLoss
 from losses.mesh_loss import RegularizedMeshLoss
 from models.dg_ssm import DGSSM
 
@@ -53,7 +54,7 @@ class ModelTrainer:
 
         # loss function
         self.loss_function = loss_function
-        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss))
+        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss, DGSSMLoss))
 
         # create data loaders
         self.validation_split = 0.2  # percentage of the training data being used for validation during training

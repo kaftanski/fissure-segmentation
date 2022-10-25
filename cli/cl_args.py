@@ -4,6 +4,7 @@ from data_processing.keypoint_extraction import KP_MODES
 from data_processing.point_features import FEATURE_MODES
 from losses.access_losses import Losses
 from models.folding_net import SHAPE_TYPES
+from shape_model.generate_corresponding_points import CORRESPONDENCE_MODES
 
 
 def add_training_parameters(parser):
@@ -104,6 +105,10 @@ def get_dgcnn_ssm_train_parser():
                        help='Fraction of the dataset variance to be explained by the model')
     group.add_argument('--lssm', const=True, default=False,
                        help='use Localized SSM (Wilms et al., MedIA 2017) instead of standard SSM', nargs='?')
+    group.add_argument('--predict_affine', const=True, default=False, nargs='?',
+                       help='predict the affine transformation of the corresponding points')
+    group.add_argument('--corr_mode', default='simple', choices=CORRESPONDENCE_MODES, type=str,
+                       help='mode of the point correspondence generation')
 
     parser.set_defaults(loss='ssm')
     return parser

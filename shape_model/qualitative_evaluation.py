@@ -4,7 +4,7 @@ import os
 import torch
 from matplotlib import pyplot as plt
 
-from losses.ssm_loss import corresponding_point_distance
+from losses.dgssm_loss import corresponding_point_distance
 from shape_model.ssm import SSM, load_shape
 from visualization import point_cloud_on_axis
 

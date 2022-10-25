@@ -10,7 +10,7 @@ from pytorch3d.transforms.transform3d import Transform3d
 from torch import optim, nn
 
 from data import CorrespondingPointDataset
-from losses.ssm_loss import corresponding_point_distance, CorrespondingPointDistance
+from losses.dgssm_loss import CorrespondingPointDistance, corresponding_point_distance
 from models.dgcnn import DGCNNReg
 from models.dgcnn_opensrc import DGCNN, PointNet
 from models.modelio import LoadableModel, store_config_args

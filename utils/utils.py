@@ -278,3 +278,19 @@ def sample_patches_at_kpts(img: torch.Tensor, kpts_grid: torch.Tensor, patch_siz
     # restore the spatial dimensions and have the different patches in the channel dimension
     patches = patches.view(img.shape[0], kpts_grid.shape[0], patch_size, patch_size, patch_size)
     return patches
+
+
+def inverse_affine_transform(point_cloud: np.ndarray, scaling: float, rotation_mat: np.ndarray, affine_translation: np.ndarray):
+    """
+
+    :param point_cloud: (N, 3)
+    :param scaling:
+    :param rotation_mat:
+    :param affine_translation:
+    :return:
+    """
+    backend = torch if isinstance(point_cloud, torch.Tensor) else np
+    rotation_inverse = backend.linalg.inv(rotation_mat)
+    pc_not_affine = backend.matmul(rotation_inverse[None, :, :],
+                                   1/scaling * (point_cloud - affine_translation)[:, :, None]).squeeze()
+    return pc_not_affine

@@ -1,9 +1,11 @@
 import SimpleITK as sitk
 import torch
-from torch.nn import functional as F
-from utils.image_ops import sitk_image_to_tensor, get_resample_factors
 from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
+from pytorch3d.transforms import so3_exp_map, Transform3d
+from torch.nn import functional as F
+
+from utils.image_ops import sitk_image_to_tensor, get_resample_factors
 
 
 def spacing_resampling_matrix(input_size, input_spacing, target_spacing=1.):
@@ -43,6 +45,56 @@ def image_augmentation(img, seg, patch_size=(128, 128, 128)):
     data_dict = {"data": img, "seg": seg}
     augmented = transforms(**data_dict)
     return augmented["data"], augmented["seg"]
+
+
+def point_augmentation(point_clouds: torch.Tensor, rotation_amount=0.1, translation_amount=0.1, scale_amount=0.1):
+    """ Random rotation (around a random 3d vector) and random translation.
+
+    :param point_clouds: shape (batch x 3 x N), expected to be in pytorch grid coordinates [-1,1]
+    :param rotation_amount: rotation angle in range [-rotation_amount*pi, rotation_amount*pi]
+    :param translation_amount: translation in range [-translation_amount, translation_amount]
+    :param scale_amount: uniform scaling in range [1 - scale_amount, 1 + scale_amount]
+    :return: transformed points and transform object
+    """
+    # random rotations (so3 representation, axis is the direction of the vector, angle its magnitude)
+    random_rotation_vectors = torch.rand(len(point_clouds), 3, device=point_clouds.device) * 2 - 1
+    unit_vectors = random_rotation_vectors / random_rotation_vectors.norm(dim=1)
+    log_rotation_matrix = unit_vectors * torch.pi * rotation_amount
+
+    # random translations (in grid coords)
+    random_translations = (torch.rand(len(point_clouds), 3, device=point_clouds.device) * 2 - 1) * translation_amount
+
+    # random rescaling
+    random_rescale = torch.ones(len(point_clouds), device=point_clouds.device) - \
+                     torch.rand(len(point_clouds), device=point_clouds.device) * scale_amount
+
+    # compose the transforms
+    transforms = compose_transform(log_rotation_matrix, random_translations, random_rescale)
+    return transform_points_with_centering(point_clouds, transforms), (log_rotation_matrix, random_translations, random_rescale)
+
+
+def compose_transform(log_rotation_matrix: torch.Tensor, translation: torch.Tensor, scaling: torch.Tensor):
+    t = Transform3d(device=log_rotation_matrix.device) \
+        .rotate(so3_exp_map(log_rotation_matrix)) \
+        .translate(translation) \
+        .scale(scaling)
+    # log_rotation_matrix is an R^3 vector of which the direction is the rotation axis and the magnitude is the
+    # angle magnitude of rotation around the axis
+    return t
+
+
+def transform_points_with_centering(point_clouds, transforms: Transform3d):
+    """ by default, pytorch3d does not rotate around the center of the point cloud but (0,0,0)
+
+    :param point_clouds: shape (batch x 3 x N)
+    :param transforms: transform object
+    :return: transformed point_clouds
+    """
+    assert point_clouds.ndim == 3
+    point_clouds = point_clouds.transpose(1, 2)
+    translation_to_center = point_clouds.mean(1, keepdim=True)
+    transformed = transforms.transform_points(point_clouds - translation_to_center) + translation_to_center
+    return transformed.transpose(1, 2)
 
 
 if __name__ == '__main__':
