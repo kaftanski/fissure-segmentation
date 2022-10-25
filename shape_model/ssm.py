@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from losses.ssm_loss import corresponding_point_distance
+from losses.dgssm_loss import corresponding_point_distance
 from models.modelio import store_config_args, LoadableModel
 from shape_model.LPCA.model import LPCA
 
@@ -178,7 +178,7 @@ def save_shape(array, filepath, transforms=None):
         uses identity by default.
     """
     if transforms is None:
-        transforms = np.stack([np.eye(3, 4) for _ in range(array.shape[0])])
+        transforms = {'scale': 1, 'rotation': np.eye(3, 3), 'translation': np.zeros(3), 'is_applied': True}
     with open(filepath, 'wb') as file:
         pickle.dump(OrderedDict({'shape': array, 'transform': transforms}), file)
 
@@ -186,16 +186,19 @@ def save_shape(array, filepath, transforms=None):
 def load_shape(filepath, return_labels=False):
     file = np.load(filepath, allow_pickle=True)
     arr = torch.from_numpy(file['shape']).float()
-    trf = torch.from_numpy(file['transform']).float()
+    trf = file['transform']
+    trf['rotation'] = torch.from_numpy(trf['rotation']).float()
+    trf['translation'] = torch.from_numpy(trf['translation']).float()
 
     if arr.ndim == 3:
+        # generate pointwise labels
+        labels = torch.from_numpy(
+            np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
+
         # unpack all objects (first dimension)
         arr = torch.cat([*arr], dim=0)
 
         if return_labels:
-            # generate pointwise labels
-            labels = torch.from_numpy(
-                np.concatenate([np.full(arr.shape[1], fill_value=i + 1) for i in range(arr.shape[0])]))
             return arr, trf, labels
 
     else:

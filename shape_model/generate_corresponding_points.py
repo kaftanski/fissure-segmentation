@@ -15,18 +15,19 @@ from sklearn.cluster import k_means, OPTICS
 from data import ImageDataset
 from metrics import point_surface_distance
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points, \
-    inverse_affine_transform
+from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points
 from shape_model.ssm import save_shape
 from utils.detached_run import maybe_run_detached_cli
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import new_dir
+from utils.utils import new_dir, inverse_affine_transform
 from visualization import trimesh_on_axis, point_cloud_on_axis
+
+CORRESPONDENCE_MODES = ["kmeans", "cluster", "simple"]
 
 
 def data_set_correspondences(fixed_pcs: np.ndarray,
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
-                             all_moving_pcs: np.ndarray, all_affine_transforms: np.ndarray, all_moved_pcs: np.ndarray,
+                             all_moving_pcs: np.ndarray, all_prereg_transforms: np.ndarray, all_moved_pcs: np.ndarray,
                              all_displacements: np.ndarray, fixed_img_shape, plot_dir,
                              mode='cluster', undo_affine_reg=True, show=True, optics_minsamples_divisor=-1):
 
@@ -115,15 +116,15 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
                 sample_point_cloud=centroids, img_shape=fixed_img_shape)
 
             # optionally undo affine transformation
-            sampled_pc_not_affine = inverse_affine_transform(sampled_pc,
-                                                             all_affine_transforms[instance, obj_i, :, :3].T,
-                                                             all_affine_transforms[instance, obj_i, :, 3])
+            sampled_pc_not_affine = inverse_affine_transform(sampled_pc, all_prereg_transforms[instance]['scale'],
+                                                             all_prereg_transforms[instance]['rotation'],
+                                                             all_prereg_transforms[instance]['translation'])
             if undo_affine_reg:
                 corresponding_pcs[obj_i].append(sampled_pc_not_affine)
-                # affine transform was undone, just the identity is left
-                all_affine_transforms[instance, obj_i] = np.eye(3, 4)
             else:
                 corresponding_pcs[obj_i].append(sampled_pc)
+
+            all_prereg_transforms[instance]['is_applied'] = not undo_affine_reg
 
             # EVALUATION: compute surface distance between sampled moving and GT mesh!
             dist_moved = point_surface_distance(query_points=sampled_pc_not_affine,
@@ -134,7 +135,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
             hd = dist_moved.max()
             print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
             cf, _ = pytorch3d.loss.chamfer_distance(torch.from_numpy(sampled_pc_not_affine[None]).float(),
-                                                 torch.from_numpy(all_moving_pcs[instance, obj_i, None]).float())
+                                                    torch.from_numpy(all_moving_pcs[instance, obj_i, None]).float())
             print(f'Chamfer Distance: {cf:.4f}')
 
             mean_p2m[obj_i].append(p2m)
@@ -171,14 +172,14 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
     labels = np.concatenate([np.full(len(corresponding_pcs[i][0]), i+1) for i in range(len(corresponding_pcs))])
     print('Corresponding point labels (counts):', np.unique(labels, return_counts=True))
 
-    return np.concatenate(corresponding_pcs, axis=1), all_affine_transforms, corresponding_fixed_pc, labels, \
-        {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
+    return np.concatenate(corresponding_pcs, axis=1), all_prereg_transforms, corresponding_fixed_pc, labels, \
+           {'mean': torch.tensor(mean_p2m).T, 'std': torch.tensor(std_p2m).T, 'hd': torch.tensor(hd_p2m).T,
          'cf': torch.tensor(cf_dists).T}
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["kmeans", "cluster", "simple"], default="simple",
+    parser.add_argument("--mode", choices=CORRESPONDENCE_MODES, default="simple",
                         help="method for determining correspondences")
     parser.add_argument("--ts", const=True, default=False, nargs="?", help="use total segmentator dataset")
     parser.add_argument("--undo_affine", const=True, default=False, nargs="?",
@@ -231,7 +232,7 @@ if __name__ == '__main__':
     all_displacements = load('displacements.npz')
     all_moved_pcs = load('moved_pcs.npz')
     all_moving_pcs = load('moving_pcs.npz')
-    all_affine_transforms = load('transforms.npz')
+    all_prereg_transforms = load('transforms.npz')
     ids = load('ids.npz')
 
     # remove any ids that might have been removed after the registration
@@ -244,7 +245,7 @@ if __name__ == '__main__':
     all_displacements = all_displacements[mask, ...]
     all_moved_pcs = all_moved_pcs[mask, ...]
     all_moving_pcs = all_moving_pcs[mask, ...]
-    all_affine_transforms = all_affine_transforms[mask, ...]
+    all_prereg_transforms = [all_prereg_transforms[i] for i in range(len(all_prereg_transforms)) if mask[i]]
     ids = ids[mask, ...]
 
     # load meshes
@@ -253,7 +254,7 @@ if __name__ == '__main__':
     moving_meshes = [get_meshes(m) for m in range(len(ds)) if m != f]
 
     corr_points, transforms, corr_fixed, labels, evaluation = data_set_correspondences(
-        fixed_pcs, moving_meshes, all_moving_pcs, all_affine_transforms, all_moved_pcs, all_displacements,
+        fixed_pcs, moving_meshes, all_moving_pcs, all_prereg_transforms, all_moved_pcs, all_displacements,
         plot_dir=new_dir(out_path, 'plots'), fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
         mode=mode, show=show, undo_affine_reg=undo_affine, optics_minsamples_divisor=optics_min_samples_divisor)
 
