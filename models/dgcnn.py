@@ -1,28 +1,29 @@
 import time
 import warnings
+from abc import ABC, abstractmethod
 
 import torch
-from abc import ABC, abstractmethod
 from torch import nn
 from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
 from utils.utils import pairwise_dist
-from torch.nn import functional as F
 
 
-def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None) -> torch.Tensor:
+def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None, knn_only_over_coords=False) -> torch.Tensor:
     """ Memory efficient implementation of dynamic graph feature computation.
 
     :param x: features per point, shape: (point cloud batch x features x points)
     :param k: k nearest neighbors that are considered as edges for the graph
     :param fixed_knn_graph: optionally input fixed kNN graph
+    :param knn_only_over_coords: if true, only use the first 3 channels to compute the knn-graph
     :return: edge features per point, shape: (point cloud batch x features x points x k)
     """
     if fixed_knn_graph is None:
         # k nearest neighbors in feature space
-        knn_indices = knn(x, k, self_loop=False)  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
+        knn_indices = knn(x[:, :3 if knn_only_over_coords else None], k,
+                          self_loop=True)  # exclude the point itself from nearest neighbors TODO: why do they include self-loop in their paper???
     else:
         knn_indices = fixed_knn_graph
 
@@ -127,7 +128,7 @@ class DGCNNSeg(DGCNNBase):
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
         super(DGCNNSeg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
 
-        self.ec1 = EdgeConv(self.in_features, [64, 64], self.k)
+        self.ec1 = EdgeConv(self.in_features, [64, 64], self.k, first_layer=True)
         self.ec2 = EdgeConv(64, [64], self.k)
         self.ec3 = EdgeConv(64, [64], self.k)
 
@@ -136,6 +137,8 @@ class DGCNNSeg(DGCNNBase):
             nn.AdaptiveMaxPool1d(1)
         )
 
+        # TODO channels? this is the part segmentation network -> last mlp with 256, 256, 128, c;
+        # other option: semantic segmentation network with 512, 256, c
         self.segmentation = nn.Sequential(
             SharedFullyConnected(3 * 64 + 1024, 256, dim=1),
             SharedFullyConnected(256, 256, dim=1),
@@ -204,7 +207,7 @@ class DGCNNReg(DGCNNBase):
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
         super(DGCNNReg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
 
-        self.ec1 = EdgeConv(self.in_features, [64], self.k)
+        self.ec1 = EdgeConv(self.in_features, [64], self.k, first_layer=True)
         self.ec2 = EdgeConv(64, [64], self.k)
         self.ec3 = EdgeConv(64, [128], self.k)
         self.ec4 = EdgeConv(128, [256], self.k)
@@ -248,9 +251,10 @@ class DGCNNReg(DGCNNBase):
 
 
 class EdgeConv(nn.Module):
-    def __init__(self, in_features, out_features_list, k):
+    def __init__(self, in_features, out_features_list, k, first_layer=False):
         super(EdgeConv, self).__init__()
         self.k = k
+        self.first_layer = first_layer
 
         # multiply in-features because of concatenation of x_i with (x_i - x_j)
         features = [in_features * 2] + list(out_features_list)
@@ -268,7 +272,7 @@ class EdgeConv(nn.Module):
         :return: new point features (point cloud batch x features x points)
         """
         # create edge features of shape (point cloud batch x features x points x k)
-        x = create_neighbor_features(x, self.k, fixed_knn_graph)
+        x = create_neighbor_features(x, self.k, fixed_knn_graph, knn_only_over_coords=self.first_layer)
 
         # extract features
         for layer in self.shared_mlp:
