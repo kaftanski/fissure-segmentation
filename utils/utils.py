@@ -129,7 +129,7 @@ def kpts_to_world(kpts_pt, shape, align_corners=None):
     D, H, W = shape
 
     if not align_corners:
-        kpts_pt /= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
+        kpts_pt = kpts_pt / ((torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device))
     kpts_world_ = (((kpts_pt + 1) / 2) * (torch.tensor([W, H, D], device=device) - 1))
 
     return kpts_world_
