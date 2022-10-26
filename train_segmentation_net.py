@@ -37,6 +37,8 @@ def test(ds: ImageDataset, device, out_dir, show):
     os.makedirs(mesh_dir, exist_ok=True)
     os.makedirs(label_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
+    ds.ids = ds.ids[:1]
+    ds.images = ds.images[:1]
 
     # compute all predictions
     all_pred_meshes = []
@@ -162,7 +164,7 @@ def test(ds: ImageDataset, device, out_dir, show):
     # output file
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95,
-                  mean_recall=test_recall.mean(), mean_precision=test_precision.mean(),
+                  mean_recall=test_recall.mean(0, keepdim=True), mean_precision=test_precision.mean(0, keepdim=True),
                   softmax_thresholds=softmax_thresholds, mean_recall_per_threshold=mean_recall_per_threshold,
                   mean_precision_per_threshold=mean_precision_per_threshold)
 

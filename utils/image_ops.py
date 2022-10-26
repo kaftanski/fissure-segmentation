@@ -79,6 +79,13 @@ def write_image(img: torch.Tensor, filename: str, meta_src_img: sitk.Image = Non
     """
     img = tensor_to_sitk_image(img, meta_src_img=None)
 
+    if meta_src_img is not None:
+        if img.GetSize() == meta_src_img.GetSize():
+            # no resampling necessary
+            img.CopyInformation(meta_src_img)
+            sitk.WriteImage(img, filename)
+            return img
+
     if undo_resample_spacing is not None:
         img.SetSpacing((undo_resample_spacing,) * 3)
         img = sitk.Resample(img, referenceImage=meta_src_img,

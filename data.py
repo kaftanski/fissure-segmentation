@@ -297,7 +297,7 @@ class ImageDataset(LungData, CustomDataset):
             img_array, label_array = image_augmentation(img_array, label_array, patch_size=self.patch_size)
 
         # get inputs into range [-1, 1]
-        img_array = normalize_img(img)
+        img_array = normalize_img(img_array)
 
         return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
 
