@@ -15,7 +15,7 @@ from sklearn.cluster import k_means, OPTICS
 from data import ImageDataset
 from metrics import point_surface_distance
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points
+from shape_model.point_cloud_registration import inverse_transformation_at_sampled_points, INTERPOLATION_MODES
 from shape_model.ssm import save_shape
 from utils.detached_run import maybe_run_detached_cli
 from utils.tqdm_utils import tqdm_redirect
@@ -29,7 +29,8 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
                              all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]],
                              all_moving_pcs: np.ndarray, all_prereg_transforms: np.ndarray, all_moved_pcs: np.ndarray,
                              all_displacements: np.ndarray, fixed_img_shape, plot_dir,
-                             mode='cluster', undo_affine_reg=True, show=True, optics_minsamples_divisor=-1):
+                             mode='cluster', undo_affine_reg=True, show=True, optics_minsamples_divisor=-1,
+                             interpolation_mode='knn'):
 
     corresponding_pcs = []
     corresponding_fixed_pc = []
@@ -113,7 +114,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
         for instance in tqdm_redirect(range(len(all_moved_pcs)), desc=f'inverse transform on centroids, object {obj_i+1}'):
             sampled_pc = inverse_transformation_at_sampled_points(
                 all_moved_pcs[instance, obj_i], all_displacements[instance, obj_i],
-                sample_point_cloud=centroids, img_shape=fixed_img_shape)
+                sample_point_cloud=centroids, img_shape=fixed_img_shape, interpolation_mode=interpolation_mode)
 
             # optionally undo affine transformation
             sampled_pc_not_affine = inverse_affine_transform(sampled_pc, all_prereg_transforms[instance]['scale'],
@@ -188,6 +189,8 @@ if __name__ == '__main__':
     parser.add_argument("--lobes", const=True, default=False, nargs="?", help="use lobes instead of fissure objects")
     parser.add_argument("--optics_divisor", type=int, default=16, help="divisor for OPTICS' min-samples parameter")
     parser.add_argument("--offline", const=True, default=False, nargs="?", help="run detached from pycharm")
+    parser.add_argument("--interp_mode", default='knn', type=str, choices=INTERPOLATION_MODES,
+                        help="mode for interpolating displacements")
     args = parser.parse_args()
     maybe_run_detached_cli(args)
 
@@ -256,7 +259,8 @@ if __name__ == '__main__':
     corr_points, transforms, corr_fixed, labels, evaluation = data_set_correspondences(
         fixed_pcs, moving_meshes, all_moving_pcs, all_prereg_transforms, all_moved_pcs, all_displacements,
         plot_dir=new_dir(out_path, 'plots'), fixed_img_shape=ds.get_fissures(f).GetSize()[::-1],
-        mode=mode, show=show, undo_affine_reg=undo_affine, optics_minsamples_divisor=optics_min_samples_divisor)
+        mode=mode, show=show, undo_affine_reg=undo_affine, optics_minsamples_divisor=optics_min_samples_divisor,
+        interpolation_mode=args.interp_mode)
 
     # output corresponding point clouds
     save_shape(corr_fixed, os.path.join(out_path, f'{"_".join(ds.get_id(f))}_corr_pts.npz'))

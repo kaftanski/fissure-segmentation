@@ -19,6 +19,8 @@ from utils.detached_run import run_detached_from_pycharm
 from utils.tqdm_utils import tqdm_redirect
 from utils.utils import new_dir
 
+INTERPOLATION_MODES = ['knn', 'tps']
+
 
 class TPS:
     @staticmethod
@@ -115,8 +117,41 @@ def register_cpd_deformable(fixed_pc_np, moving_pc_np_prereg):
     return deformed_pc_np, displacements
 
 
+def interpolate_displacements_tps(existing_points, values_at_existing_points, interpolation_points, img_shape):
+    D, H, W = img_shape
+
+    def normalize(grid):
+        return (grid / torch.tensor([W - 1, H - 1, D - 1], device=grid.device)) * 2  # no -1 for displacements!
+
+    def unnormalize(grid):
+        return (grid * torch.tensor([H - 1, W - 1, D - 1], device=grid.device)) / 2
+
+    dense_flow = thin_plate_dense(normalize(existing_points) - 1, normalize(values_at_existing_points),
+                                  shape=(W, H, D), step=4, lambd=0.1)
+    dense_flow = dense_flow.permute(0, 4, 1, 2, 3)
+    sampled_displacements = F.grid_sample(dense_flow, normalize(interpolation_points.view(1, -1, 1, 1, 3)) - 1,
+                                          align_corners=False).squeeze().t()
+    return unnormalize(sampled_displacements.squeeze()).cpu().numpy()
+
+
+def interpolate_displacements_weighted_knn(existing_points, values_at_existing_points, interpolation_points, k=5):
+    # compute euclidean distance from interpolation points to all existing points
+    # dist = pairwise_dist2(interpolation_points, existing_points).sqrt()
+    dist = (interpolation_points.unsqueeze(2) - existing_points.unsqueeze(1)).square().sum(-1).sqrt()
+
+    # find nearest k neighbors for each input point
+    top_dist, top_idx = dist.topk(k=k, dim=-1, largest=False)  # (batch_size, num_points, k)
+
+    # compute inverse distance weighted values
+    inverse_weights = 1 / (top_dist.unsqueeze(-1) + 1e-8)
+    inverse_dist_weighted_neighbor_values = inverse_weights * values_at_existing_points[:, top_idx.squeeze()]
+    values_at_interpolation_points = inverse_dist_weighted_neighbor_values.sum(dim=-2) / inverse_weights.sum(dim=-2)
+    return values_at_interpolation_points.cpu().numpy().squeeze()
+
+
 def inverse_transformation_at_sampled_points(deformed_pc_np: np.ndarray, moving_displacements: np.ndarray,
-                                             sample_point_cloud: np.ndarray, img_shape: Sequence[int]):
+                                             sample_point_cloud: np.ndarray, img_shape: Sequence[int],
+                                             interpolation_mode='knn'):
     """
 
     :param deformed_pc_np: the moved point cloud in world coordinates [N_points, 3]
@@ -126,23 +161,20 @@ def inverse_transformation_at_sampled_points(deformed_pc_np: np.ndarray, moving_
     :return: sampled point cloud in moving's space
     """
     # interpolate displacements at fixed points
-    D, H, W = img_shape
-
-    def normalize(grid):
-        return (grid / torch.tensor([W - 1, H - 1, D - 1], device=grid.device)) * 2  # no -1 for displacements!
-
-    def unnormalize(grid):
-        return (grid * torch.tensor([H - 1, W - 1, D - 1], device=grid.device)) / 2
-
     sample_pc_torch = torch.from_numpy(sample_point_cloud).unsqueeze(0).float()
     deformed_pc_torch = torch.from_numpy(deformed_pc_np).unsqueeze(0).float()
     moving_displacements = torch.from_numpy(moving_displacements).unsqueeze(0).float()
-    dense_flow = thin_plate_dense(normalize(deformed_pc_torch) - 1, normalize(moving_displacements),
-                                  shape=(W, H, D), step=4, lambd=0.1)
-    dense_flow = dense_flow.permute(0, 4, 1, 2, 3)
-    sampled_displacements = F.grid_sample(dense_flow, normalize(sample_pc_torch.view(1, -1, 1, 1, 3)) - 1,
-                                           align_corners=False).squeeze().t()
-    new_moving_pc_np = sample_point_cloud - unnormalize(sampled_displacements.squeeze()).cpu().numpy()
+
+    if interpolation_mode == 'knn':
+        interpolated_displacements = interpolate_displacements_weighted_knn(
+            deformed_pc_torch, moving_displacements, sample_pc_torch)
+    elif interpolation_mode == 'tps':
+        interpolated_displacements = interpolate_displacements_tps(
+            deformed_pc_torch, moving_displacements, sample_pc_torch, img_shape)
+    else:
+        raise ValueError(f'No interpolation mode named {interpolation_mode}.')
+
+    new_moving_pc_np = sample_point_cloud - interpolated_displacements
     return new_moving_pc_np
 
 
