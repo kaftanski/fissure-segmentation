@@ -121,12 +121,12 @@ if __name__ == '__main__':
 
     # load model
     device = 'cuda:3'
-    model = SSM.load('results/corresponding_points_ts/lobes/cluster/16/ssm.pth', device)
+    model = SSM.load('results/corresponding_points/fissures/simple/ssm.pth', device)
     model.to(device)
     model.eval()
 
     # load data
-    shape_folder = "results/corresponding_points_ts/lobes/cluster/16"
+    shape_folder = "results/corresponding_points/fissures/simple"
     files = sorted(glob.glob(os.path.join(shape_folder, '*_corr_pts.npz')))
     shapes = []
     for f in files:

@@ -8,10 +8,12 @@ from matplotlib import pyplot as plt
 from torch import nn
 
 from data import LungData, normalize_img
-from data_processing.keypoint_extraction import KP_MODES
+from data_processing.keypoint_extraction import KP_MODES, POINT_DIR_TS, POINT_DIR
+from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
-from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world
+from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
+    new_dir
 
 FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement']
 
@@ -208,13 +210,24 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
 
 if __name__ == '__main__':
-    # run_detached_from_pycharm()
+    run_detached_from_pycharm()
 
-    data_dir = '../data'
+    ts = False
+
+    if ts:
+        data_dir = '../TotalSegmentator/ThoraxCrop'
+        point_dir = POINT_DIR_TS
+    else:
+        data_dir = '../data'
+        point_dir = POINT_DIR
+
     ds = LungData(data_dir)
 
     for kp_mode in KP_MODES:
-        point_dir = f'../point_data/{kp_mode}'
+        if kp_mode == 'noisy' or kp_mode == 'cnn':
+            continue
+
+        out_dir = new_dir(point_dir, kp_mode)
 
         for feat_mode in FEATURE_MODES:
             for i in range(len(ds)):
@@ -224,4 +237,4 @@ if __name__ == '__main__':
                     print('\tNo fissure segmentation found.')
                     continue
 
-                compute_point_features(ds, case, sequence, point_dir, feature_mode=feat_mode, device='cuda:3')
+                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device='cuda:1')

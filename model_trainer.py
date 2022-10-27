@@ -15,7 +15,6 @@ from data import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
 from losses.dgssm_loss import DGSSMLoss
 from losses.mesh_loss import RegularizedMeshLoss
-from models.dg_ssm import DGSSM
 
 
 class ModelTrainer:
@@ -126,11 +125,12 @@ class ModelTrainer:
             output = self.model(x)
 
             # UGLY SPECIAL CASE
-            if isinstance(self.model, DGSSM):
+            if isinstance(self.loss_function, DGSSMLoss):
                 # use optimal SSM weights for supervision
+                shape = y[0].to(self.device)
                 with torch.no_grad():
-                    target_weights = self.model.ssm(y[0].to(self.device))
-                y = (y.to(self.device), target_weights)
+                    target_weights = self.model.ssm(shape)
+                y = (shape, target_weights, y[1].to(self.device))  # shape, target weights and target affine params
             else:
                 y = y.to(self.device)
 

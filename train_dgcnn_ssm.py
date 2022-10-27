@@ -4,12 +4,12 @@ import warnings
 import torch
 from matplotlib import pyplot as plt
 
-from augmentations import compose_transform, transform_points_with_centering
+from augmentations import compose_transform
 from cli.cl_args import get_dgcnn_ssm_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from data import CorrespondingPointDataset
 from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
-from losses.dgssm_loss import corresponding_point_distance
+from losses.dgssm_loss import corresponding_point_distance, DGSSMLoss
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
@@ -19,7 +19,7 @@ from visualization import point_cloud_on_axis
 
 
 def test(ds: CorrespondingPointDataset, device, out_dir, show):
-    # device = 'cpu'
+    ds.do_augmentation_correspondingly = False
 
     model = DGSSM.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
@@ -45,12 +45,12 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         corr_pts_not_affine = ds.corr_points.get_points_without_affine_reg(i).to(device)
         with torch.no_grad():
             # make whole model prediction
-            prediction = model.dgcnn.predict_full_pointcloud(input_pts)
-            pred_weights, pred_rotation, pred_translation = model.split_prediction(prediction)
+            prediction = model.dgcnn.predict_full_pointcloud(input_pts)  # TODO: does this limit the expressiveness?
+            pred_weights, pred_rotation, pred_translation, pred_scaling = model.split_prediction(prediction)
             reconstructions = model.ssm.decode(pred_weights)
 
-            pred_transform = compose_transform(pred_rotation.squeeze(-1), pred_translation.squeeze(-1))
-            reconstructions = transform_points_with_centering(reconstructions.transpose(1, 2), pred_transform).transpose(1, 2)
+            pred_transform = compose_transform(pred_rotation, pred_translation, pred_scaling)
+            reconstructions = pred_transform.transform_points(reconstructions)
             reconstructions = ds.unnormalize_pc(reconstructions, i)
 
             # test SSM separately for baseline reconstruction
@@ -127,6 +127,13 @@ if __name__ == '__main__':
                   spatial_transformer=args.transformer, dynamic=not args.static,
                   ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm,
                   predict_affine_params=args.predict_affine)
+
+    if not args.predict_affine:
+        # set the loss weight for affine params to zero
+        if args.loss_weights is None:
+            args.loss_weights = [DGSSMLoss.DEFAULT_W_POINT, DGSSMLoss.DEFAULT_W_COEFFICIENTS, 0]
+        else:
+            args.loss_weights[2] = 0
 
     # save setup
     if not args.test_only:

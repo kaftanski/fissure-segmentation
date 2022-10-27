@@ -206,7 +206,7 @@ def load_shape(filepath, return_labels=False):
             # label file expected to be in the same folder as the shape
             base_path = os.path.split(filepath)[0]
             labels = torch.from_numpy(
-                np.load(os.path.join(base_path, "labels.npz")))
+                np.load(os.path.join(base_path, "labels.npz"), allow_pickle=True))
             return arr, trf, labels
 
     return arr, trf
@@ -214,7 +214,7 @@ def load_shape(filepath, return_labels=False):
 
 if __name__ == '__main__':
     # load data
-    shape_folder = "results/corresponding_points_ts/lobes/cluster/16"
+    shape_folder = "results/corresponding_points/fissures/simple"
     files = sorted(glob.glob(os.path.join(shape_folder, '*_corr_pts.npz')))
     shapes = []
     for f in files:

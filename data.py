@@ -13,13 +13,15 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
+from pytorch3d.transforms import so3_log_map, Transform3d
 from torch.utils.data import Dataset
 
-from augmentations import image_augmentation, point_augmentation
+from augmentations import image_augmentation, point_augmentation, compose_transform
 from shape_model.ssm import load_shape
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
     get_resample_factors, load_image_metadata
-from utils.utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform
+from utils.utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
+    decompose_similarity_transform
 
 IMG_MIN = -1000
 IMG_MAX = 1500
@@ -382,7 +384,8 @@ class PointDataset(CustomDataset):
             pts = self.points[item]
             if self.do_augmentation:
                 # random transform of the coordinates
-                pts, transform = point_augmentation(pts.unsqueeze(0)).squeeze(0)
+                pts, transform = point_augmentation(pts.unsqueeze(0))
+                pts = pts.squeeze(0)
 
             x = torch.cat([pts, feat], dim=0)
         else:
@@ -433,7 +436,7 @@ class CorrespondingPointDataset(PointDataset):
                  do_augmentation=True, undo_affine_reg=False):
         super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat,
                                                         exclude_rhf=True, do_augmentation=False)
-        self.corr_points = CorrespondingPoints(corr_folder, undo_affine_reg=undo_affine_reg)
+        self.corr_points = CorrespondingPoints(corr_folder)
         self.do_augmentation_correspondingly = do_augmentation
 
         # # load meshes for supervision
@@ -461,27 +464,52 @@ class CorrespondingPointDataset(PointDataset):
 
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
-        target_corr_pts = self.normalize_pc(self.corr_points[item], item)
+        target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item)
 
         # we want the network to predict the inverse rigid transformation (back into moving space)
-        target_scale = 1 / self.corr_points.transforms[item]['scale']
-        target_rotation = torch.linalg.inv(self.corr_points.transforms[item]['rotation'])
-        target_translation = - self.normalize_pc(self.corr_points.transforms[item]['translation'].unsqueeze(0), item)
+        inverse_prereg_transform = compose_transform(
+            so3_log_map(self.corr_points.transforms[item]['rotation'].T.unsqueeze(0)),
+            self.corr_points.transforms[item]['translation'].unsqueeze(0),
+            torch.tensor([[self.corr_points.transforms[item]['scale']]])).inverse()
+
+        # prereg transform is in unnormalized form, therefore apply inverse normalization first
+        # then back into normalized space
+        target_transform = norm_transform.inverse().compose(inverse_prereg_transform).compose(norm_transform)
 
         # augmentations
         if self.do_augmentation_correspondingly:
-            pts_augment, (log_rotation_matrix, random_translations, random_rescale) = \
-                point_augmentation(pts[:3].unsqueeze(0))
+            # augment the input points
+            pts_augment, aug_transform = point_augmentation(pts[:3].unsqueeze(0))
             pts[:3] = pts_augment.squeeze(0)
 
-            # augmentations need to be predicted as well (happen in moving space, therefore matrix multiply left
+            # augmentations need to be predicted as well (happen in moving space, therefore after inverse prereg)
+            # the transformation therefore bridges the spaces:
+            # F -> prereg^-1 -> M -> aug -> M_aug
+            target_transform = target_transform.compose(aug_transform)
 
-        # # combine the label meshes
-        # concat_meshes = self.meshes[item][0]
-        # for m in self.meshes[item][1:2 if self.exclude_rhf else 3]:
-        #     concat_meshes += m
+        # decompose the transformation matrix (shear should stay 0 except for some quantization error)
+        target_translation, target_rotation, target_scale = decompose_similarity_transform(
+            target_transform.get_matrix().squeeze().T)  # other scheme of notating homogeneous coordinates -> transpose
+        # target_translation, target_rotation, target_scale = compose_rigid_transforms(
+        #     norm_transform.inverse(), inverse_prereg_transform, norm_transform, aug_transform)
+        target_rotation = target_rotation.T.unsqueeze(0)
+        target_scale = target_scale.unsqueeze(0)
+        target_translation = target_translation.unsqueeze(0)
+        recomposed = Transform3d()\
+            .rotate(target_rotation) \
+            .scale(target_scale) \
+            .translate(target_translation)
+        assert torch.allclose(recomposed.get_matrix(), target_transform.get_matrix(), atol=1e-7)
 
-        return pts, target_corr_pts  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
+        target_transform_params = torch.cat([so3_log_map(target_rotation), target_translation, target_scale], dim=1).squeeze()
+
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # point_cloud_on_axis(ax, pts[:3].T[lbl > 0], c='b', label='input')
+        # point_cloud_on_axis(ax, target_transform.transform_points(target_corr_pts), c='r', label='target', alpha=0.5)
+        # plt.show()
+
+        return pts, (target_corr_pts, target_transform_params)  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
 
     def split_data_set(self, split: OrderedDict[str, np.ndarray]):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
@@ -505,13 +533,13 @@ class CorrespondingPointDataset(PointDataset):
                 self.corr_points.ids.pop(i)
 
     def normalize_pc(self, pc, index):
-        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS, return_transform=True)
 
     def unnormalize_pc(self, pc, index):
         return kpts_to_world(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
 
     def get_normalized_corr_datamatrix_with_affine_reg(self):
-        return torch.stack([self.normalize_pc(pts, i) for i, pts in enumerate(self.corr_points.points)], dim=0)
+        return torch.stack([self.normalize_pc(pts, i)[0] for i, pts in enumerate(self.corr_points.points)], dim=0)
 
     # def get_batch_collate_fn(self):
     #     def collate_fn(list_of_samples):
@@ -529,9 +557,8 @@ class CorrespondingPointDataset(PointDataset):
 
 
 class CorrespondingPoints:
-    def __init__(self, folder="./results/corresponding_points", undo_affine_reg=False):
+    def __init__(self, folder="./results/corresponding_points"):
         self.folder = folder
-        self.undo_affine_reg = undo_affine_reg
         self.points = []
         self.transforms = []
         self.ids = []
@@ -549,10 +576,7 @@ class CorrespondingPoints:
         self.num_objects = len(np.unique(self.label))
 
     def __getitem__(self, item):
-        if self.undo_affine_reg:
-            return self.get_points_without_affine_reg(item)
-        else:
-            return self.points[item]
+        return self.points[item]
 
     def __len__(self):
         return len(self.points)

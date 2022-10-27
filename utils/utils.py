@@ -99,7 +99,7 @@ def pt3d_to_o3d_meshes(pt3d_meshes: Meshes):
     return [create_o3d_mesh(m.verts_padded().squeeze().cpu(), m.faces_padded().squeeze().cpu()) for m in pt3d_meshes]
 
 
-def kpts_to_grid(kpts_world, shape, align_corners=None):
+def kpts_to_grid(kpts_world, shape, align_corners=None, return_transform=False):
     """ expects points in xyz format from a tensor with given shape
 
     :param kpts_world:
@@ -110,9 +110,19 @@ def kpts_to_grid(kpts_world, shape, align_corners=None):
     device = kpts_world.device
     D, H, W = shape
 
-    kpts_pt_ = (kpts_world / (torch.tensor([W, H, D], device=device) - 1)) * 2 - 1
+    scale1 = 1 / (torch.tensor([W, H, D], device=device) - 1)
+    kpts_pt_ = (kpts_world * scale1) * 2 - 1
     if not align_corners:
-        kpts_pt_ *= (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
+        scale2 = (torch.tensor([W, H, D], device=device) - 1) / torch.tensor([W, H, D], device=device)
+        kpts_pt_ *= scale2
+
+    if return_transform:
+        transform = Transform3d(device=device)
+        transform = transform.scale(scale1[None] * 2).translate(-1, -1, -1)
+        if not align_corners:
+            transform = transform.scale(scale2[None])
+        assert torch.allclose(kpts_pt_, transform.transform_points(kpts_world), atol=1e-6)
+        return kpts_pt_, transform
 
     return kpts_pt_
 
@@ -294,3 +304,41 @@ def inverse_affine_transform(point_cloud: np.ndarray, scaling: float, rotation_m
     pc_not_affine = backend.matmul(rotation_inverse[None, :, :],
                                    1/scaling * (point_cloud - affine_translation)[:, :, None]).squeeze()
     return pc_not_affine
+
+
+def knn(x, k, self_loop=False):
+    # use k+1 and ignore first neighbor to exclude self-loop in graph
+    k_modifier = 0 if self_loop else 1
+
+    dist = pairwise_dist(x.transpose(2, 1))
+    idx = dist.topk(k=k+k_modifier, dim=-1, largest=False)[1][..., k_modifier:]  # (batch_size, num_points, k)
+    return idx
+
+
+def decompose_similarity_transform(matrix):
+    """ From https://math.stackexchange.com/a/1463487
+    Only works for non-negative scaling and similarity transforms (without shear)
+
+    :param matrix: homogeneous transformation matrix of size [D+1, D+1], where the translation vector is in the last column
+    :return: translation [D], rotation [D, D], scale [D]
+    """
+    translation = matrix[:-1, -1]
+    mat = matrix[:-1, :-1]
+    scale = mat.norm(dim=1, keepdim=True)
+    rot = mat / scale
+    return translation, rot, scale.squeeze()
+
+
+def compose_rigid_transforms(*transforms: Transform3d):
+    scale = 1.
+    trans = torch.zeros(3)
+    rot = torch.eye(3, 3)
+    for t in transforms:
+        cur_translation, cur_rotation, cur_scale = decompose_similarity_transform(t.get_matrix().squeeze().T)
+
+        # update combined transform
+        scale = scale * cur_scale
+        rot = torch.matmul(cur_rotation, rot)
+        trans = torch.matmul(cur_scale * cur_rotation, trans) + cur_translation
+
+    return trans, rot, scale

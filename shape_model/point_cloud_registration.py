@@ -281,7 +281,7 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
 
 if __name__ == '__main__':
     lobes = False
-    total_segmentator = False
+    total_segmentator = True
     n_sample_points = 1024
     show = False
 

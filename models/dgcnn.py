@@ -8,7 +8,7 @@ from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
-from utils.utils import pairwise_dist
+from utils.utils import knn
 
 
 def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None, knn_only_over_coords=False) -> torch.Tensor:
@@ -55,15 +55,6 @@ def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tenso
 
     # assemble edge features (local and relative features)
     return torch.cat([features.unsqueeze(-1).repeat(1, 1, 1, k), edge_features], dim=1)
-
-
-def knn(x, k, self_loop=False):
-    # use k+1 and ignore first neighbor to exclude self-loop in graph
-    k_modifier = 0 if self_loop else 1
-
-    dist = pairwise_dist(x.transpose(2, 1))
-    idx = dist.topk(k=k+k_modifier, dim=-1, largest=False)[1][..., k_modifier:]  # (batch_size, num_points, k)
-    return idx
 
 
 class DGCNNBase(LoadableModel, ABC):

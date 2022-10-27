@@ -62,10 +62,11 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
 
     if loss == Losses.SSM.value:
         if term_weights is not None:
-            assert len(term_weights) == 2
+            assert len(term_weights) == 3
             return DGSSMLoss(
                 w_point=term_weights[0],
-                w_coefficients=term_weights[1])
+                w_coefficients=term_weights[1],
+                w_affine=term_weights[2])
         else:
             # default weights
             return DGSSMLoss()

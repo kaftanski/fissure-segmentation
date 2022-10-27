@@ -6,6 +6,7 @@ from pytorch3d.transforms import so3_exp_map, Transform3d
 from torch.nn import functional as F
 
 from utils.image_ops import sitk_image_to_tensor, get_resample_factors
+from visualization import visualize_point_cloud
 
 
 def spacing_resampling_matrix(input_size, input_spacing, target_spacing=1.):
@@ -65,21 +66,24 @@ def point_augmentation(point_clouds: torch.Tensor, rotation_amount=0.1, translat
     random_translations = (torch.rand(len(point_clouds), 3, device=point_clouds.device) * 2 - 1) * translation_amount
 
     # random rescaling
-    random_rescale = torch.ones(len(point_clouds), device=point_clouds.device) - \
-                     torch.rand(len(point_clouds), device=point_clouds.device) * scale_amount
+    random_rescale = torch.ones(len(point_clouds), 1, device=point_clouds.device) - \
+                     torch.rand(len(point_clouds), 1, device=point_clouds.device) * scale_amount
 
     # compose the transforms
     transforms = compose_transform(log_rotation_matrix, random_translations, random_rescale)
-    return transform_points_with_centering(point_clouds, transforms), (log_rotation_matrix, random_translations, random_rescale)
+    return transform_points(point_clouds, transforms), transforms
 
 
 def compose_transform(log_rotation_matrix: torch.Tensor, translation: torch.Tensor, scaling: torch.Tensor):
     t = Transform3d(device=log_rotation_matrix.device) \
         .rotate(so3_exp_map(log_rotation_matrix)) \
-        .translate(translation) \
-        .scale(scaling)
+        .scale(scaling.expand(-1, 3)) \
+        .translate(translation)
     # log_rotation_matrix is an R^3 vector of which the direction is the rotation axis and the magnitude is the
     # angle magnitude of rotation around the axis
+
+    # scaling can be one value (rigid) or 3 different ones (similarity transform)
+
     return t
 
 
@@ -91,33 +95,51 @@ def transform_points_with_centering(point_clouds, transforms: Transform3d):
     :return: transformed point_clouds
     """
     assert point_clouds.ndim == 3
+    translation_to_center = point_clouds.mean(2, keepdim=True)
+    return transform_points(point_clouds - translation_to_center, transforms) + translation_to_center
+
+
+def transform_points(point_clouds, transforms: Transform3d):
+    """ rotates around (0,0,0)
+
+    :param point_clouds: shape (batch x 3 x N)
+    :param transforms: transform object
+    :return: transformed point_clouds
+    """
+    assert point_clouds.ndim == 3
     point_clouds = point_clouds.transpose(1, 2)
-    translation_to_center = point_clouds.mean(1, keepdim=True)
-    transformed = transforms.transform_points(point_clouds - translation_to_center) + translation_to_center
+    transformed = transforms.transform_points(point_clouds)
     return transformed.transpose(1, 2)
 
 
 if __name__ == '__main__':
-    from data import LungData
-    ds = LungData('../data')
-    sizes = []
-    minmax = sitk.MinimumMaximumImageFilter()
-    min = 0
-    max = 0
-    for i in range(len(ds)):
-        # if ds.fissures[i] is None:
-        #     continue
-        img = ds.get_image(i)
-        sizes.append(spacing_resampling_matrix(img.GetSize(), img.GetSpacing())[1])
-        # print(ds.get_id(i), sizes[-1])
-        minmax.Execute(img)
-        print(ds.get_id(i), minmax.GetMinimum(), minmax.GetMaximum())
-        if minmax.GetMinimum() < min:
-            min = minmax.GetMinimum()
-        if minmax.GetMaximum() > max:
-            max = minmax.GetMaximum()
+    from data import PointDataset
+    #
+    # ds = LungData('../data')
+    # sizes = []
+    # minmax = sitk.MinimumMaximumImageFilter()
+    # min = 0
+    # max = 0
+    # for i in range(len(ds)):
+    #     # if ds.fissures[i] is None:
+    #     #     continue
+    #     img = ds.get_image(i)
+    #     sizes.append(spacing_resampling_matrix(img.GetSize(), img.GetSpacing())[1])
+    #     # print(ds.get_id(i), sizes[-1])
+    #     minmax.Execute(img)
+    #     print(ds.get_id(i), minmax.GetMinimum(), minmax.GetMaximum())
+    #     if minmax.GetMinimum() < min:
+    #         min = minmax.GetMinimum()
+    #     if minmax.GetMaximum() > max:
+    #         max = minmax.GetMaximum()
+    #
+    # sizes = torch.tensor(sizes)
+    # print(sizes.min(dim=0), sizes.max(dim=0))
+    #
+    # print('all min, max:', min, max)
+    pds = PointDataset(2048, 'enhancement', do_augmentation=True, binary=True, patch_feat=None)
+    for i in range(20):
+        pts, label = pds[0]
+        pts_aug, _ = point_augmentation(pts.unsqueeze(0))
+        visualize_point_cloud(pts_aug.squeeze().transpose(0, 1), labels=label)
 
-    sizes = torch.tensor(sizes)
-    print(sizes.min(dim=0), sizes.max(dim=0))
-
-    print('all min, max:', min, max)

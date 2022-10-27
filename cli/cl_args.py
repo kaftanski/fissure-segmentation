@@ -17,7 +17,7 @@ def add_training_parameters(parser):
                        '"recall" is weighted cross entropy that promotes recall.', default='nnunet',
                        type=str, choices=Losses.list())
     group.add_argument("--loss_weights", nargs='+', default=None, type=float,
-                       help="Weights for the components of loss function. Implemented only for Mesh-Loss for now. This takes 4 weights for example.")
+                       help="Weights for the components of loss function.")
     group.add_argument('--wd', default=1e-5, help='weight decay parameter for Adam optimizer', type=float)
     group.add_argument('--scheduler', default='plateau', help='the learn rate scheduler to use', type=str,
                        choices=['cosine', 'plateau', 'none'])

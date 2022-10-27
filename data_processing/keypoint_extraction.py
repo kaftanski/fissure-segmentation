@@ -90,7 +90,8 @@ def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
     return kp
 
 
-def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner', enhanced_img_path: str=None, device='cuda:2'):
+def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner',
+                      enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:2'):
     print(f'Computing keypoints and point features for case {case}, {sequence}...')
     torch.cuda.empty_cache()
 
@@ -120,7 +121,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
         kp = get_noisy_keypoints(fissures_tensor, device)
 
     elif kp_mode == 'cnn':
-        kp = get_cnn_keypoints(cv_dir='results/recall_loss', case=case, sequence=sequence, device=device)
+        kp = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device)
 
     elif kp_mode == 'enhancement':
         assert enhanced_img_path is not None, \
@@ -170,12 +171,21 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 if __name__ == '__main__':
     run_detached_from_pycharm()
 
-    # data_dir = '../TotalSegmentator/ThoraxCrop'
-    data_dir = '../data'
+    ts = False
+
+    if ts:
+        data_dir = '../TotalSegmentator/ThoraxCrop'
+        point_dir = POINT_DIR_TS
+        cnn_dir = 'results/totalseg_3d_cnn'
+    else:
+        data_dir = '../data'
+        point_dir = POINT_DIR
+        cnn_dir = 'results/recall_loss'
+
     ds = LungData(data_dir)
 
     for mode in KP_MODES:
-        if mode == 'noisy':
+        if mode == 'noisy' or mode == 'cnn':
             continue
 
         print('MODE:', mode)
@@ -193,5 +203,5 @@ if __name__ == '__main__':
             lobes = ds.get_lobes(i)
             mask = ds.get_lung_mask(i)
 
-            compute_keypoints(img, fissures, lobes, mask, POINT_DIR_TS, case, sequence, kp_mode='enhancement',
+            compute_keypoints(img, fissures, lobes, mask, point_dir, case, sequence, kp_mode=mode,
                               enhanced_img_path=ds.fissures_enhanced[i], device='cuda:3')
