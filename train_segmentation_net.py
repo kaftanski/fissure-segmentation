@@ -37,8 +37,6 @@ def test(ds: ImageDataset, device, out_dir, show):
     os.makedirs(mesh_dir, exist_ok=True)
     os.makedirs(label_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
-    ds.ids = ds.ids[:1]
-    ds.images = ds.images[:1]
 
     # compute all predictions
     all_pred_meshes = []
