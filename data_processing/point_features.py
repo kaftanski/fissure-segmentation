@@ -154,6 +154,8 @@ def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = T
 
 def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='mind', device='cuda:0'):
     assert feature_mode in FEATURE_MODES
+    print(f'\t{feature_mode.upper()} features')
+
     img_index = ds.get_index(case, sequence)
 
     # load keypoints
@@ -169,10 +171,9 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
         img = ds.get_image(img_index)
         img = resample_equal_spacing(img, target_spacing=1)
-        img_tensor = sitk_image_to_tensor(img).to(device)
+        img_tensor = sitk_image_to_tensor(img).float().to(device)
         kp = kp.to(device)
 
-        print('\tComputing MIND features')
         # compute mind features for image
         features = mind(img_tensor.view(1, 1, *img_tensor.shape), sigma=mind_sigma, dilation=delta, ssc=ssc)
 
@@ -187,7 +188,7 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
         # load the image to sample from and resample to unit spacing
         feature_img = ds.get_enhanced_fissures(img_index) if feature_mode == 'enhancement' else ds.get_image(img_index)
         feature_img = resample_equal_spacing(feature_img, target_spacing=1)
-        feature_tensor = sitk_image_to_tensor(feature_img)
+        feature_tensor = sitk_image_to_tensor(feature_img).float()
         if not kp.min() >= -1. and kp.max() <= 1.:
             warnings.warn('Keypoints are not given in Pytorch grid coordinates. I am assuming they are world coords.')
             kp = kpts_to_grid(
@@ -212,7 +213,7 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 if __name__ == '__main__':
     run_detached_from_pycharm()
 
-    ts = False
+    ts = True
 
     if ts:
         data_dir = '../TotalSegmentator/ThoraxCrop'
@@ -237,4 +238,4 @@ if __name__ == '__main__':
                     print('\tNo fissure segmentation found.')
                     continue
 
-                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device='cuda:1')
+                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device='cuda:3')
