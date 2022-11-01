@@ -42,7 +42,8 @@ def add_data_parameters(parser):
     group.add_argument('--kp_mode', default='foerstner', help='keypoint extraction mode', type=str, choices=KP_MODES)
     group.add_argument('--exclude_rhf', const=True, default=False,
                        help='exclude the right horizontal fissure from the model', nargs='?')
-    group.add_argument('--split', default=None, type=str, help='cross validation split file')
+    group.add_argument('--split', default=None, type=str,
+                       help='cross validation split file. If None: will take the dataset defaults.')
     group.add_argument('--binary', const=True, default=False, nargs='?',
                        help='make classification problem binary (only train with fissure/non-fissure labels)')
 
