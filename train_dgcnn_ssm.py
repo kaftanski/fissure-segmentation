@@ -48,7 +48,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         corr_pts_not_affine = ds.corr_points.get_points_without_affine_reg(i).to(device)
         with torch.no_grad():
             # make whole model prediction
-            prediction = model.dgcnn.predict_full_pointcloud(input_pts)  # TODO: does this limit the expressiveness?
+            prediction = model.dgcnn.predict_full_pointcloud(input_pts, ds.sample_points)  # TODO: does this limit the expressiveness?
             pred_weights, pred_rotation, pred_translation, pred_scaling = model.split_prediction(prediction)
             reconstructions = model.ssm.decode(pred_weights)
 
