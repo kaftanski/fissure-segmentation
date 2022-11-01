@@ -10,7 +10,8 @@ import torch
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
+from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset, DEFAULT_SPLIT, \
+    DEFAULT_SPLIT_TS
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
@@ -319,6 +320,11 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
         writer.writerow([])
         for key, value in additional_metrics.items():
+            try:
+                value = value.item()
+            except (AttributeError, ValueError):
+                pass
+
             if isinstance(value, torch.Tensor):
                 writer.writerow([key] + [v.item() for v in value])
             else:
@@ -400,10 +406,9 @@ def run(ds, model, test_fn, args):
 
     if not args.test_only:
         if args.split is None:
-            train(model, ds, device, args.output, args)
-            test_fn(ds, device, args.output, args.show)
-        else:
-            cross_val(model, ds, args.split, device, test_fn, args)
+            args.split = DEFAULT_SPLIT if args.ds == 'data' else DEFAULT_SPLIT_TS
+
+        cross_val(model, ds, args.split, device, test_fn, args)
 
     else:
         split_file = os.path.join(args.output, 'cross_val_split.np.pkl')
