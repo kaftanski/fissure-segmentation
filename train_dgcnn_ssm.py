@@ -13,7 +13,7 @@ from losses.dgssm_loss import corresponding_point_distance, DGSSMLoss
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
-from train import run
+from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
 from visualization import point_cloud_on_axis
 
@@ -32,8 +32,11 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
     # show behavior of ssm modes
     mode_plot(model.ssm, savepath=os.path.join(plot_dir, 'ssm_modes.png'), show=show)
 
-    corr_point_errors = torch.zeros(len(ds), ds.num_classes)
-    ssm_error_baseline = torch.zeros_like(corr_point_errors)
+    corr_point_dist = torch.zeros(len(ds), ds.num_classes)
+    corr_point_dist_sd = torch.zeros_like(corr_point_dist)
+    corr_point_dist_hd = torch.zeros_like(corr_point_dist)
+    corr_point_dist_hd95 = torch.zeros_like(corr_point_dist)
+    ssm_error_baseline = torch.zeros_like(corr_point_dist)
     weight_stats = torch.zeros(len(ds), model.ssm.num_modes.data)
     weight_stats_ssm = torch.zeros_like(weight_stats)
     for i in range(len(ds)):
@@ -54,10 +57,9 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
             reconstructions = ds.unnormalize_pc(reconstructions, i)
 
             # test SSM separately for baseline reconstruction
-            ssm_weights = model.ssm(corr_pts_affine_reg)
+            ssm_weights = model.ssm(ds.normalize_pc(corr_pts_affine_reg, index=i))
             reconstruction_baseline = model.ssm.decode(ssm_weights)
             reconstruction_baseline = ds.unnormalize_pc(reconstruction_baseline, index=i)
-            reconstruction_baseline_not_affine = ds.corr_points.inverse_affine_transform(reconstruction_baseline.squeeze(0), i)
 
         weight_stats[i] += pred_weights.squeeze().cpu()
         weight_stats_ssm[i] += ssm_weights.squeeze().cpu()
@@ -65,7 +67,11 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         error = corresponding_point_distance(reconstructions, corr_pts_not_affine).cpu()
         baseline_error = corresponding_point_distance(reconstruction_baseline, corr_pts_affine_reg).cpu()
         for c in range(ds.num_classes):
-            corr_point_errors[i, c] = error[0, ds.corr_points.label == c+1].mean()
+            corr_point_dist[i, c] = error[0, ds.corr_points.label == c+1].mean()
+            corr_point_dist_sd[i, c] = error[0, ds.corr_points.label == c+1].std()
+            corr_point_dist_hd[i, c] = error[0, ds.corr_points.label == c+1].max()
+            corr_point_dist_hd95[i, c] = torch.quantile(error[0, ds.corr_points.label == c+1], q=0.95)
+
             ssm_error_baseline[i, c] = baseline_error[0, ds.corr_points.label == c + 1].mean()
 
         fig = plt.figure()
@@ -79,15 +85,42 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         else:
             plt.close(fig)
 
-    print(f'Corr. point distance: {corr_point_errors.mean().item():.4f} mm +- {corr_point_errors.std().item():.4f} mm')
+    print(f'Corr. point distance: {corr_point_dist.mean().item():.4f} mm +- {corr_point_dist.std().item():.4f} mm')
     print(f'SSM reconstruction error: {ssm_error_baseline.mean().item():.4f} mm +- {ssm_error_baseline.std().item():.4f} mm')
 
     # sanity check / baseline: distance from mean shape to test shapes
-    mean_shape_distance = corresponding_point_distance(vector2shape(model.ssm.mean_shape.data), ds.corr_points.get_shape_datamatrix_with_affine_reg().to(device))
+    mean_shape_distance = corresponding_point_distance(ds.unnormalize_mean_pc(vector2shape(model.ssm.mean_shape.data)),  # todo: this is not really applicable, we'd need the mean image sizes of the train-ds!
+                                                       ds.corr_points.get_shape_datamatrix_with_affine_reg().to(device))
     print(f'Distance between mean SSM-shape and test shapes: {mean_shape_distance.mean().item():.4f} mm +- {mean_shape_distance.std().item():.4f} mm')
 
     # compare range of predicted weights to model knowledge
     print(f'StdDev of pred. weights: {weight_stats.std(dim=0)} \n\tModel StdDev: {model.ssm.eigenvalues.sqrt().squeeze()}')
+
+    # results
+    mean_corr_pt_dist = corr_point_dist.mean(0)
+    std_corr_pt_dist = corr_point_dist.std(0)
+
+    mean_corr_pt_dist_sd = corr_point_dist_sd.mean(0)
+    std_corr_pt_dist_sd = corr_point_dist_sd.std(0)
+
+    mean_corr_pt_dist_hd = corr_point_dist_hd.mean(0)
+    std_corr_pt_dist_hd = corr_point_dist_hd.std(0)
+
+    mean_corr_pt_dist_hd95 = corr_point_dist_hd95.mean(0)
+    std_corr_pt_dist_hd95 = corr_point_dist_hd95.std(0)
+
+    dice_dummy = torch.zeros_like(mean_corr_pt_dist)
+
+    # output file
+    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy,
+                  mean_corr_pt_dist, std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd,
+                  mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95,
+                  ssm_baseline_error=ssm_error_baseline.mean(0), ssm_baseline_error_std=ssm_error_baseline.std(0),
+                  mean_distance_to_mean_shape=mean_shape_distance.mean(),
+                  std_distance_to_mean_shape=mean_shape_distance.std())
+
+    return dice_dummy, dice_dummy, mean_corr_pt_dist, std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd, \
+           mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95
 
 
 if __name__ == '__main__':
