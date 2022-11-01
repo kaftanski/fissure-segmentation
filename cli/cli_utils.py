@@ -1,6 +1,8 @@
 import json
 import os
 
+from argparse import Namespace
+
 
 def store_args(args, out_dir):
     os.makedirs(out_dir, exist_ok=True)
@@ -29,5 +31,4 @@ def load_args_for_testing(from_dir, current_args):
         if key not in args_from_file.keys():
             args_from_file[key] = getattr(current_args, key)
 
-    current_args.__dict__ = args_from_file
-    return current_args
+    return Namespace(**args_from_file)

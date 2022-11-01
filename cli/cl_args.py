@@ -133,3 +133,15 @@ def get_pc_ae_train_parser():
     parser.set_defaults(loss='mesh')
     return parser
 
+
+def get_ae_reg_parser():
+    parser = get_generic_parser('Prediction of the segmentation DGCNN to be regularized by the PC-AE (test-only).')
+
+    group = parser.add_argument_group('AE-regularization parameters')
+    group.add_argument("--seg_dir", type=str, required=True,
+                       help='Directory of the cross-validation of the segmentation DGCNN.')
+    group.add_argument("--ae_dir", type=str, required=True,
+                       help='Directory of the cross-validation of the PC-AE.')
+
+    parser.set_defaults(test_only=True)
+    return parser
