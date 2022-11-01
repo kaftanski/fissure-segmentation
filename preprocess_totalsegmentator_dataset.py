@@ -8,34 +8,40 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+from skimage.morphology import ball, binary_opening
 from tqdm import tqdm
 
-from data import ImageDataset, create_split
+from data import ImageDataset, IMG_MIN, IMG_MAX
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction, save_meshes
+from utils.detached_run import run_detached_from_pycharm
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import remove_all_but_biggest_component
+from utils.utils import remove_all_but_biggest_component, new_dir
 
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
-PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop/'
+PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop_v2/'
 
 # IDs of images where the 5 lobes are present but cut off somewhere (determined manually)
 EXCLUDE_LIST = (57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
                 705, 743, 762, 806, 864, 965, 1179, 1257, 1261, 1268, 1307, 1367, 1386)
 
 
-def find_non_zero_ranges(images: np.ndarray, axis: int = None):
+def find_non_zero_ranges(images: np.ndarray, axis: int = None, open_radius: int = 0):
     """
     find the ranges in which all non-zero pixels lie
 
     :param images: N images in an array of shape [N, ...]
     :param axis: optionally specify a single axis to compute range for
+    :param open_radius: if not 0, perform binary opening with ball structuring element of this radius
     """
     if images.shape[0] > 1:
         sum_img = np.sum(images.squeeze(), axis=0)
     else:
         sum_img = images.squeeze()
     nonzero = (sum_img != 0)
+
+    if open_radius > 0:
+        nonzero = binary_opening(nonzero.squeeze(), ball(open_radius)).reshape(nonzero.shape)
 
     lower_bounds = []
     upper_bounds = []
@@ -75,7 +81,6 @@ def combine_labels(filenames, label_values: Iterable = None):
 def find_fissures(lobes: sitk.Image, device='cuda:2'):
     lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes).astype(int)).long()
     lobes_one_hot = F.one_hot(lobes_tensor).permute(3, 0, 1, 2).unsqueeze(0)
-    print(lobes_one_hot.shape)
 
     # Lobe labels / one-hot channels:
     # right lower lobe: 1
@@ -132,6 +137,8 @@ def generate_lung_mask(lobes):
 
 
 def preprocess_ds():
+    new_dir(PROCESSED_DATA_PATH)
+
     lobe_labels = {
         'lung_lower_lobe_right.nii.gz': 1,
         'lung_upper_lobe_right.nii.gz': 2,
@@ -176,8 +183,9 @@ def preprocess_ds():
         #     continue
 
         # find out the spatial range of lobe labels in z-dimension
-        z_crop_range = find_non_zero_ranges(combined_lobes_label[None], axis=0).tolist()
-        z_pad = 20  # pad by 20 voxels (20*1.5mm = 3cm)
+        # some mis-segmentations
+        z_crop_range = find_non_zero_ranges(combined_lobes_label[None], axis=0, open_radius=2).tolist()
+        z_pad = 15  # pad by 20 voxels (15*1.5mm = 2.25cm)
         z_crop_range[0] = max(z_crop_range[0] - z_pad, 0)
         z_crop_range[1] = min(z_crop_range[1] + z_pad, combined_lobes_label.shape[0])
         # print(f'Patient {patid}, Lobes in z-Range{z_crop_range}')
@@ -191,6 +199,10 @@ def preprocess_ds():
         # data has direction (-1,0,0,0,-1,0,0,0,1), so we flip the x and y axis
         img_z_crop = sitk.Flip(img_z_crop, flipAxes=(True, True, False))
         lobe_labels_final = sitk.Flip(lobe_labels_final, flipAxes=(True, True, False))
+        print(f'Output size: {img_z_crop.GetSize()}')
+
+        # clamp HU range to [-1000, 1500]
+        img_z_crop = sitk.Clamp(img_z_crop, lowerBound=IMG_MIN-1, upperBound=IMG_MAX)
 
         # compute fissure labels from lobes
         fissure_labels = find_fissures(lobe_labels_final)
@@ -251,5 +263,7 @@ class TotalSegmentatorDataset(ImageDataset):
 
 
 if __name__ == '__main__':
+    run_detached_from_pycharm()
+    preprocess_ds()
     # create_meshes()
-    create_split(5, TotalSegmentatorDataset(), filepath=os.path.join(PROCESSED_DATA_PATH, 'splits_final.pkl.gz'))
+    # create_split(5, TotalSegmentatorDataset(), filepath=os.path.join(PROCESSED_DATA_PATH, 'splits_final.pkl.gz'))
