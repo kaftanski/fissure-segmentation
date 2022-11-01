@@ -393,6 +393,8 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 def run(ds, model, test_fn, args):
     print(args)
 
+    test_fn = get_deterministic_test_fn(test_fn)
+
     # set the device
     if args.gpu in range(torch.cuda.device_count()):
         device = f'cuda:{args.gpu}'
@@ -420,6 +422,14 @@ def run(ds, model, test_fn, args):
             folder = os.path.join(args.output, f'fold{args.fold}')
             _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
             test_fn(test_ds, device, folder, args.show)
+
+
+def get_deterministic_test_fn(test_fn):
+    def wrapped_fn(*args, **kwargs):
+        torch.random.manual_seed(42)
+        test_fn(*args, **kwargs)
+
+    return wrapped_fn
 
 
 if __name__ == '__main__':
