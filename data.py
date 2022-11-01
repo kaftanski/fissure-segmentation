@@ -27,6 +27,10 @@ IMG_MIN = -1000
 IMG_MAX = 1500
 
 
+DEFAULT_SPLIT = "../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl"
+DEFAULT_SPLIT_TS = "../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl"
+
+
 def _load_files_from_file_list(item, the_list):
     if isinstance(item, int):
         item = [item]
@@ -464,7 +468,7 @@ class CorrespondingPointDataset(PointDataset):
 
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
-        target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item)
+        target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item, return_transform=True)
 
         # we want the network to predict the inverse rigid transformation (back into moving space)
         inverse_prereg_transform = compose_transform(
@@ -532,14 +536,18 @@ class CorrespondingPointDataset(PointDataset):
                 self.corr_points.transforms.pop(i)
                 self.corr_points.ids.pop(i)
 
-    def normalize_pc(self, pc, index):
-        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS, return_transform=True)
+    def normalize_pc(self, pc, index, return_transform=False):
+        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS, return_transform=return_transform)
 
     def unnormalize_pc(self, pc, index):
         return kpts_to_world(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
 
+    def unnormalize_mean_pc(self, pc):
+        mean_size = torch.stack([torch.tensor(self.img_sizes[i][::-1]) for i in range(len(self))], dim=0).mean(0)
+        return kpts_to_world(pc, mean_size, align_corners=ALIGN_CORNERS)
+
     def get_normalized_corr_datamatrix_with_affine_reg(self):
-        return torch.stack([self.normalize_pc(pts, i)[0] for i, pts in enumerate(self.corr_points.points)], dim=0)
+        return torch.stack([self.normalize_pc(pts, i) for i, pts in enumerate(self.corr_points.points)], dim=0)
 
     # def get_batch_collate_fn(self):
     #     def collate_fn(list_of_samples):
