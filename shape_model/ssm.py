@@ -40,7 +40,6 @@ class SSM(LoadableModel):
         if len(train_shapes.shape) == 3 and train_shapes.shape[-1] == self.dim:
             train_shapes = shape2vector(train_shapes)
 
-        # TODO: procrustes analysis
         self.mean_shape = nn.Parameter(train_shapes.mean(0, keepdim=True), requires_grad=False)
         U, S, V = torch.pca_lowrank(train_shapes, q=min(train_shapes.shape), center=True)
         total_variance = S.sum()
@@ -146,7 +145,6 @@ class LSSM(SSM):
         train_shapes = train_shapes.cpu().numpy().T  # model expects data matrix with shapes in columns
         mean_shape, eigenvectors, eigenvalues, num_modes, percent_of_variance = \
             self.lpca.lpca(train_shapes)
-        # TODO: percent of variance is wrong
 
         # convert the results to pytorch Parameters
         self.eigenvalues = nn.Parameter(torch.from_numpy(eigenvalues).unsqueeze(0).float(), requires_grad=False)

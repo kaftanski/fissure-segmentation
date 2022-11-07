@@ -33,7 +33,7 @@ def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], 
         samples = sample_points_from_meshes(meshes, num_samples=num_samples)
         samples /= spacing.to(samples.device)
         indices = samples.squeeze().floor().long()
-        label_tensor[indices[:, 0], indices[:, 1], indices[:, 2]] = i+1  # TODO: why index out of bounds?
+        label_tensor[indices[:, 0], indices[:, 1], indices[:, 2]] = i+1
 
     return label_tensor
 

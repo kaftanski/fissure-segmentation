@@ -1,7 +1,7 @@
-import math
 from typing import Sequence, Tuple
 
 import SimpleITK as sitk
+import math
 import numpy as np
 import pytorch3d.structures
 import torch
@@ -220,7 +220,6 @@ def fit_plane_to_fissure(fissures: sitk.Image, mask: sitk.Image):
         # The optimizer
         optimizer = torch.optim.SGD([deform_verts], lr=1.0, momentum=0.9)
 
-        # TODO: experiment with hyper parameters
         # Number of optimization steps
         num_iter = 2000
         # Weight for the chamfer loss

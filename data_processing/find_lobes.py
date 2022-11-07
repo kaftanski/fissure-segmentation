@@ -83,7 +83,7 @@ def lobes_to_fissures(lobes: sitk.Image, mask: sitk.Image, device='cuda:2'):
     fissure_tensor[rof] = 2
 
     # right horizontal fissure (3): between lobes 2 & 5 (if lobe 5 is present)
-    if n_lobes == 5:  # TODO: look at these results!
+    if n_lobes == 5:
         rhf = torch.logical_and(dilated_lobes_one_hot[0, 2], dilated_lobes_one_hot[0, 5])
         fissure_tensor[rhf] = 3
 

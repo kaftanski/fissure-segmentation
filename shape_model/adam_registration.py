@@ -1,13 +1,13 @@
 import time
-
-import torch
 from argparse import ArgumentParser
+
+import SimpleITK as sitk
+import torch
 from matplotlib import pyplot as plt
 from torch import nn
-from data_processing.point_features import mind
 from torch.nn import functional as F
-import SimpleITK as sitk
 
+from data_processing.point_features import mind
 from utils.image_ops import tensor_to_sitk_image, sitk_image_to_tensor, resample_equal_spacing, write_image
 
 GRID_SP = 2
@@ -69,7 +69,7 @@ def adam_registration(fixed_file, moving_file, fixed_mask_file, moving_mask_file
         get_data(fixed_file, moving_file, fixed_mask_file, moving_mask_file, fixed_fissures_file, moving_fissures_file,
                  fixed_lobes_file, moving_lobes_file, device)
 
-    # generate random keypoints (TODO: why?)
+    # generate random keypoints
     keypts_rand = 2 * torch.rand(2048 * 24, 3).to(device) - 1
     val = F.grid_sample(mask_fix.to(device), keypts_rand.view(1, -1, 1, 1, 3), align_corners=False)
     idx1 = torch.nonzero(val.squeeze() == 1).reshape(-1)

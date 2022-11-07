@@ -12,7 +12,6 @@ from torch.nn import functional as F
 from visualization import visualize_with_overlay
 
 
-# TODO: test skimage.segmentation.random_walk
 def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torch.Tensor = None) -> torch.sparse.Tensor:
     """ Computes Laplacian matrix for an n-dimensional image with intensity weights.
 
@@ -43,7 +42,7 @@ def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torc
             # remove edges containing pixels not in the graph-mask
             graph_indices = ind[graph_mask != 0].view(-1)
             # ii = torch.take_along_dim(ii, indices=graph_indices, dim=0)
-            ii = torch.stack([edge for edge in ii if edge[0] in graph_indices and edge[0] in graph_indices], dim=0)  # TODO: make this more performant
+            ii = torch.stack([edge for edge in ii if edge[0] in graph_indices and edge[0] in graph_indices], dim=0)  # this could be more performant
 
         if edge_weights == 'intensity':
             # compute exponential edge weights from image intensities

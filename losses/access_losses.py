@@ -22,7 +22,7 @@ class Losses(Enum):
     """cross entropy loss weighted with batch-specific false-positive rate, promotes recall"""
 
     SSM = "ssm"
-    """ ssm loss (chamfer distance for now) """  # TODO: implement point to mesh distance
+    """ ssm loss (chamfer distance for now) """
 
     CHAMFER = "chamfer"
     """ chamfer distance between predicted and target point cloud"""

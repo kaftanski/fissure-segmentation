@@ -63,7 +63,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
 
         elif mode == 'parzen':
             raise NotImplementedError('Parzen mode is unfinished')
-            # kde = KernelDensity(kernel='gaussian', bandwidth=1.0).fit(all_points)  # TODO: check different bandwidths
+            # kde = KernelDensity(kernel='gaussian', bandwidth=1.0).fit(all_points)  check different bandwidths
             # density = kde.score_samples(all_points)
             #
             # if show:

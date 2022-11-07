@@ -193,7 +193,7 @@ def hessian_based_enhancement(img: np.ndarray, fissure_mu: float, fissure_sigma:
     img_smooth = gaussian_filter(img, sigma=1)
 
     # eigenvalues are sorted in absolute ascending order, we want descending
-    lambda3, lambda2, lambda1 = compute_hessian_eigenvalues(img_smooth, sigma=1.,  # TODO: more scales (more sigmas)
+    lambda3, lambda2, lambda1 = compute_hessian_eigenvalues(img_smooth, sigma=1.,
                                                             sorting='abs', mode='reflect')
 
     F = fissure_filter(img, lambda1, lambda2, fissure_mu, fissure_sigma, show)
