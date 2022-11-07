@@ -6,11 +6,13 @@ import open3d as o3d
 import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
-from cli.cli_utils import load_args_for_testing, store_args
+from cli.cli_utils import load_args_for_testing, store_args, load_args_dict
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
+from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
+from preprocess_totalsegmentator_dataset import PROCESSED_DATA_PATH as TS_DATA_PATH
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
@@ -21,7 +23,15 @@ from visualization import visualize_with_overlay
 def test(ds: ImageDataset, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
-    model = MobileNetASPP.load(os.path.join(out_dir, 'model.pth'), device=device)
+    args = load_args_dict(os.path.join(out_dir, '..'))  # go to cv-run level
+    if args['model'] == 'v1':
+        model_class = MobileNetASPP
+    elif args['model'] == 'v3':
+        model_class = LRASPP_MobileNetv3_large_3d
+    else:
+        raise NotImplementedError()
+
+    model = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
 
@@ -48,7 +58,7 @@ def test(ds: ImageDataset, device, out_dir, show):
     softmax_thresholds = torch.linspace(0, 1, steps=21)
     recall_per_threshold = torch.zeros(len(ds), len(softmax_thresholds))
     precision_per_threshold = torch.zeros_like(recall_per_threshold)
-    for i in range(len(ds)):
+    for i in range(2):#range(len(ds)):
         case, sequence = ds.get_id(i)
         ids.append((case, sequence))
         # TODO: train with more dilation? for better recall
@@ -128,7 +138,7 @@ def test(ds: ImageDataset, device, out_dir, show):
         all_targ_meshes.append(meshes_target)
         all_pred_meshes.append(predicted_meshes)
 
-    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
+    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
         all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
 
     # restore previous setting
@@ -161,12 +171,13 @@ def test(ds: ImageDataset, device, out_dir, show):
 
     # output file
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
-                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95,
-                  mean_recall=test_recall.mean(0, keepdim=True), mean_precision=test_precision.mean(0, keepdim=True),
-                  softmax_thresholds=softmax_thresholds, mean_recall_per_threshold=mean_recall_per_threshold,
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing,
+                  mean_recall=test_recall.mean(0, keepdim=True),
+                  mean_precision=test_precision.mean(0, keepdim=True), softmax_thresholds=softmax_thresholds,
+                  mean_recall_per_threshold=mean_recall_per_threshold,
                   mean_precision_per_threshold=mean_precision_per_threshold)
 
-    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
 if __name__ == '__main__':
@@ -180,12 +191,20 @@ if __name__ == '__main__':
     if args.ds == 'data':
         img_dir = '../data'
     elif args.ds == 'ts':
-        img_dir = '../TotalSegmentator/ThoraxCrop'
+        img_dir = TS_DATA_PATH
     else:
         raise ValueError(f'No dataset named {args.ds}')
 
     ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3)
-    model = MobileNetASPP(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
+
+    # load the desired model
+    if args.model == 'v1':
+        model_class = MobileNetASPP
+    elif args.model == 'v3':
+        model_class = LRASPP_MobileNetv3_large_3d
+    else:
+        raise NotImplementedError()
+    model = model_class(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
     # save setup
     if not args.test_only:

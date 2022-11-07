@@ -194,15 +194,15 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     dice_dummy = torch.zeros_like(mean_assd)
 
-    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy,
-                  mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
     # print out results
     print('\n============ RESULTS ============')
     print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
 
     return dice_dummy, dice_dummy, \
-        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, None
 
 
 if __name__ == '__main__':

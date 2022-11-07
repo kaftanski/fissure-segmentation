@@ -22,7 +22,7 @@ from models.dgcnn import DGCNNSeg
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
-    points_to_label_map, create_o3d_mesh
+    points_to_label_map, create_o3d_mesh, nanstd
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
@@ -93,10 +93,10 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
 
             except IndexError:
                 print(f'Fissure {j+1} is missing from prediction.')
-                avg_surface_dist[i, j] += float('inf')
-                std_surface_dist[i, j] += float('inf')
-                hd_surface_dist[i, j] += float('inf')
-                hd95_surface_dist[i, j] += float('inf')
+                avg_surface_dist[i, j] += float('NaN')
+                std_surface_dist[i, j] += float('NaN')
+                hd_surface_dist[i, j] += float('NaN')
+                hd95_surface_dist[i, j] += float('NaN')
 
         # visualize results
         if (plot_folder is not None) or show:
@@ -118,20 +118,23 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
             visualize_o3d_mesh(all_parts_targets, title=title_prefix + ' surface target', show=show,
                               savepath=os.path.join(plot_folder, f'{title_prefix}_mesh_targ.png'))
 
-    # compute average metrics
-    mean_assd = avg_surface_dist.mean(0)
-    std_assd = avg_surface_dist.std(0)
+    # compute average metrics (excluding NaN values)
+    mean_assd = avg_surface_dist.nanmean(0)
+    std_assd = nanstd(avg_surface_dist, 0)
 
-    mean_sdsd = std_surface_dist.mean(0)
-    std_sdsd = std_surface_dist.std(0)
+    mean_sdsd = std_surface_dist.nanmean(0)
+    std_sdsd = nanstd(std_surface_dist, 0)
 
-    mean_hd = hd_surface_dist.mean(0)
-    std_hd = hd_surface_dist.std(0)
+    mean_hd = hd_surface_dist.nanmean(0)
+    std_hd = nanstd(hd_surface_dist, 0)
 
-    mean_hd95 = hd95_surface_dist.mean(0)
-    std_hd95 = hd95_surface_dist.std(0)
+    mean_hd95 = hd95_surface_dist.nanmean(0)
+    std_hd95 = nanstd(hd95_surface_dist, 0)
 
-    return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+    # compute proportion of missing objects
+    percent_missing = avg_surface_dist.isnan().float().mean(0) * 100
+
+    return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
 def test(ds, device, out_dir, show):
@@ -289,19 +292,21 @@ def test(ds, device, out_dir, show):
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
 
-    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95 = compute_mesh_metrics(
+    mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
         all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
 
     # output file
-    write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+    write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
-    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95
+    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, None
 
 
-def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, **additional_metrics):
+def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95,
+                  std_hd95, proportion_missing=None, **additional_metrics):
     with open(filepath, 'w') as csv_file:
         writer = csv.writer(csv_file)
         if mean_dice is not None:
@@ -318,7 +323,9 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD'] + [d.item() for d in std_hd] + [std_hd.mean().item()])
         writer.writerow(['Mean HD95'] + [d.item() for d in mean_hd95] + [mean_hd95.mean().item()])
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
-        writer.writerow([])
+        if proportion_missing is None:
+            proportion_missing = torch.zeros_like(mean_assd, dtype=torch.float)
+        writer.writerow(['proportion missing'] + [d.item() for d in proportion_missing] + [proportion_missing.mean().item()])
         for key, value in additional_metrics.items():
             try:
                 value = value.item()
@@ -340,6 +347,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     test_sdsd = []
     test_hd = []
     test_hd95 = []
+    test_missing = []
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
@@ -351,21 +359,25 @@ def cross_val(model, ds, split_file, device, test_fn, args):
             model = type(model)(**model.config)
             train(model, train_ds, device, fold_dir, args)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _ = test_fn(val_ds, device, fold_dir, args.show)
+        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _, percent_missing = test_fn(
+            val_ds, device, fold_dir, args.show)
+
+        if percent_missing is None:
+            percent_missing = torch.zeros_like(mean_dice)
 
         test_dice.append(mean_dice)
         test_assd.append(mean_assd)
         test_sdsd.append(mean_sdsd)
         test_hd.append(mean_hd)
         test_hd95.append(mean_hd95)
-
-        # TODO: compute confusion matrix
+        test_missing.append(percent_missing)
 
     test_dice = torch.stack(test_dice, dim=0)
     test_assd = torch.stack(test_assd, dim=0)
     test_sdsd = torch.stack(test_sdsd, dim=0)
     test_hd = torch.stack(test_hd, dim=0)
     test_hd95 = torch.stack(test_hd95, dim=0)
+    test_missing = torch.stack(test_missing, dim=0)
 
     mean_dice = test_dice.mean(0)
     std_dice = test_dice.std(0)
@@ -387,7 +399,8 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
-    write_results(os.path.join(args.output, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+    write_results(os.path.join(args.output, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, test_missing.mean(0))
 
 
 def run(ds, model, test_fn, args):
@@ -427,7 +440,7 @@ def run(ds, model, test_fn, args):
 def get_deterministic_test_fn(test_fn):
     def wrapped_fn(*args, **kwargs):
         torch.random.manual_seed(42)
-        test_fn(*args, **kwargs)
+        return test_fn(*args, **kwargs)
 
     return wrapped_fn
 

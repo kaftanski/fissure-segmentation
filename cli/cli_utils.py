@@ -10,15 +10,23 @@ def store_args(args, out_dir):
         json.dump(args.__dict__, f, indent=2)
 
 
-def load_args_for_testing(from_dir, current_args):
+def load_args_dict(from_dir):
     args_file = os.path.join(from_dir, 'commandline_args.json')
     if not os.path.isfile(args_file):
-        # compatibility for older training runs, where no file has been created
-        store_args(current_args, from_dir)
-        return current_args
+        return None
 
     with open(args_file, 'r') as f:
         args_from_file = json.load(f)
+
+    return args_from_file
+
+
+def load_args_for_testing(from_dir, current_args):
+    args_from_file = load_args_dict(from_dir)
+    if args_from_file is None:
+        # compatibility for older training runs, where no file has been created
+        store_args(current_args, from_dir)
+        return current_args
 
     # set the arguments that should be overwritten from the test call
     args_from_file['test_only'] = current_args.test_only

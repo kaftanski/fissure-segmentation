@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_segmentation_net.py" />
-    <option name="PARAMETERS" value="--data fissures --ds ts --batch 8 --gpu 2 --output results/totalseg_3d_cnn_binary_recall --split ../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl --epochs 50 --loss recall --offline --binary" />
+    <option name="PARAMETERS" value="--data fissures --ds ts --batch 8 --gpu 1 --output results/lraspp_recall_loss --split ../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl --epochs 50 --loss recall --patch_size 128 --model v3 --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

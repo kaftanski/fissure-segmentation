@@ -112,15 +112,15 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
     dice_dummy = torch.zeros_like(mean_corr_pt_dist)
 
     # output file
-    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy,
-                  mean_corr_pt_dist, std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd,
-                  mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95,
+    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_corr_pt_dist,
+                  std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd, mean_corr_pt_dist_hd,
+                  std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95,
                   ssm_baseline_error=ssm_error_baseline.mean(0), ssm_baseline_error_std=ssm_error_baseline.std(0),
                   mean_distance_to_mean_shape=mean_shape_distance.mean(),
                   std_distance_to_mean_shape=mean_shape_distance.std())
 
     return dice_dummy, dice_dummy, mean_corr_pt_dist, std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd, \
-           mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95
+           mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95, None
 
 
 if __name__ == '__main__':

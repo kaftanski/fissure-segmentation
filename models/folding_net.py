@@ -83,7 +83,7 @@ class DGCNN_Cls_Encoder(LoadableModel):
         x0 = self.conv5(x)  # (batch_size, 512, num_points) -> (batch_size, feat_dims, num_points)
         x = x0.max(dim=-1, keepdim=False)[0]  # (batch_size, feat_dims, num_points) -> (batch_size, feat_dims)
         feat = x.unsqueeze(1)  # (batch_size, feat_dims) -> (batch_size, 1, feat_dims)
-
+        # TODO: maybe another Fc-layer
         return feat  # (batch_size, 1, feat_dims)
 
 

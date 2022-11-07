@@ -1,4 +1,5 @@
 import glob
+import itertools
 import os
 from typing import Sequence, List, Tuple
 
@@ -342,3 +343,18 @@ def compose_rigid_transforms(*transforms: Transform3d):
         trans = torch.matmul(cur_scale * cur_rotation, trans) + cur_translation
 
     return trans, rot, scale
+
+
+def nanstd(tensor, dim: int=None):
+    if dim is None or len(tensor.shape) <=1:
+        return tensor[~tensor.isnan()].std()
+    else:
+        leftover_shape = tuple(s for d, s in enumerate(tensor.shape) if d != dim)
+        out = torch.empty(*leftover_shape, dtype=tensor.dtype)
+        for index in itertools.product(*[range(s) for s in leftover_shape]):
+            index_slice = list(index)
+            index_slice.insert(dim, slice(None))
+            print(index_slice)
+            indexed = tensor[index_slice]
+            out[index] = indexed[~indexed.isnan()].std()
+        return out

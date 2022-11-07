@@ -8,7 +8,7 @@ def count_parameters(model):
 
 
 def init_weights(m):
-    if isinstance(m, (nn.modules.conv._ConvNd, nn.Linear)):
+    if isinstance(m, (nn.modules.conv._ConvNd, nn.Linear, nn.modules.conv._ConvTransposeNd)):
         nn.init.xavier_normal_(m.weight)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)

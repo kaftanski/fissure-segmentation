@@ -52,7 +52,7 @@ def label_mesh_assd(labelmap: torch.Tensor, mesh: o3d.geometry.TriangleMesh, spa
     """
     # compute point cloud from foreground pixels in labelmap
     points = mask_to_points(labelmap, spacing)
-    return pseudo_symmetric_point_to_mesh_distance(points, mesh), points
+    return *pseudo_symmetric_point_to_mesh_distance(points, mesh), points
 
 
 def pseudo_symmetric_point_to_mesh_distance(points: ArrayLike, mesh: o3d.geometry.TriangleMesh):

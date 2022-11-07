@@ -2,6 +2,7 @@ import os.path
 import time
 
 import SimpleITK as sitk
+import numpy as np
 import torch
 
 from data import ImageDataset, load_split_file, LungData
@@ -92,7 +93,7 @@ def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
 
 def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner',
                       enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:2'):
-    print(f'Computing keypoints and point features for case {case}, {sequence}...')
+    print(f'Computing {kp_mode} keypoints for case {case}, {sequence}...')
     torch.cuda.empty_cache()
 
     out_dir = os.path.join(out_dir, kp_mode)
@@ -171,12 +172,12 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 if __name__ == '__main__':
     run_detached_from_pycharm()
 
-    ts = False
+    ts = True
 
     if ts:
-        data_dir = '../TotalSegmentator/ThoraxCrop'
+        data_dir = '../TotalSegmentator/ThoraxCrop_v2'
         point_dir = POINT_DIR_TS
-        cnn_dir = 'results/totalseg_3d_cnn'
+        cnn_dir = 'results/totalseg_3d_cnn_binary_recall'
     else:
         data_dir = '../data'
         point_dir = POINT_DIR
@@ -203,5 +204,10 @@ if __name__ == '__main__':
             lobes = ds.get_lobes(i)
             mask = ds.get_lung_mask(i)
 
+            if mode == 'foerstner' and np.prod(img.GetSize()) > 26.5 * 1e6:
+                device = 'cpu'
+            else:
+                device = 'cuda:0'
+
             compute_keypoints(img, fissures, lobes, mask, point_dir, case, sequence, kp_mode=mode,
-                              enhanced_img_path=ds.fissures_enhanced[i], device='cuda:3')
+                              enhanced_img_path=ds.fissures_enhanced[i], device=device)

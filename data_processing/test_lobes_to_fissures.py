@@ -3,8 +3,8 @@ import os
 import SimpleITK as sitk
 import torch
 
-from data_processing.find_lobes import lobes_to_fissures
 from data import LungData
+from data_processing.find_lobes import lobes_to_fissures
 from metrics import label_label_assd, batch_dice
 from train import write_results
 
@@ -50,9 +50,7 @@ for i in range(len(ds)):
         all_hd[-1].append(hd)
         all_hd95[-1].append(hd95)
 
-write_results(os.path.join(folder, 'lobes_to_fissures_error.csv'),
-              torch.stack(all_dice, dim=0).mean(0), torch.stack(all_dice, dim=0).std(0),
-              torch.tensor(all_assd).mean(0), torch.tensor(all_assd).std(0),
-              torch.tensor(all_sdsd).mean(0), torch.tensor(all_sdsd).std(0),
-              torch.tensor(all_hd).mean(0), torch.tensor(all_hd).std(0),
-              torch.tensor(all_hd95).mean(0), torch.tensor(all_hd95).std(0))
+write_results(os.path.join(folder, 'lobes_to_fissures_error.csv'), torch.stack(all_dice, dim=0).mean(0),
+              torch.stack(all_dice, dim=0).std(0), torch.tensor(all_assd).mean(0), torch.tensor(all_assd).std(0),
+              torch.tensor(all_sdsd).mean(0), torch.tensor(all_sdsd).std(0), torch.tensor(all_hd).mean(0),
+              torch.tensor(all_hd).std(0), torch.tensor(all_hd95).mean(0), torch.tensor(all_hd95).std(0))

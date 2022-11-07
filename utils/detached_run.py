@@ -38,6 +38,11 @@ def _do_run(add_is_offline_arg=True):
     print(f'Running the script ({script_name}) in offline mode with nohup.\n'
           f'stdout will be redirected to {output_file}')
 
+    for i, v in enumerate(sys.argv):
+        if "--head_schedule" in v:
+            sys.argv[i+1] = sys.argv[i+1].replace('"', '\\"')
+            break
+
     # run the script in a subprocess with nohup
     subprocess.run(f'nohup {sys.executable} {" ".join(sys.argv)} {"--is_offline" if add_is_offline_arg else ""} >{output_file} &', shell=True)
     exit(0)

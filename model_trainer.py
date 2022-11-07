@@ -28,6 +28,15 @@ class ModelTrainer:
         self.epochs = args.epochs
         self.out_dir = out_dir
         self.show = args.show
+        if 'head_schedule' in args.__dict__:
+            self.head_schedule = args.head_schedule
+
+            # deactivate all heads (will be re-activated based on the schedule from args)
+            for name in model.dgcnn.head_active:
+                model.set_head_active(name, False)
+
+        else:
+            self.head_schedule = None
 
         self.initial_epoch = 0
 
@@ -91,6 +100,14 @@ class ModelTrainer:
             self.epoch_start = time()
 
             self.model.train()
+
+            if self.head_schedule is not None:
+                for name, activation_epoch in self.head_schedule.items():
+                    if epoch >= activation_epoch and not self.model.dgcnn.head_active[name]:
+                        print(f'activating {name} head')
+                        self.model.set_head_active(name)
+                print(f'active heads: {self.model.dgcnn.head_active}')
+
             for x_batch, y_batch in self.train_dl:
                 self.forward_step(x_batch, y_batch, ep, train=True)
 
@@ -179,6 +196,8 @@ class ModelTrainer:
         print(f'\nEPOCH {epoch} ({time() - self.epoch_start:.4f} seconds)')
         print('\t[train]', ' -- '.join(f'{key}: {self.training_history[key][ep]:.4f}' for key in self.training_history.keys()))
         print('\t[valid]', ' -- '.join(f'{key}: {self.validation_history[key][ep]:.4f}' for key in self.validation_history.keys()))
+        if self.head_schedule is not None:
+            print(f'\tactive heads: {", ".join(name for name in self.model.dgcnn.head_active if self.model.dgcnn.head_active[name])}')
 
         # save best snapshot  # TODO: allow to specify criterion for best model
         if self.validation_history['total_loss'][ep] <= self.validation_history['total_loss'][self.best_epoch]:

@@ -259,11 +259,12 @@ def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
 
 class TotalSegmentatorDataset(ImageDataset):
     def __init__(self, do_augmentation=False):
-        super(TotalSegmentatorDataset, self).__init__('../TotalSegmentator/ThoraxCrop', do_augmentation=do_augmentation)
+        super(TotalSegmentatorDataset, self).__init__(PROCESSED_DATA_PATH, do_augmentation=do_augmentation)
 
 
 if __name__ == '__main__':
     run_detached_from_pycharm()
-    preprocess_ds()
-    # create_meshes()
+    # preprocess_ds()
+    remove_excluded_ids()
+    create_meshes()
     # create_split(5, TotalSegmentatorDataset(), filepath=os.path.join(PROCESSED_DATA_PATH, 'splits_final.pkl.gz'))

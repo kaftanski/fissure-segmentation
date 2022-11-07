@@ -412,8 +412,7 @@ if __name__ == '__main__':
     # compute_dataset_fissure_statistics(ImageDataset('../TotalSegmentator/ThoraxCrop'), save_to="./results/fissure_HU_mu_sigma_TS.csv")
     run_detached_from_pycharm()
     ds = TotalSegmentatorDataset()
-    out_dir = new_dir('results', 'hessian_fissure_enhancement', 'TS_unit_spacing')
-    eval_dir = new_dir(out_dir, 'eval')
-    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:1')
-    # TODO: maybe run TS enhancement resampled to 1mm unit spacing?
+    out_dir = new_dir('..', 'TotalSegmentator', 'ThoraxCrop_v2')
+    eval_dir = new_dir(out_dir, 'eval_enhancement')
+    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:2')
 

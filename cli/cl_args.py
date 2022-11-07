@@ -1,4 +1,5 @@
 import argparse
+import json
 
 from data_processing.keypoint_extraction import KP_MODES
 from data_processing.point_features import FEATURE_MODES
@@ -90,6 +91,8 @@ def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
 
     group = parser.add_argument_group('3D CNN parameters')
+    group.add_argument('--model', choices=['v1', 'v3'], default='v1',
+                       help='Choose the model class. Either MobilenetV1 with ASPP or MobilenetV3 with lr-ASPP')
     group.add_argument('--patch_size', help='patch size used for each dimension during training', default=96, type=int)
 
     return parser
@@ -110,6 +113,8 @@ def get_dgcnn_ssm_train_parser():
                        help='predict the affine transformation of the corresponding points')
     group.add_argument('--corr_mode', default='simple', choices=CORRESPONDENCE_MODES, type=str,
                        help='mode of the point correspondence generation')
+    group.add_argument('--head_schedule', default={'main': 150, 'translation': 0, 'rotation': 100, 'scaling': 50},
+                       type=json.loads, help='json string containing the epoch when the particular head is supposed to be actived during training.')
 
     parser.set_defaults(loss='ssm')
     return parser
