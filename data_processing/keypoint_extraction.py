@@ -5,8 +5,10 @@ import SimpleITK as sitk
 import numpy as np
 import torch
 
+from cli.cli_utils import load_args_for_testing
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
+from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
@@ -52,7 +54,9 @@ def get_noisy_keypoints(fissures_tensor, device):
 
 
 def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
-    ds = ImageDataset(folder='../data', do_augmentation=False)
+    args = load_args_for_testing(cv_dir)
+    ds = ImageDataset(folder=data_dir, do_augmentation=False, patch_size=(args.patch_size,)*3,
+                      resample_spacing=args.spacing)
     cross_val_split = load_split_file(os.path.join(cv_dir, "cross_val_split.np.pkl"))
     sequence_temp = sequence.replace('moving', 'mov').replace('fixed', 'fix')
 
@@ -65,7 +69,14 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     if fold_nr is None:
         raise ValueError(f'ID {case}_{sequence} is not present in any cross-validation test split (directory: {cv_dir})')
 
-    model = MobileNetASPP.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
+    if args.model == 'v1':
+        model_class = MobileNetASPP
+    elif args.model == 'v3':
+        model_class = LRASPP_MobileNetv3_large_3d
+    else:
+        raise NotImplementedError()
+
+    model = model_class.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
     model.eval()
     model.to(device)
 
@@ -77,7 +88,14 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     fissure_points = torch.zeros(softmax_pred.shape[2:], device=device)
     for lbl in range(1, model.num_classes):
         fissure_points = torch.logical_or(fissure_points, softmax_pred[0, lbl] > softmax_threshold)
-    # TODO: apply lung mask
+
+    # apply lung mask
+    lung_mask = resample_equal_spacing(ds.get_lung_mask(ds.get_index(case, sequence)),
+                                       ds.resample_spacing, use_nearest_neighbor=True)
+    lung_mask = sitk_image_to_tensor(lung_mask).to(device)
+    fissure_points = torch.logical_and(fissure_points, lung_mask)
+
+    # nonzero voxels to points
     kp = torch.nonzero(fissure_points) * torch.tensor((ds.resample_spacing,)*3, device=fissure_points.device)
     kp = kp.long()
 

@@ -195,7 +195,8 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'No dataset named {args.ds}')
 
-    ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3)
+    ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3,
+                      resample_spacing=args.spacing)
 
     # load the desired model
     if args.model == 'v1':

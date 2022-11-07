@@ -21,22 +21,26 @@ def load_args_dict(from_dir):
     return args_from_file
 
 
-def load_args_for_testing(from_dir, current_args):
+def load_args_for_testing(from_dir, current_args: Namespace = None):
     args_from_file = load_args_dict(from_dir)
-    if args_from_file is None:
+    if args_from_file is None and current_args is not None:
         # compatibility for older training runs, where no file has been created
         store_args(current_args, from_dir)
         return current_args
 
-    # set the arguments that should be overwritten from the test call
-    args_from_file['test_only'] = current_args.test_only
-    args_from_file['show'] = current_args.show
-    args_from_file['gpu'] = current_args.gpu
-    args_from_file['fold'] = current_args.fold
+    elif args_from_file is None and current_args is None:
+        raise RuntimeError('No args anywhere.')
 
-    # add keys that may have been added since the training run
-    for key in current_args.__dict__.keys():
-        if key not in args_from_file.keys():
-            args_from_file[key] = getattr(current_args, key)
+    elif args_from_file is not None and current_args is not None:
+        # set the arguments that should be overwritten from the test call
+        args_from_file['test_only'] = current_args.test_only
+        args_from_file['show'] = current_args.show
+        args_from_file['gpu'] = current_args.gpu
+        args_from_file['fold'] = current_args.fold
+
+        # add keys that may have been added since the training run
+        for key in current_args.__dict__.keys():
+            if key not in args_from_file.keys():
+                args_from_file[key] = getattr(current_args, key)
 
     return Namespace(**args_from_file)
