@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_segmentation_net.py" />
-    <option name="PARAMETERS" value="--gpu 2 --output results/totalseg_3d_cnn --test_only --fold 0 --show" />
+    <option name="PARAMETERS" value="--gpu 2 --output results/lraspp_recall_loss --test_only --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

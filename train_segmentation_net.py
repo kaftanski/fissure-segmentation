@@ -58,7 +58,7 @@ def test(ds: ImageDataset, device, out_dir, show):
     softmax_thresholds = torch.linspace(0, 1, steps=21)
     recall_per_threshold = torch.zeros(len(ds), len(softmax_thresholds))
     precision_per_threshold = torch.zeros_like(recall_per_threshold)
-    for i in range(2):#range(len(ds)):
+    for i in range(len(ds)):
         case, sequence = ds.get_id(i)
         ids.append((case, sequence))
         # TODO: train with more dilation? for better recall
