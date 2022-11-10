@@ -48,10 +48,13 @@ class RegularizedSegDGCNN(LoadableModel):
         seg = self.seg_model.predict_full_pointcloud(x, self.n_points_seg).argmax(1)
 
         # get refined mesh for each object
+        points = []
         meshes = []
         for obj in seg.unique()[1:]:
             # get coordinates from the current object point cloud
             pts_per_obj = x[:, :3].transpose(1, 2)[(seg == obj)].view(x.shape[0], -1, 3)
+            points.append(pts_per_obj)
+
             # sample right amount of points from segmentation
             if self.sample_mode == 'farthest':
                 sampled = farthest_point_sampling(pts_per_obj, self.n_points_ae)[0].transpose(1, 2)
@@ -61,7 +64,7 @@ class RegularizedSegDGCNN(LoadableModel):
             mesh = self.ae(sampled)
             meshes.append(mesh)
 
-        return meshes
+        return meshes, points
 
 
 class PointToMeshDS(PointDataset):
@@ -134,19 +137,20 @@ def test(ds: PointToMeshDS, device, out_dir, show):
         x = x.unsqueeze(0).to(device)
 
         with torch.no_grad():
-            reconstruct_meshes = model(x)
+            reconstruct_meshes, sampled_points_per_obj = model(x)
 
         for cur_obj, reconstruct_obj in enumerate(reconstruct_meshes):
             # unnormalize point cloud
-            coords = x[0, :3, lbl==cur_obj+1].transpose(0, 1)
-            coords = ds.unnormalize_sampled_pc(coords, i)
+            input_coords = x[0, :3, lbl==cur_obj+1].transpose(0, 1)
+            input_coords = ds.unnormalize_sampled_pc(input_coords, i)
+            segmented_sampled_coords = ds.unnormalize_sampled_pc(sampled_points_per_obj[cur_obj], i)
             if output_is_mesh:
                 reconstruct_obj = ds.unnormalize_mesh(reconstruct_obj, i)
             else:
                 reconstruct_obj = ds.unnormalize_sampled_pc(reconstruct_obj.transpose(0, 1).squeeze(), i)
 
             # compute chamfer distance (CAVE: pt3d computes it as mean squared distance and returns d_cham(x,y)+d_cham(y,x))
-            chamfer_dists[i, cur_obj] = chamfer_distance(reconstruct_obj.verts_padded(), coords.unsqueeze(0),
+            chamfer_dists[i, cur_obj] = chamfer_distance(reconstruct_obj.verts_padded(), input_coords.unsqueeze(0),
                                                          point_reduction='mean')[0]
 
             # compute surface distance
@@ -163,12 +167,13 @@ def test(ds: PointToMeshDS, device, out_dir, show):
             fig = plt.figure()
             if output_is_mesh:
                 ax1 = fig.add_subplot(111, projection='3d')
-                point_cloud_on_axis(ax1, x.cpu(), 'k', label='input', alpha=0.3)
+                point_cloud_on_axis(ax1, input_coords.cpu(), 'b', label='input', alpha=0.3)
+                point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'r', label='segmentation result', alpha=0.3)
                 trimesh_on_axis(ax1, reconstruct_obj.verts_padded().cpu().squeeze(), faces, facecolors=color_values, alpha=0.7, label='reconstruction')
             else:
                 ax1 = fig.add_subplot(121, projection='3d')
                 ax2 = fig.add_subplot(122, projection='3d')
-                point_cloud_on_axis(ax1, x.cpu(), 'k', title='input')
+                point_cloud_on_axis(ax1, input_coords.cpu(), 'k', title='input')
                 point_cloud_on_axis(ax2, reconstruct_obj.cpu(), color_values, title='reconstruction')
 
             fig.savefig(os.path.join(plot_dir,
