@@ -55,6 +55,8 @@ def test(ds: ImageDataset, device, out_dir, show):
     test_dice = torch.zeros(len(ds), ds.num_classes)
     test_recall = torch.zeros(len(ds))
     test_precision = torch.zeros_like(test_recall)
+    argmax_recall = torch.zeros_like(test_recall)
+    argmax_precision = torch.zeros_like(test_recall)
     softmax_thresholds = torch.linspace(0, 1, steps=21)
     recall_per_threshold = torch.zeros(len(ds), len(softmax_thresholds))
     precision_per_threshold = torch.zeros_like(recall_per_threshold)
@@ -76,6 +78,8 @@ def test(ds: ImageDataset, device, out_dir, show):
         label = label.to(device)
         test_dice[i] += batch_dice(label_pred, label, n_labels=ds.num_classes).squeeze().cpu()
         print(case, sequence, 'DICE:', test_dice[i])
+        argmax_recall[i] = binary_recall(label_pred, label)
+        argmax_precision[i] = binary_precision(label_pred, label)
 
         # write prediction as image
         label_img = ds.get_fissures(i)
@@ -172,8 +176,11 @@ def test(ds: ImageDataset, device, out_dir, show):
     # output file
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing,
-                  mean_recall=test_recall.mean(0, keepdim=True),
-                  mean_precision=test_precision.mean(0, keepdim=True), softmax_thresholds=softmax_thresholds,
+                  mean_argmax_recall=argmax_recall.mean(0, keepdim=True),
+                  mean_argmax_precision=argmax_precision.mean(0, keepdim=True),
+                  mean_thresh_recall=test_recall.mean(0, keepdim=True),
+                  mean_thresh_precision=test_precision.mean(0, keepdim=True),
+                  softmax_thresholds=softmax_thresholds,
                   mean_recall_per_threshold=mean_recall_per_threshold,
                   mean_precision_per_threshold=mean_precision_per_threshold)
 
