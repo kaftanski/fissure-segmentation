@@ -109,7 +109,7 @@ class ModelTrainer:
                 print(f'active heads: {self.model.dgcnn.head_active}')
 
             # training
-            self.train_dl.dataset.do_augmentation = False
+            self.train_dl.dataset.do_augmentation = True
             for x_batch, y_batch in self.train_dl:
                 self.forward_step(x_batch, y_batch, ep, train=True)
 
