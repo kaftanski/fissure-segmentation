@@ -108,10 +108,14 @@ class ModelTrainer:
                         self.model.set_head_active(name)
                 print(f'active heads: {self.model.dgcnn.head_active}')
 
+            # training
+            self.train_dl.dataset.do_augmentation = False
             for x_batch, y_batch in self.train_dl:
                 self.forward_step(x_batch, y_batch, ep, train=True)
 
+            # validation
             self.model.eval()
+            self.valid_dl.dataset.do_augmentation = False
             for x_batch, y_batch in self.valid_dl:
                 with torch.no_grad():
                     self.forward_step(x_batch, y_batch, ep, train=False)

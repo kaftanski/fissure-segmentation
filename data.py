@@ -187,7 +187,7 @@ class LungData(Dataset):
 class CustomDataset(Dataset, ABC):
     def __init__(self, exclude_rhf, do_augmentation, binary):
         self.exclude_rhf = exclude_rhf
-        self.do_augmentation = do_augmentation
+        self._do_augmentation = do_augmentation
         self.binary = binary
         try:
             getattr(self, 'ids')
@@ -196,6 +196,18 @@ class CustomDataset(Dataset, ABC):
 
     def __len__(self):
         return len(self.ids)
+
+    @property
+    def do_augmentation(self):
+        return self._do_augmentation
+
+    @do_augmentation.setter
+    def do_augmentation(self, value):
+        self._do_augmentation = value
+
+    @do_augmentation.deleter
+    def do_augmentation(self):
+        del self._do_augmentation
 
     def get_class_weights(self):
         return None
@@ -386,7 +398,7 @@ class PointDataset(CustomDataset):
         feat = self.features[item]
         if self.use_coords:
             pts = self.points[item]
-            if self.do_augmentation:
+            if self._do_augmentation:
                 # random transform of the coordinates
                 pts, transform = point_augmentation(pts.unsqueeze(0))
                 pts = pts.squeeze(0)
@@ -441,7 +453,7 @@ class CorrespondingPointDataset(PointDataset):
         super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat,
                                                         exclude_rhf=True, do_augmentation=False)
         self.corr_points = CorrespondingPoints(corr_folder)
-        self.do_augmentation_correspondingly = do_augmentation
+        self._do_augmentation_correspondingly = do_augmentation
 
         # # load meshes for supervision
         # self.meshes = []
@@ -466,6 +478,15 @@ class CorrespondingPointDataset(PointDataset):
         #         m.rotate(t[..., :3], center=np.zeros([3, 1]))
         #         m.translate(t[..., -1])
 
+    @property
+    def do_augmentation(self):
+        return self._do_augmentation_correspondingly
+
+    @do_augmentation.setter
+    def do_augmentation(self, value):
+        super(CorrespondingPointDataset, self).do_augmentation(value)
+        self._do_augmentation_correspondingly = value
+
     def __getitem__(self, item):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
         target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item, return_transform=True)
@@ -481,7 +502,7 @@ class CorrespondingPointDataset(PointDataset):
         target_transform = norm_transform.inverse().compose(inverse_prereg_transform).compose(norm_transform)
 
         # augmentations
-        if self.do_augmentation_correspondingly:
+        if self._do_augmentation_correspondingly:
             # augment the input points
             pts_augment, aug_transform = point_augmentation(pts[:3].unsqueeze(0))
             pts[:3] = pts_augment.squeeze(0)
