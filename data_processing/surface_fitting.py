@@ -12,7 +12,7 @@ from pytorch3d.structures import Meshes
 import data
 from data import image2tensor
 from data_processing.surface_fitting_optimization import fit_plane_to_fissure
-from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component
+from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component, save_meshes
 
 
 def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],
@@ -182,13 +182,6 @@ def regularize_fissure_segmentations(mode):
 
         output_file = file.replace('_img_', f'_fissures_{mode}_')
         sitk.WriteImage(fissures_reg, output_file)
-
-
-def save_meshes(meshes, base_dir, case, sequence, obj_name='fissure'):
-    meshdir = os.path.join(base_dir, f"{case}_mesh_{sequence}")
-    os.makedirs(meshdir, exist_ok=True)
-    for m, mesh in enumerate(meshes):
-        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_{obj_name}{m + 1}_{sequence}.obj'), mesh)
 
 
 if __name__ == '__main__':

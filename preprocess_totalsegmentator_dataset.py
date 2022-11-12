@@ -13,10 +13,10 @@ from tqdm import tqdm
 
 from data import ImageDataset, IMG_MIN, IMG_MAX
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
-from data_processing.surface_fitting import poisson_reconstruction, save_meshes
+from data_processing.surface_fitting import poisson_reconstruction
 from utils.detached_run import run_detached_from_pycharm
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import remove_all_but_biggest_component, new_dir
+from utils.utils import remove_all_but_biggest_component, new_dir, save_meshes
 
 ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
 PROCESSED_DATA_PATH = '../TotalSegmentator/ThoraxCrop_v2/'

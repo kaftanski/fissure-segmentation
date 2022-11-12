@@ -358,3 +358,10 @@ def nanstd(tensor, dim: int=None):
             indexed = tensor[index_slice]
             out[index] = indexed[~indexed.isnan()].std()
         return out
+
+
+def save_meshes(meshes, base_dir, case, sequence, obj_name='fissure'):
+    meshdir = os.path.join(base_dir, f"{case}_mesh_{sequence}")
+    os.makedirs(meshdir, exist_ok=True)
+    for m, mesh in enumerate(meshes):
+        o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_{obj_name}{m + 1}_{sequence}.obj'), mesh)
