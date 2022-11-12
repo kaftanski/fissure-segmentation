@@ -15,7 +15,6 @@ from torch.nn import functional as F
 from data import ImageDataset
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from shape_model.ssm import save_shape
-from utils.detached_run import run_detached_from_pycharm
 from utils.tqdm_utils import tqdm_redirect
 from utils.utils import new_dir
 
@@ -178,10 +177,24 @@ def inverse_transformation_at_sampled_points(deformed_pc_np: np.ndarray, moving_
     return new_moving_pc_np
 
 
-def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
+def correspondence_distance_heuristic(pc: o3d.geometry.PointCloud):
+    """ 5 % of the longest diagonal through the bounding box
+
+    :param pc: fixed point cloud
+    :return: maximum correspondence distance
+    """
+    volume_diagonal = np.linalg.norm(pc.get_max_bound() - pc.get_min_bound(), ord=2).item()
+    corr_dist = volume_diagonal * 0.05
+    return corr_dist
+
+
+def register_all(fixed_pcs_np: Sequence[o3d.geometry.PointCloud],
                  all_moving_meshes: Sequence[Sequence[o3d.geometry.TriangleMesh]], ids, base_dir,
                  n_sample_points=1024, show=False):
     assert len(all_moving_meshes) == len(ids)
+
+    fixed_pcs = [o3d.geometry.PointCloud(o3d.pybind.utility.Vector3dVector(p)) for p in fixed_pcs_np]
+    n_points_per_obj = [len(pc) for pc in fixed_pcs_np]
 
     # output directory
     reg_dir = new_dir(base_dir, 'registrations')
@@ -193,22 +206,22 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
     all_displacements = []
 
     n_correspondences = []
-
+    corr_distances = []
     for m, moving_meshes in enumerate(tqdm_redirect(all_moving_meshes)):
-        moving_meshes = moving_meshes[:len(fixed_pcs)]
+        moving_meshes = moving_meshes[:len(fixed_pcs_np)]
 
         # register all moving objects into fixed space
         moving_pcs = []
-        fixed_pcs_np = [np.asarray(fixed.points) for fixed in fixed_pcs]
         displacements = []
         moved_pcs = []
 
         corresponding = []
+        corresponding_max_dist = []
 
         # sample point clouds from meshes
         for obj_i, moving in enumerate(moving_meshes):
             # sample points evenly from mesh
-            moving_pc = moving.sample_points_poisson_disk(number_of_points=n_sample_points)
+            moving_pc = moving.sample_points_poisson_disk(number_of_points=len(fixed_pcs_np[obj_i]))
             moving_pc_np = np.asarray(moving_pc.points)
             moving_pcs.append(moving_pc_np)
 
@@ -217,7 +230,8 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
         all_fixed_objs = np.concatenate(fixed_pcs_np, axis=0)
         rigid = RigidRegistration(X=all_fixed_objs, Y=all_moving_objs)
         rigid_prereg, (scale, rotation, translation) = rigid.register()
-        moving_pcs_prereg = np.split(rigid_prereg, len(moving_meshes), axis=0)
+        moving_pcs_prereg = np.split(rigid_prereg, [sum(n_points_per_obj[:i]) for i in range(1, len(n_points_per_obj))], axis=0)
+        assert all(len(m_prereg) == len(f_pc) for m_prereg, f_pc in zip(moving_pcs_prereg, fixed_pcs_np))
 
         # pycpd defines affine transformation as x*A -> we transpose the matrix so we can use A^T*x
         all_prereg_transforms.append({'scale': scale, 'translation': translation, 'rotation': rotation.T})
@@ -231,10 +245,11 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             moved_pcs.append(deformed_pc_np)
             displacements.append(disp)
 
-            # check how many points already correspond
+            # check how many points already correspond (max distance is defined by correspondence_distance_heuristic)
             deformed_pc = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(deformed_pc_np.astype(np.float32)))
+            corresponding_max_dist.append(correspondence_distance_heuristic(fixed_pcs[obj_i]))
             reg_eval = o3d.pipelines.registration.evaluate_registration(
-                source=deformed_pc, target=fixed_pcs[obj_i], max_correspondence_distance=10)
+                source=deformed_pc, target=fixed_pcs[obj_i], max_correspondence_distance=corresponding_max_dist[-1])
             corresponding.append(len(np.asarray(reg_eval.correspondence_set)))
 
             # VISUALIZATION
@@ -254,29 +269,32 @@ def register_all(fixed_pcs: Sequence[o3d.geometry.PointCloud],
             else:
                 plt.close(fig)
 
-        all_displacements.append(np.stack(displacements))
-        all_moved_pcs.append(np.stack(moved_pcs))
-        all_moving_pcs.append(np.stack(moving_pcs))
+        all_displacements.append(displacements)
+        all_moved_pcs.append(moved_pcs)
+        all_moving_pcs.append(moving_pcs)
         n_correspondences.append(np.stack(corresponding))
+        corr_distances.append(np.stack(corresponding_max_dist))
 
     # output results
     def write(obj, fname):
         with open(os.path.join(reg_dir, fname), 'wb') as file:
             pickle.dump(obj, file)
 
-    write(np.stack(all_displacements), 'displacements.npz')
-    write(np.stack(all_moved_pcs), 'moved_pcs.npz')
-    write(np.stack(all_moving_pcs), 'moving_pcs.npz')
+    write(all_displacements, 'displacements.npz')
+    write(all_moved_pcs, 'moved_pcs.npz')
+    write(all_moving_pcs, 'moving_pcs.npz')
     write(all_prereg_transforms, 'transforms.npz')
     write(np.asarray(ids), 'ids.npz')
 
     n_correspondences = np.stack(n_correspondences)
-    portion_of_correspondences = n_correspondences / n_sample_points
+    portion_of_correspondences = n_correspondences / np.array(n_points_per_obj)[None]
+    corr_distances = np.stack(corr_distances)
     with open(os.path.join(reg_dir, 'correspondences.csv'), 'w') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['Object No.'] + [str(obj+1) for obj in range(len(all_moved_pcs[0]))] + ['mean'])
         writer.writerow(['Mean corresponding'] + [str(v) for v in portion_of_correspondences.mean(0)] + [str(portion_of_correspondences.mean())])
         writer.writerow(['StdDev corresponding'] + [str(v) for v in portion_of_correspondences.std(0)] + [str(portion_of_correspondences.std())])
+        writer.writerow(['Max. corr dist'] + [str(v) for v in corr_distances.mean(0)] + [str(corr_distances.mean())])
 
 
 if __name__ == '__main__':
@@ -284,8 +302,9 @@ if __name__ == '__main__':
     total_segmentator = True
     n_sample_points = 1024
     show = False
+    use_mesh = True
 
-    run_detached_from_pycharm()
+    # run_detached_from_pycharm()
 
     # data set
     if total_segmentator:
@@ -298,15 +317,27 @@ if __name__ == '__main__':
 
     # set output path
     out_path = new_dir("results",
-                       "corresponding_points" + ("_ts" if total_segmentator else ""),
+                       "corresponding_points" + ("_mesh" if use_mesh else "") + ("_ts" if total_segmentator else ""),
                        "lobes" if lobes else "fissures")
 
     # get fixed meshes
     fixed_meshes = get_meshes(f)
+    if use_mesh:
+        # downsample mesh to gain ~ 1000 points
+        print(f'original meshes: {fixed_meshes}')
+        fixed_meshes = [m.simplify_vertex_clustering(voxel_size=3.5, contraction=o3d.geometry.SimplificationContraction.Quadric) for m in fixed_meshes]
+        print(f'downsampled meshes: {fixed_meshes}')
+        fixed_pcs = [m.vertices for m in fixed_meshes]
 
-    # sample points from fixed
-    fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points, seed=42) for mesh in fixed_meshes]
-    fixed_pcs_np = np.stack([pc.points for pc in fixed_pcs])
+        # save faces
+        with open(os.path.join(out_path, 'fixed_faces.npz'), 'wb') as faces_file:
+            pickle.dump([np.asarray(m.triangles) for m in fixed_meshes], faces_file)
+
+    else:
+        # sample points from fixed
+        fixed_pcs = [mesh.sample_points_poisson_disk(number_of_points=n_sample_points, seed=42).points for mesh in fixed_meshes]
+
+    fixed_pcs_np = [np.asarray(pc) for pc in fixed_pcs]
     save_shape(fixed_pcs_np, os.path.join(out_path, f'{"_".join(ds.get_id(f))}.npz'), transforms=None)
 
     # register each image onto fixed
@@ -314,4 +345,4 @@ if __name__ == '__main__':
     moving_ids = [ds.get_id(m) for m in range(len(ds)) if m != f]  # prevent id mismatch
 
     # preprocess the registration
-    register_all(fixed_pcs, moving_meshes, moving_ids, out_path, n_sample_points=n_sample_points, show=show)
+    register_all(fixed_pcs_np, moving_meshes, moving_ids, out_path, n_sample_points=n_sample_points, show=show)

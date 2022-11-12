@@ -40,8 +40,8 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
     hd_p2m = []
     cf_dists = []
 
-    for obj_i in range(all_moved_pcs.shape[1]):
-        all_points = np.concatenate(all_moved_pcs[:, obj_i], axis=0)
+    for obj_i in range(len(all_moved_pcs[0])):
+        all_points = np.concatenate([pcs[obj_i] for pcs in all_moved_pcs], axis=0)
 
         if mode == 'kmeans':
             # k-means to determine sampling locations
@@ -113,7 +113,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
         cf_dists.append([])
         for instance in tqdm_redirect(range(len(all_moved_pcs)), desc=f'inverse transform on centroids, object {obj_i+1}'):
             sampled_pc = inverse_transformation_at_sampled_points(
-                all_moved_pcs[instance, obj_i], all_displacements[instance, obj_i],
+                all_moved_pcs[instance][obj_i], all_displacements[instance][obj_i],
                 sample_point_cloud=centroids, img_shape=fixed_img_shape, interpolation_mode=interpolation_mode)
 
             # optionally undo affine transformation
@@ -136,7 +136,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
             hd = dist_moved.max()
             print(f'Point Cloud distance to GT mesh: {p2m.item():.4f} +- {std.item():.4f} (Hausdorff: {hd.item():.4f})')
             cf, _ = pytorch3d.loss.chamfer_distance(torch.from_numpy(sampled_pc_not_affine[None]).float(),
-                                                    torch.from_numpy(all_moving_pcs[instance, obj_i, None]).float())
+                                                    torch.from_numpy(all_moving_pcs[instance][obj_i][None]).float())
             print(f'Chamfer Distance: {cf:.4f}')
 
             mean_p2m[obj_i].append(p2m)
@@ -148,7 +148,7 @@ def data_set_correspondences(fixed_pcs: np.ndarray,
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
             point_cloud_on_axis(ax, sampled_pc_not_affine, c='r', title='backtransformation', label='centroids-sampled_disp')
-            point_cloud_on_axis(ax, all_moving_pcs[instance, obj_i], c='b', label='original moving')
+            point_cloud_on_axis(ax, all_moving_pcs[instance][obj_i], c='b', label='original moving')
             fig.savefig(os.path.join(plot_dir, f'instance{instance}_obj{obj_i+1}_backtrans'), bbox_inches='tight', dpi=300)
 
             fig = plt.figure()
@@ -185,6 +185,7 @@ if __name__ == '__main__':
     parser.add_argument("--ts", const=True, default=False, nargs="?", help="use total segmentator dataset")
     parser.add_argument("--undo_affine", const=True, default=False, nargs="?",
                         help="undo affine transformation of the point cloud registration")
+    parser.add_argument("--mesh", const=True, default=False, nargs="?", help="use the registrations with mesh available")
     parser.add_argument("--show", const=True, default=False, nargs="?", help="show pyplot figures")
     parser.add_argument("--lobes", const=True, default=False, nargs="?", help="use lobes instead of fissure objects")
     parser.add_argument("--optics_divisor", type=int, default=16, help="divisor for OPTICS' min-samples parameter")
@@ -216,7 +217,7 @@ if __name__ == '__main__':
     get_meshes = ds.get_fissure_meshes if not lobes else ds.get_lobe_meshes
 
     # set output path
-    base_path = f'results/corresponding_points{"_ts" if total_segmentator else ""}/{"lobes" if lobes else "fissures"}'
+    base_path = f'results/corresponding_points{"_mesh" if args.mesh else ""}{"_ts" if total_segmentator else ""}/{"lobes" if lobes else "fissures"}'
     reg_dir = os.path.join(base_path, 'registrations')
     out_path = new_dir(base_path, mode)
     if mode == "cluster":
@@ -224,7 +225,7 @@ if __name__ == '__main__':
 
     # load fixed point cloud
     fixed_fn = glob.glob(os.path.join(base_path, '*.npz'))
-    assert len(fixed_fn) == 1
+    # assert len(fixed_fn) == 1
     fixed_pcs = np.load(fixed_fn[0], allow_pickle=True)['shape']
     f = ds.get_index(*os.path.split(fixed_fn[0])[1].replace('.npz', '').split('_'))
 
@@ -237,6 +238,8 @@ if __name__ == '__main__':
     all_moving_pcs = load('moving_pcs.npz')
     all_prereg_transforms = load('transforms.npz')
     ids = load('ids.npz')
+    if args.mesh:
+        faces = np.load(os.path.join(reg_dir, 'faces.npz'), allow_pickle=True)
 
     # remove any ids that might have been removed after the registration
     mask = np.ones(len(ids), dtype=bool)
@@ -245,9 +248,9 @@ if __name__ == '__main__':
             ds.get_index(*loaded_id)
         except ValueError:
             mask[i] = False
-    all_displacements = all_displacements[mask, ...]
-    all_moved_pcs = all_moved_pcs[mask, ...]
-    all_moving_pcs = all_moving_pcs[mask, ...]
+    all_displacements = [all_displacements[i] for i in range(len(all_displacements)) if mask[i]]
+    all_moved_pcs = [all_moved_pcs[i] for i in range(len(all_moved_pcs)) if mask[i]]
+    all_moving_pcs = [all_moving_pcs[i] for i in range(len(all_moving_pcs)) if mask[i]]
     all_prereg_transforms = [all_prereg_transforms[i] for i in range(len(all_prereg_transforms)) if mask[i]]
     ids = ids[mask, ...]
 
