@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Sequence, Tuple, List
 
 import SimpleITK as sitk
@@ -49,8 +50,8 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     :param scale: scale, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :return:
     """
-    if np.prod(points.shape) == 0:
-        raise ValueError('Error: Tried to reconstruct mesh from empty point cloud!')
+    if np.prod(points.shape) == 0 or points.shape[0] < 4:
+        raise ValueError(f'Tried reconstructing mesh from {points.shape[0]} points. Requires at least 4.')
 
     # convert to open3d point cloud object
     pcd = o3d.geometry.PointCloud()
@@ -98,14 +99,17 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
 
         # thin the fissures
         print('\tThinning labelmap and extracting points ...')
+        start = time.time()
         label_image = sitk.BinaryThinning(label_image)
         label_tensor = image2tensor(label_image, dtype=torch.bool)
 
         # extract point cloud from thinned fissures
         fissure_points = mask_to_points(label_tensor, spacing)
+        print(f'\tTook {time.time() - start:.4f} s')
 
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
+        start = time.time()
         poisson_mesh = pointcloud_surface_fitting(fissure_points, crop_to_bbox=True, mask=mask)
 
         # post-process: keep only the largest component (that is in the correct body half)
@@ -113,6 +117,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
         remove_all_but_biggest_component(poisson_mesh, right=right,
                                          center_x=(fissures.GetSize()[0] * fissures.GetSpacing()[0]) / 2)
         fissure_meshes.append(poisson_mesh)
+        print(f'\tTook {time.time() - start:.4f} s')
 
     # convert mesh to labelmap by sampling points
     print('Converting meshes to labelmap ...')
