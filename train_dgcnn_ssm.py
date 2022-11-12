@@ -7,8 +7,8 @@ from matplotlib import pyplot as plt
 from augmentations import compose_transform
 from cli.cl_args import get_dgcnn_ssm_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
+from constants import POINT_DIR, POINT_DIR_TS
 from data import CorrespondingPointDataset
-from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
 from losses.dgssm_loss import corresponding_point_distance, DGSSMLoss
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot

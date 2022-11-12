@@ -10,10 +10,10 @@ import torch
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
+from constants import POINT_DIR, POINT_DIR_TS
 from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset, DEFAULT_SPLIT, \
     DEFAULT_SPLIT_TS
 from data_processing.find_lobes import lobes_to_fissures
-from data_processing.keypoint_extraction import POINT_DIR, POINT_DIR_TS
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
 from losses.dgssm_loss import corresponding_point_distance

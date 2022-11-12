@@ -5,21 +5,18 @@ import SimpleITK as sitk
 import numpy as np
 import torch
 
+from cli.cl_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
+from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
-from utils.utils import kpts_to_grid, ALIGN_CORNERS
+from utils.utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts
 
-KP_MODES = ['foerstner', 'noisy', 'cnn', 'enhancement']
 MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
-
-
-POINT_DIR = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data'
-POINT_DIR_TS = os.path.join(POINT_DIR, 'ts')
 
 
 def get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7):
@@ -53,8 +50,22 @@ def get_noisy_keypoints(fissures_tensor, device):
     return kp
 
 
-def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
-    args = load_args_for_testing(cv_dir)
+def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshold=0.3, feat_patch=5):
+    """ also computes CNN features (the softmax scores patch)
+
+    :param cv_dir:
+    :param case:
+    :param sequence:
+    :param device:
+    :param out_path:
+    :param softmax_threshold:
+    :param feat_patch:
+    :return:
+    """
+    default_parser = get_seg_cnn_train_parser()
+    args, _ = default_parser.parse_known_args()
+    args = load_args_for_testing(cv_dir, args)
+
     ds = ImageDataset(folder=data_dir, do_augmentation=False, patch_size=(args.patch_size,)*3,
                       resample_spacing=args.spacing)
     cross_val_split = load_split_file(os.path.join(cv_dir, "cross_val_split.np.pkl"))
@@ -80,14 +91,16 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     model.eval()
     model.to(device)
 
-    input_img = ds.get_batch_collate_fn()([ds[ds.get_index(case, sequence)]])[0].to(device)
+    img_index = ds.get_index(case, sequence)
+    input_img = ds.get_batch_collate_fn()([ds[img_index]])[0].to(device)
     with torch.no_grad():
         softmax_pred = model.predict_all_patches(input_img)
 
     # threshold the softmax scores
-    fissure_points = torch.zeros(softmax_pred.shape[2:], device=device)
-    for lbl in range(1, model.num_classes):
-        fissure_points = torch.logical_or(fissure_points, softmax_pred[0, lbl] > softmax_threshold)
+    # fissure_points = torch.zeros(softmax_pred.shape[2:], device=device)
+    # for lbl in range(1, model.num_classes):  # TODO: take argmax?
+    #     fissure_points = torch.logical_or(fissure_points, softmax_pred[0, lbl] > softmax_threshold)
+    fissure_points = softmax_pred.argmax(1).squeeze() != 0
 
     # apply lung mask
     lung_mask = resample_equal_spacing(ds.get_lung_mask(ds.get_index(case, sequence)),
@@ -96,10 +109,15 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, softmax_threshold=0.3):
     fissure_points = torch.logical_and(fissure_points, lung_mask)
 
     # nonzero voxels to points
-    kp = torch.nonzero(fissure_points) * torch.tensor((ds.resample_spacing,)*3, device=fissure_points.device)
-    kp = kp.long()
+    kp = torch.nonzero(fissure_points) * ds.resample_spacing
 
-    return kp
+    # compute cnn features: sum of foreground softmax scores)
+    kp_grid = kpts_to_grid(kp.flip(-1),
+                           shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
+    features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, feat_patch).squeeze().flatten(start_dim=1).transpose(0, 1)
+    torch.save(features.cpu(), os.path.join(out_path, f'{case}_cnn_{sequence}.pth'))
+
+    return kp.long()
 
 
 def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
@@ -111,6 +129,9 @@ def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
 
 def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner',
                       enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:2'):
+    if kp_mode == 'cnn':
+        assert cnn_dir is not None
+
     print(f'Computing {kp_mode} keypoints for case {case}, {sequence}...')
     torch.cuda.empty_cache()
 
@@ -127,11 +148,11 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
     img_tensor = torch.from_numpy(sitk.GetArrayFromImage(img)).unsqueeze(0).unsqueeze(0).float().to(device)
 
     # dilate fissures so that more keypoints get assigned foreground labels
-    fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')
+    fissures_dilated = multiple_objects_morphology(fissures, radius=2, mode='dilate')  # TODO: problem?
     fissures_tensor = torch.from_numpy(sitk.GetArrayFromImage(fissures_dilated).astype(int))
 
-    # dilate lobes to fill gaps from the fissures  # TODO: use lobe filling?
-    lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
+    # # dilate lobes to fill gaps from the fissures
+    # lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
 
     if kp_mode == 'foerstner':
         kp = get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7)
@@ -140,7 +161,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
         kp = get_noisy_keypoints(fissures_tensor, device)
 
     elif kp_mode == 'cnn':
-        kp = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device)
+        kp = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device, out_path=out_dir)
 
     elif kp_mode == 'enhancement':
         assert enhanced_img_path is not None, \
@@ -161,10 +182,10 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
     torch.save(labels.cpu(), os.path.join(out_dir, f'{case}_fissures_{sequence}.pth'))
     print(f'\tkeypoints per fissure: {labels.unique(return_counts=True)[1].tolist()}')
 
-    lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
-    lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
-    torch.save(lobes.cpu(), os.path.join(out_dir, f'{case}_lobes_{sequence}.pth'))
-    print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
+    # lobes_tensor = torch.from_numpy(sitk.GetArrayFromImage(lobes_dilated).astype(int))
+    # lobes = lobes_tensor[kp_cpu[:, 0], kp_cpu[:, 1], kp_cpu[:, 2]]
+    # torch.save(lobes.cpu(), os.path.join(out_dir, f'{case}_lobes_{sequence}.pth'))
+    # print(f'\tkeypoints per lobe: {lobes.unique(return_counts=True)[1].tolist()}')
 
     # coordinate features: transform indices into physical points
     spacing = torch.tensor(img.GetSpacing()[::-1]).unsqueeze(0).to(device)
@@ -195,7 +216,7 @@ if __name__ == '__main__':
     if ts:
         data_dir = '../TotalSegmentator/ThoraxCrop_v2'
         point_dir = POINT_DIR_TS
-        cnn_dir = 'results/totalseg_3d_cnn_binary_recall'
+        cnn_dir = 'results/lraspp_recall_loss'
     else:
         data_dir = '../data'
         point_dir = POINT_DIR
@@ -204,7 +225,7 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for mode in KP_MODES:
-        if mode == 'noisy' or mode == 'cnn':
+        if mode != 'cnn':
             continue
 
         print('MODE:', mode)
@@ -228,4 +249,4 @@ if __name__ == '__main__':
                 device = 'cuda:0'
 
             compute_keypoints(img, fissures, lobes, mask, point_dir, case, sequence, kp_mode=mode,
-                              enhanced_img_path=ds.fissures_enhanced[i], device=device)
+                              enhanced_img_path=ds.fissures_enhanced[i], device=device, cnn_dir=cnn_dir)

@@ -7,8 +7,8 @@ from pytorch3d.structures import Meshes
 
 from cli.cl_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing
+from constants import POINT_DIR, POINT_DIR_TS
 from data import PointDataset, load_split_file, save_split_file
-from data_processing.keypoint_extraction import POINT_DIR_TS, POINT_DIR
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet

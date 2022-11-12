@@ -1,7 +1,7 @@
 import argparse
 import json
 
-from data_processing.keypoint_extraction import KP_MODES
+from constants import KP_MODES
 from data_processing.point_features import FEATURE_MODES
 from losses.access_losses import Losses
 from models.folding_net import SHAPE_TYPES

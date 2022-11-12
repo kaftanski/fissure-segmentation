@@ -7,15 +7,15 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from torch import nn
 
+from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
 from data import LungData, normalize_img
-from data_processing.keypoint_extraction import KP_MODES, POINT_DIR_TS, POINT_DIR
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
 from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
     new_dir
 
-FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement']
+FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement', 'cnn']
 
 
 def distinctiveness(img, sigma):
@@ -216,7 +216,7 @@ if __name__ == '__main__':
     ts = True
 
     if ts:
-        data_dir = '../TotalSegmentator/ThoraxCrop'
+        data_dir = '../TotalSegmentator/ThoraxCrop_v2'
         point_dir = POINT_DIR_TS
     else:
         data_dir = '../data'
@@ -231,6 +231,9 @@ if __name__ == '__main__':
         out_dir = new_dir(point_dir, kp_mode)
 
         for feat_mode in FEATURE_MODES:
+            if feat_mode == 'cnn':
+                continue
+
             for i in range(len(ds)):
                 case, sequence = ds.get_id(i)
                 print(f'Computing point features for case {case}, {sequence}...')
