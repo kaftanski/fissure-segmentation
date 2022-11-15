@@ -477,26 +477,6 @@ if __name__ == '__main__':
     net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes,
                    spatial_transformer=args.transformer, dynamic=not args.static)
 
-    # save setup
-    setup_dict = {
-        'data': ds.folder,
-        'n_points': ds.sample_points,
-        'batch_size': args.batch,
-        'graph_k': args.k,
-        'use_coords': args.coords,
-        'use_features': args.patch,
-        'learn_rate': args.lr,
-        'epochs': args.epochs,
-        'exclude_rhf': ds.exclude_rhf,
-        'lobes': ds.lobes,
-        'dgcnn_input_transformer': args.transformer,
-        'dynamic': not args.static
-    }
-    with open(os.path.join(args.output, 'setup.csv'), 'w') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(setup_dict.keys()))
-        writer.writeheader()
-        writer.writerow(setup_dict)
-
     if not args.test_only:
         store_args(args=args, out_dir=args.output)
 
