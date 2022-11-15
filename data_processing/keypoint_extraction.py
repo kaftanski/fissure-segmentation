@@ -14,7 +14,7 @@ from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
-from utils.utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts
+from utils.utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims
 
 MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
@@ -120,10 +120,13 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     return kp.long()
 
 
-def get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.3):
+def get_hessian_fissure_enhancement_kpts(enhanced_img, device, min_threshold=0.2):
     enhanced_img = sitk.DiscreteGaussian(enhanced_img, variance=(1, 1, 1), useImageSpacing=True)
     enhanced_img_tensor = sitk_image_to_tensor(enhanced_img).to(device)
-    kp = torch.nonzero(enhanced_img_tensor > threshold).long()
+
+    top_vals, top_idx = topk_alldims(enhanced_img_tensor, MAX_KPTS)
+    top_idx = torch.stack(top_idx, dim=1)
+    kp = top_idx[top_vals > min_threshold]
     return kp
 
 
@@ -155,7 +158,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
     # lobes_dilated = multiple_objects_morphology(lobes, radius=2, mode='dilate')
 
     if kp_mode == 'foerstner':
-        kp = get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=7)
+        kp = get_foerstner_keypoints(device, img_tensor, mask, sigma=0.5, threshold=1e-8, nms_kernel=5)
 
     elif kp_mode == 'noisy':
         kp = get_noisy_keypoints(fissures_tensor, device)
@@ -167,7 +170,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
         assert enhanced_img_path is not None, \
             'Tried to use fissure enhancement for keypoint extraction but no path to enhanced image given.'
         enhanced_img = sitk.ReadImage(enhanced_img_path)
-        kp = get_hessian_fissure_enhancement_kpts(enhanced_img, device, threshold=0.25)
+        kp = get_hessian_fissure_enhancement_kpts(enhanced_img, device, min_threshold=0.2)
 
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
@@ -175,6 +178,8 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
     # limit number of keypoints
     if len(kp) > MAX_KPTS:
         kp = kp[torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]]
+    elif len(kp) < 2048:
+        print(case, sequence, "has less than minimum of 2048 kpts!")
 
     # get label for each point
     kp_cpu = kp.cpu()
@@ -225,7 +230,7 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for mode in KP_MODES:
-        if mode != 'cnn':
+        if mode != 'enhancement':
             continue
 
         print('MODE:', mode)

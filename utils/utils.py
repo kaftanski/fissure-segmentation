@@ -73,7 +73,7 @@ def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str
 def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None):
     return torch.load(os.path.join(path, f'{case}_coords_{sequence}.pth'), map_location='cpu'), \
            torch.load(os.path.join(path, f'{case}_fissures_{sequence}.pth'), map_location='cpu'), \
-           torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location='cpu'), \
+           torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location='cpu') if os.path.isfile(os.path.join(path, f'{case}_lobes_{sequence}.pth')) else None, \
            torch.load(os.path.join(path, f'{case}_{feat}_{sequence}.pth'), map_location='cpu') if feat is not None \
                else None
 
@@ -365,3 +365,18 @@ def save_meshes(meshes, base_dir, case, sequence, obj_name='fissure'):
     os.makedirs(meshdir, exist_ok=True)
     for m, mesh in enumerate(meshes):
         o3d.io.write_triangle_mesh(os.path.join(meshdir, f'{case}_{obj_name}{m + 1}_{sequence}.obj'), mesh)
+
+
+def unravel_index(index, shape):
+    out = []
+    for dim in reversed(shape):
+        out.append(index % dim)
+        index = index // dim
+    return tuple(reversed(out))
+
+
+def topk_alldims(tensor, k):
+    res = torch.topk(tensor.view(-1), k=k)
+
+    idx = unravel_index(res.indices, tensor.size())
+    return tensor[idx], idx
