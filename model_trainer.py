@@ -1,3 +1,4 @@
+import csv
 import os
 from argparse import Namespace
 from copy import deepcopy
@@ -218,6 +219,10 @@ class ModelTrainer:
         # stop the timer
         total_train_time_in_s = time() - self.training_start
         print(f'\nDone. Took {total_train_time_in_s / 60:.4f} min')
+        with open(os.path.join(self.out_dir, 'train_time.csv'), 'w') as time_file:
+            writer = csv.writer(time_file)
+            writer.writerow(['train time [m]'])
+            writer.writerow([str(total_train_time_in_s / 60)])
 
         # save best model
         model_path = os.path.join(self.out_dir, 'model.pth')
