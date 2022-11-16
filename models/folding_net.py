@@ -206,7 +206,7 @@ class DeformingDecoder(Decoder):
         deformed1 = points + offsets1
 
         offsets2 = self.deforming2(torch.cat([x, deformed1], dim=1))
-        deformed2 = points + offsets2
+        deformed2 = deformed1 + offsets2
 
         if self.decode_mesh:
             return Meshes(deformed2.transpose(1, 2), self.faces)
