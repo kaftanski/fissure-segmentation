@@ -41,7 +41,7 @@ class ModelTrainer:
         self.initial_epoch = 0
 
         # specify frequency of checkpoint saves (after this many epochs)
-        self.checkpoint_every = 50
+        self.checkpoint_every = self.epochs+2  # turned checkpoints off.
 
         # setup optimization
         self.optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
