@@ -9,6 +9,7 @@ from pytorch3d.structures import Meshes, join_meshes_as_batch
 
 from cli.cl_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
+from constants import IMG_DIR, IMG_DIR_TS
 from data import CustomDataset
 from metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
@@ -246,9 +247,9 @@ if __name__ == '__main__':
 
     # configure dataset
     if args.ds == 'data':
-        mesh_dir = '../data'
+        mesh_dir = IMG_DIR
     elif args.ds == 'ts':
-        mesh_dir = '../TotalSegmentator/ThoraxCrop'
+        mesh_dir = IMG_DIR_TS
     else:
         raise ValueError(f'No dataset named {args.ds}')
 

@@ -10,9 +10,8 @@ import torch
 import model_trainer
 from cli.cl_args import get_dgcnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR, POINT_DIR_TS
-from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset, DEFAULT_SPLIT, \
-    DEFAULT_SPLIT_TS
+from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
+from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
@@ -137,10 +136,10 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
-def test(ds, device, out_dir, show):
+def test(ds: PointDataset, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
-    img_ds = LungData('../data/')
+    img_ds = LungData(ds.image_folder)
 
     net = DGCNNSeg.load(os.path.join(out_dir, 'model.pth'), device=device)
     net.to(device)
@@ -178,9 +177,8 @@ def test(ds, device, out_dir, show):
         pts = inputs[0, :3]  # coords are the first 3 features
         case, sequence = ds.ids[i]
         img_index = img_ds.get_index(case, sequence)
-        image = img_ds.get_image(img_index)
-        spacing = torch.tensor(image.GetSpacing(), device=device)
-        shape = torch.tensor(image.GetSize()[::-1], device=device) * spacing.flip(0)
+        spacing = torch.tensor(ds.spacings[i], device=device)
+        shape = torch.tensor(ds.img_sizes_index[i][::-1], device=device) * spacing.flip(0)
         pts = kpts_to_world(pts.to(device).transpose(0, 1), shape)  # points in millimeters
 
         # POST-PROCESSING prediction
@@ -198,7 +196,7 @@ def test(ds, device, out_dir, show):
 
             # point labels are seeds for random walk, filling in the gaps
             sparse_lobes_img = sitk.GetImageFromArray(lobes_tensor.numpy().astype(np.uint8))
-            sparse_lobes_img.CopyInformation(image)
+            sparse_lobes_img.CopyInformation(mask_img)
             fissure_pred_img, lobes_pred_img = lobes_to_fissures(sparse_lobes_img, mask_img, device=device)
 
             # write out intermediate results
@@ -211,7 +209,7 @@ def test(ds, device, out_dir, show):
 
             if net.num_classes == 2:  # binary prediction
                 # voxelize point labels
-                fissure_tensor, pts_index = points_to_label_map(pts, labels_pred.squeeze(), mask_tensor.shape, spacing=image.GetSpacing())
+                fissure_tensor, pts_index = points_to_label_map(pts, labels_pred.squeeze(), mask_tensor.shape, spacing=ds.spacings[i])
 
                 # infer right/left fissure labels from lung mask
                 fissure_tensor = binary_to_fissure_segmentation(fissure_tensor, lr_lung_mask=img_ds.get_left_right_lung_mask(i))
@@ -269,15 +267,15 @@ def test(ds, device, out_dir, show):
 
         # write out label images (converted from surface reconstruction)
         # predicted labelmap
-        labelmap_predict = o3d_mesh_to_labelmap(meshes_predict, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
+        labelmap_predict = o3d_mesh_to_labelmap(meshes_predict, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])
         label_image_predict = sitk.GetImageFromArray(labelmap_predict.numpy().astype(np.uint8))
-        label_image_predict.CopyInformation(image)
+        label_image_predict.CopyInformation(mask_img)
         sitk.WriteImage(label_image_predict, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
         # target labelmap
-        labelmap_target = o3d_mesh_to_labelmap(meshes_target, shape=image.GetSize()[::-1], spacing=image.GetSpacing())
+        labelmap_target = o3d_mesh_to_labelmap(meshes_target, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])
         label_image_target = sitk.GetImageFromArray(labelmap_target.numpy().astype(np.uint8))
-        label_image_target.CopyInformation(image)
+        label_image_target.CopyInformation(mask_img)
         sitk.WriteImage(label_image_target, os.path.join(label_dir, f'{case}_fissures_targ_{sequence}.nii.gz'))
 
         # remember meshes for evaluation
@@ -461,13 +459,17 @@ if __name__ == '__main__':
 
         if args.ds == 'data':
             point_dir = POINT_DIR
+            img_dir = IMG_DIR
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
+            img_dir = IMG_DIR_TS
         else:
             raise ValueError(f'No dataset named {args.ds}')
 
         print(f'Using point data from {point_dir}')
-        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords, folder=point_dir, patch_feat=args.patch,
+        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
+                          folder=point_dir, image_folder=img_dir,
+                          patch_feat=args.patch,
                           exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')

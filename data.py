@@ -27,10 +27,6 @@ IMG_MIN = -1000
 IMG_MAX = 1500
 
 
-DEFAULT_SPLIT = "../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl"
-DEFAULT_SPLIT_TS = "../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl"
-
-
 def _load_files_from_file_list(item, the_list):
     if isinstance(item, int):
         item = [item]
@@ -317,7 +313,7 @@ class ImageDataset(LungData, CustomDataset):
         # get inputs into range [-1, 1]
         img_array = normalize_img(img_array)
 
-        return img_array.squeeze(), label_array.squeeze()  # TODO: return pat ids
+        return img_array.squeeze(), label_array.squeeze()
 
     def get_batch_collate_fn(self):
         def collate_fn(list_of_samples):
@@ -350,8 +346,10 @@ def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
 
 
 class PointDataset(CustomDataset):
-    def __init__(self, sample_points, kp_mode, folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/', use_coords=True,
-                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
+    def __init__(self, sample_points, kp_mode,
+                 folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/',
+                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data',
+                 use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary)
 
@@ -365,6 +363,7 @@ class PointDataset(CustomDataset):
 
         self.folder = os.path.join(folder, kp_mode)
         files = sorted(glob(os.path.join(self.folder, '*_coords_*')))
+        self.image_folder = image_folder
         self.kp_mode = kp_mode
         self.use_coords = use_coords
         self.lobes = lobes
@@ -388,6 +387,17 @@ class PointDataset(CustomDataset):
             else:
                 self.features.append(torch.empty(0, pts.shape[1]))
             self.ids.append((case, sequence))
+
+        # load img sizes for (un-)normalization
+        self.spacings = []
+        self.img_sizes_index = []
+        self.img_sizes_world = []
+        for case, sequence in self.ids:
+            size, spacing = load_image_metadata(os.path.join(image_folder, f"{case}_img_{sequence}.nii.gz"))
+            self.spacings.append(spacing)
+            self.img_sizes_index.append(size)
+            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
+            self.img_sizes_world.append(size_world)
 
     @property
     def num_classes(self):
@@ -450,8 +460,8 @@ class CorrespondingPointDataset(PointDataset):
                  use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
                  image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data/',
                  do_augmentation=True, undo_affine_reg=False):
-        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, use_coords, patch_feat,
-                                                        exclude_rhf=True, do_augmentation=False)
+        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, image_folder, use_coords,
+                                                        patch_feat, exclude_rhf=True, do_augmentation=False)
         self.corr_points = CorrespondingPoints(corr_folder)
         self._do_augmentation_correspondingly = do_augmentation
 
@@ -463,13 +473,6 @@ class CorrespondingPointDataset(PointDataset):
 
         # remove non-matched data points
         self._remove_non_matched_from_corr_points()
-
-        # load img sizes for pytorch grid normalization
-        self.img_sizes = []
-        for case, sequence in self.ids:
-            size, spacing = load_image_metadata(os.path.join(image_folder, f"{case}_img_{sequence}.nii.gz"))
-            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
-            self.img_sizes.append(size_world)
 
         # # affine transform the ground truth meshes to fit the corresponding points
         # for meshes, transforms in zip(self.meshes, self.corr_points.transforms):
@@ -558,13 +561,13 @@ class CorrespondingPointDataset(PointDataset):
                 self.corr_points.ids.pop(i)
 
     def normalize_pc(self, pc, index, return_transform=False):
-        return kpts_to_grid(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS, return_transform=return_transform)
+        return kpts_to_grid(pc, self.img_sizes_world[index][::-1], align_corners=ALIGN_CORNERS, return_transform=return_transform)
 
     def unnormalize_pc(self, pc, index):
-        return kpts_to_world(pc, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+        return kpts_to_world(pc, self.img_sizes_world[index][::-1], align_corners=ALIGN_CORNERS)
 
     def unnormalize_mean_pc(self, pc):
-        mean_size = torch.stack([torch.tensor(self.img_sizes[i][::-1]) for i in range(len(self))], dim=0).mean(0)
+        mean_size = torch.stack([torch.tensor(self.img_sizes_world[i][::-1]) for i in range(len(self))], dim=0).mean(0)
         return kpts_to_world(pc, mean_size, align_corners=ALIGN_CORNERS)
 
     def get_normalized_corr_datamatrix_with_affine_reg(self):

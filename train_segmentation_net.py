@@ -7,12 +7,12 @@ import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args_dict
+from constants import IMG_DIR_TS, IMG_DIR
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
-from preprocess_totalsegmentator_dataset import PROCESSED_DATA_PATH as TS_DATA_PATH
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
@@ -196,9 +196,9 @@ if __name__ == '__main__':
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     if args.ds == 'data':
-        img_dir = '../data'
+        img_dir = IMG_DIR
     elif args.ds == 'ts':
-        img_dir = TS_DATA_PATH
+        img_dir = IMG_DIR_TS
     else:
         raise ValueError(f'No dataset named {args.ds}')
 

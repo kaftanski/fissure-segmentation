@@ -84,6 +84,8 @@ def get_dgcnn_train_parser():
     group.add_argument('--img_feat_extractor', const=True, default=False,
                        help='use an extra image feature extraction module', nargs='?')
 
+    parser.set_defaults(scheduler='cosine')
+
     return parser
 
 
