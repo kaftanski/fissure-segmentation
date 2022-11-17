@@ -321,9 +321,11 @@ def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
         writer.writerow(['StdDev HD'] + [d.item() for d in std_hd] + [std_hd.mean().item()])
         writer.writerow(['Mean HD95'] + [d.item() for d in mean_hd95] + [mean_hd95.mean().item()])
         writer.writerow(['StdDev HD95'] + [d.item() for d in std_hd95] + [std_hd95.mean().item()])
+
         if proportion_missing is None:
             proportion_missing = torch.zeros_like(mean_assd, dtype=torch.float)
         writer.writerow(['proportion missing'] + [d.item() for d in proportion_missing] + [proportion_missing.mean().item()])
+
         for key, value in additional_metrics.items():
             try:
                 value = value.item()
@@ -346,6 +348,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     test_hd = []
     test_hd95 = []
     test_missing = []
+    train_times_min = []
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
         train_ds, val_ds = ds.split_data_set(tr_val_fold)
@@ -370,6 +373,15 @@ def cross_val(model, ds, split_file, device, test_fn, args):
         test_hd95.append(mean_hd95)
         test_missing.append(percent_missing)
 
+        # read the train time file
+        with open(os.path.join(fold_dir, 'train_time.csv'), 'r') as time_file:
+            reader = csv.reader(time_file)
+            for row in reader:
+                if 'train time' in row[0]:
+                    continue
+                else:
+                    train_times_min.append(eval(row[0]))
+
     test_dice = torch.stack(test_dice, dim=0)
     test_assd = torch.stack(test_assd, dim=0)
     test_sdsd = torch.stack(test_sdsd, dim=0)
@@ -392,13 +404,16 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     mean_hd95 = test_hd95.mean(0)
     std_hd95 = test_hd95.std(0)
 
+    train_times_min = torch.tensor(train_times_min)
+
     # print out results
     print('\n============ RESULTS ============')
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
     write_results(os.path.join(args.output, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
-                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, test_missing.mean(0))
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, test_missing.mean(0),
+                  mean_train_time_in_min=train_times_min.mean(), stddev_train_time_in_min=train_times_min.std())
 
 
 def run(ds, model, test_fn, args):
