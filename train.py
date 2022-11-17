@@ -232,13 +232,13 @@ def test(ds: PointDataset, device, out_dir, show):
             label = j+1
             try:
                 if not ds.lobes:
-                    if ds.kp_mode == 'foerstner':
-                        # using poisson reconstruction with octree-depth 3 because of sparse point cloud
-                        depth = 3
-                    else:
-                        # point cloud contains more foreground points because of pre-seg CNN or enhancement
-                        depth = 6
-
+                    # if ds.kp_mode == 'foerstner':
+                    #     # using poisson reconstruction with octree-depth 3 because of sparse point cloud
+                    #     depth = 3
+                    # else:
+                    #     # point cloud contains more foreground points because of pre-seg CNN or enhancement
+                    #     depth = 6
+                    depth = 6
                     mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
                                                               depth=depth)
                 else:
