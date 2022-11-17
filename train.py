@@ -300,7 +300,7 @@ def test(ds: PointDataset, device, out_dir, show):
     write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
-    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, None
+    return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
 def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95,
@@ -364,7 +364,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
             val_ds, device, fold_dir, args.show)
 
         if percent_missing is None:
-            percent_missing = torch.zeros_like(mean_dice)
+            percent_missing = torch.zeros_like(mean_assd)
 
         test_dice.append(mean_dice)
         test_assd.append(mean_assd)
