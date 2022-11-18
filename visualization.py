@@ -1,6 +1,6 @@
-import math
 from typing import Sequence, Union
 
+import math
 import numpy as np
 import open3d
 import torch
@@ -261,7 +261,7 @@ def color_2d_points_bremm(points: torch.Tensor):
     # fixed lightness value:
     L = 55
 
-    # coordinates are a and b values (stretched to [-100,100])
+    # coordinates are a and b values (stretched to [-100,100], max-range would be [-128, 127])
     ab_range = [-100, 100]
     p_min = points.min(dim=0, keepdim=True)[0]
     p_max = points.max(dim=0, keepdim=True)[0]
