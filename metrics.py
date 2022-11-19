@@ -33,7 +33,7 @@ def assd(mesh_x: o3d.geometry.TriangleMesh, mesh_y: o3d.geometry.TriangleMesh):
     :return: Mean distance, standard deviation of distances, Hausdorff and 95th quantile distance
     """
     if len(mesh_x.vertices) == 0 or len(mesh_y.vertices) == 0:
-        return (torch.tensor(float('inf')),) * 4
+        return (torch.tensor(float('NaN')),) * 4
 
     dist_xy = point_surface_distance(query_points=mesh_x.vertices, trg_points=mesh_y.vertices, trg_tris=mesh_y.triangles)
     dist_yx = point_surface_distance(query_points=mesh_y.vertices, trg_points=mesh_x.vertices, trg_tris=mesh_x.triangles)
