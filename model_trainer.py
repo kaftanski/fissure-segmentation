@@ -1,10 +1,10 @@
 import csv
+import math
 import os
 from argparse import Namespace
 from copy import deepcopy
 from time import time
 
-import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -134,8 +134,8 @@ class ModelTrainer:
 
     def init_history(self, loss_term_labels):
         for term in loss_term_labels:
-            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
-            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
+            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch)
+            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch)
 
     def forward_step(self, x, y, ep, train):
         # TODO: support additional validation metrics
@@ -186,9 +186,9 @@ class ModelTrainer:
 
         # save mean batch statistics (weighting based on number of samples, works with or without drop_last in dl)
         batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
-        history['total_loss'][ep] += loss.detach() * batch_factor
+        history['total_loss'][ep] += loss.detach().item() * batch_factor
         for term in components.keys():
-            history[term][ep] += components[term].detach() * batch_factor
+            history[term][ep] += components[term].detach().item() * batch_factor
 
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
