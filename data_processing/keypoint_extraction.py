@@ -115,9 +115,9 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     kp_grid = kpts_to_grid(kp.flip(-1),
                            shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
     features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, feat_patch).squeeze().flatten(start_dim=1).transpose(0, 1)
-    torch.save(features.cpu(), os.path.join(out_path, f'{case}_cnn_{sequence}.pth'))
+    # torch.save(features.cpu(), os.path.join(out_path, f'{case}_cnn_{sequence}.pth'))
 
-    return kp.long()
+    return kp.long(), features
 
 
 def get_hessian_fissure_enhancement_kpts(enhanced_img, device, min_threshold=0.2):
@@ -164,7 +164,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
         kp = get_noisy_keypoints(fissures_tensor, device)
 
     elif kp_mode == 'cnn':
-        kp = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device, out_path=out_dir)
+        kp, cnn_feat = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device, out_path=out_dir)
 
     elif kp_mode == 'enhancement':
         assert enhanced_img_path is not None, \
@@ -177,7 +177,10 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 
     # limit number of keypoints
     if len(kp) > MAX_KPTS:
-        kp = kp[torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]]
+        perm = torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]
+        kp = kp[perm]
+        if kp_mode == 'cnn':
+            torch.save(cnn_feat.cpu()[:, perm], os.path.join(out_dir, f'{case}_cnn_{sequence}.pth'))
     elif len(kp) < 2048:
         print(case, sequence, "has less than minimum of 2048 kpts!")
 
@@ -230,7 +233,7 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for mode in KP_MODES:
-        if mode != 'enhancement':
+        if mode != 'cnn':
             continue
 
         print('MODE:', mode)
