@@ -202,6 +202,7 @@ def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: boo
 
     triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
     mesh.remove_triangles_by_mask(triangles_to_remove)
+    mesh.remove_unreferenced_vertices()
 
 
 def points_to_label_map(pts, labels, out_shape, spacing):
