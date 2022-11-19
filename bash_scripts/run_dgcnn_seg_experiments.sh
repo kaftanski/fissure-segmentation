@@ -1,12 +1,14 @@
 #!/bin/bash
 keypoints=("cnn" "enhancement")
-features=("image" "mind" "mind_ssc" "none")
+features=("image" "mind" "mind_ssc" "enhancement" "none")
 gpu=2
 
 for kp in "${keypoints[@]}"
   do
-    if [[ "$kp" == "cnn" ]] || [[ "$kp" == "enhancement" ]]; then
+    if [[ "$kp" == "cnn" ]]; then
       features_cur=("${features[@]}" "$kp")
+    else
+      features_cur=("${features[@]}")
     fi
 
     for feat in "${features_cur[@]}"
