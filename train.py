@@ -255,6 +255,7 @@ def test(ds: PointDataset, device, out_dir, show):
                 mesh_predict = create_o3d_mesh(verts=np.array([]), tris=np.array([]))
 
             # post-process surfaces
+            print('Masking Mesh')
             mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask
             right = label > 1  # right fissure(s) are label 2 and 3
             remove_all_but_biggest_component(mesh_predict, right=right, center_x=shape[2]/2)  # only keep the biggest connected component
@@ -262,6 +263,7 @@ def test(ds: PointDataset, device, out_dir, show):
             meshes_predict.append(mesh_predict)
 
             # write out meshes
+            print('Saving mesh')
             o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{label}_pred_{sequence}.obj'),
                                        mesh_predict)
 
@@ -360,27 +362,28 @@ def cross_val(model, ds, split_file, device, test_fn, args):
             model = type(model)(**model.config)
             train(model, train_ds, device, fold_dir, args)
 
-        mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _, percent_missing = test_fn(
-            val_ds, device, fold_dir, args.show)
+        if not args.train_only:
+            mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _, percent_missing = test_fn(
+                val_ds, device, fold_dir, args.show)
 
-        if percent_missing is None:
-            percent_missing = torch.zeros_like(mean_assd)
+            if percent_missing is None:
+                percent_missing = torch.zeros_like(mean_assd)
 
-        test_dice.append(mean_dice)
-        test_assd.append(mean_assd)
-        test_sdsd.append(mean_sdsd)
-        test_hd.append(mean_hd)
-        test_hd95.append(mean_hd95)
-        test_missing.append(percent_missing)
+            test_dice.append(mean_dice)
+            test_assd.append(mean_assd)
+            test_sdsd.append(mean_sdsd)
+            test_hd.append(mean_hd)
+            test_hd95.append(mean_hd95)
+            test_missing.append(percent_missing)
 
-        # read the train time file
-        with open(os.path.join(fold_dir, 'train_time.csv'), 'r') as time_file:
-            reader = csv.reader(time_file)
-            for row in reader:
-                if 'train time' in row[0]:
-                    continue
-                else:
-                    train_times_min.append(eval(row[0]))
+            # read the train time file
+            with open(os.path.join(fold_dir, 'train_time.csv'), 'r') as time_file:
+                reader = csv.reader(time_file)
+                for row in reader:
+                    if 'train time' in row[0]:
+                        continue
+                    else:
+                        train_times_min.append(eval(row[0]))
 
     test_dice = torch.stack(test_dice, dim=0)
     test_assd = torch.stack(test_assd, dim=0)
@@ -417,6 +420,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 
 
 def run(ds, model, test_fn, args):
+    assert not (args.train_only and args.test_only)
     print(args)
 
     test_fn = get_deterministic_test_fn(test_fn)

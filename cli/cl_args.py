@@ -1,8 +1,7 @@
 import argparse
 import json
 
-from constants import KP_MODES
-from data_processing.point_features import FEATURE_MODES
+from constants import KP_MODES, FEATURE_MODES
 from losses.access_losses import Losses
 from models.folding_net import SHAPE_TYPES
 from shape_model.generate_corresponding_points import CORRESPONDENCE_MODES
@@ -28,6 +27,7 @@ def add_test_parameters(parser):
     group = parser.add_argument_group('Testing Parameters')
 
     group.add_argument('--test_only', const=True, default=False, help='do not train model', nargs='?')
+    group.add_argument('--train_only', const=True, default=False, help='do not test model', nargs='?')
     group.add_argument('--fold', default=None, type=int,
                        help='specify if only one fold should be evaluated '
                             '(needs to be in range of folds in the split file)')

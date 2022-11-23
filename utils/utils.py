@@ -167,8 +167,8 @@ def mask_out_verts_from_mesh(mesh: o3d.geometry.TriangleMesh, mask: torch.Tensor
 
 
 def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: bool = None, center_x: float = None):
-    if len(mesh.vertices) == 0:
-        # empty mesh
+    if len(mesh.vertices) == 0 or len(mesh.triangles) == 0:
+        print("empty mesh")
         return
 
     # get connected components and select the biggest
@@ -201,7 +201,9 @@ def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: boo
                 cluster_area[c] = -1 / cluster_area[c]
 
     triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
+    print('Removing triangles')
     mesh.remove_triangles_by_mask(triangles_to_remove)
+    print('Removing unreferenced points')
     mesh.remove_unreferenced_vertices()
 
 

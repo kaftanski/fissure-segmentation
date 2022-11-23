@@ -7,15 +7,13 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from torch import nn
 
-from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
+from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES
 from data import LungData, normalize_img
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
 from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
     new_dir
-
-FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement', 'cnn']
 
 
 def distinctiveness(img, sigma):

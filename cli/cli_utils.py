@@ -34,6 +34,7 @@ def load_args_for_testing(from_dir, current_args: Namespace = None):
     elif args_from_file is not None and current_args is not None:
         # set the arguments that should be overwritten from the test call
         args_from_file['test_only'] = current_args.test_only
+        args_from_file['train_only'] = current_args.train_only
         args_from_file['show'] = current_args.show
         args_from_file['gpu'] = current_args.gpu
         args_from_file['fold'] = current_args.fold

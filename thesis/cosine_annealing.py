@@ -1,8 +1,8 @@
 from matplotlib import pyplot as plt
 from torch import optim, nn
 
-from thesis_plots import textwidth_to_figsize
-from thesis_plots.utils import save_fig
+from thesis import textwidth_to_figsize
+from thesis.utils import save_fig
 
 
 def plot_cosine_lrs(tmax, epochs, lr, wr=True, legend=False, fig=None):
