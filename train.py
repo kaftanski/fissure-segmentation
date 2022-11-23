@@ -138,6 +138,7 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
 
 def test(ds: PointDataset, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
+    # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
 
     img_ds = LungData(ds.image_folder)
 
@@ -239,8 +240,8 @@ def test(ds: PointDataset, device, out_dir, show):
                     #     # point cloud contains more foreground points because of pre-seg CNN or enhancement
                     #     depth = 6
                     depth = 6
-                    mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu(), crop_to_bbox=True,
-                                                              depth=depth)
+                    mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].cpu().numpy().astype(float),
+                                                              crop_to_bbox=True, depth=depth)
                 else:
                     # extract the fissure points from labelmap
                     fissure_pred_pts = mask_to_points(torch.from_numpy(sitk.GetArrayFromImage(fissure_pred_img).astype(int)) == label,
@@ -255,7 +256,6 @@ def test(ds: PointDataset, device, out_dir, show):
                 mesh_predict = create_o3d_mesh(verts=np.array([]), tris=np.array([]))
 
             # post-process surfaces
-            print('Masking Mesh')
             mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask
             right = label > 1  # right fissure(s) are label 2 and 3
             remove_all_but_biggest_component(mesh_predict, right=right, center_x=shape[2]/2)  # only keep the biggest connected component
@@ -263,7 +263,6 @@ def test(ds: PointDataset, device, out_dir, show):
             meshes_predict.append(mesh_predict)
 
             # write out meshes
-            print('Saving mesh')
             o3d.io.write_triangle_mesh(os.path.join(mesh_dir, f'{case}_fissure{label}_pred_{sequence}.obj'),
                                        mesh_predict)
 

@@ -54,8 +54,8 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
         raise ValueError(f'Tried reconstructing mesh from {points.shape[0]} points. Requires at least 4.')
 
     # convert to open3d point cloud object
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+    # pcd.points = o3d.utility.Vector3dVector(points)
 
     # very important: make normals consistent and thus prevents weird loops in the reconstruction
     pcd.estimate_normals()
