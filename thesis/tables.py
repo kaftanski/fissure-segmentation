@@ -1,8 +1,14 @@
 import os.path
 
+import matplotlib as mpl
+import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 
 from constants import KP_MODES, FEATURE_MODES
+from thesis import textwidth_to_figsize
+from thesis.utils import save_fig
 
 
 def csv_to_df(csv_result_file):
@@ -55,9 +61,11 @@ def pm_table(table):
     return table
 
 
-def dgcnn_seg_table():
-    combined_table = None
+def get_all_tables():
+    tables = {}
     for kp in KP_MODES:
+        tables[kp] = {}
+
         if kp == 'cnn':
             cur_feat = FEATURE_MODES + ['cnn']
         else:
@@ -68,7 +76,6 @@ def dgcnn_seg_table():
             result_file = os.path.join(folder, 'cv_results.csv')
             if os.path.isfile(result_file):
                 table = csv_to_df(result_file)
-                table = pm_table(table)
                 print(f"{kp}_{feat}")
                 table['Fissure'] = [1, 2, 3, 'mean']
             else:
@@ -79,6 +86,18 @@ def dgcnn_seg_table():
             table['Keypoints'] = kp
             table['Features'] = feat
 
+            tables[kp][feat] = table
+
+    return tables
+
+
+def dgcnn_seg_table():
+    tables = get_all_tables()
+
+    combined_table = None
+    for kp in tables.keys():
+        for feat in tables[kp].keys():
+            table = pm_table(tables[kp][feat])
             if combined_table is None:
                 combined_table = table
             else:
@@ -94,8 +113,35 @@ def dgcnn_seg_table():
     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
 
+def dgcnn_seg_bar_plot(metric='ASD'):
+    feat_modes = FEATURE_MODES + ['cnn']
+    tables = get_all_tables()
+    index = np.arange(len(tables.keys()))
+    group_width = 0.7
+    bar_width = group_width / len(feat_modes)
+    cmap = mpl.cm.get_cmap('tab10')
+    colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
+    fig = plt.figure(figsize=textwidth_to_figsize(0.8))
+
+    for i, kp in zip(index, tables.keys()):
+        group = tables[kp]
+        x = np.linspace(i - bar_width*len(group)/2, i + bar_width*len(group)/2, num=len(group))
+        for j, feat in zip(x, group.keys()):
+            if len(tables[kp][feat]) <= 1:
+                continue
+            plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width, yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
+
+    plt.xticks(index, labels=[kp for kp in tables.keys()])
+    plt.title(f'Mean {metric}')
+    plt.legend(handles=[Patch(facecolor=colors[feat], label=feat) for feat in feat_modes])
+    save_fig(fig, 'results/plots', f'dgcnn_seg_{metric}')
+
+
 if __name__ == '__main__':
     KP_MODES.remove('noisy')
     FEATURE_MODES.remove('cnn')
     FEATURE_MODES = FEATURE_MODES + ['no_feat']
     dgcnn_seg_table()
+    dgcnn_seg_bar_plot('ASD')
+    dgcnn_seg_bar_plot('HD')
+    dgcnn_seg_bar_plot('SDSD')
