@@ -1,6 +1,8 @@
 import numpy as np
-import shape_model.LPCA.LPCALib.utils as utils
 from scipy.stats import truncnorm
+
+import shape_model.LPCA.LPCALib.utils as utils
+
 
 class SubspaceModel:
 
@@ -244,7 +246,7 @@ class SubspaceModelGenerator:
     @staticmethod
     def compute_localized_subspace_media(data, variability_retained, distance_matrix, distance_schedule,test_data=None,test_method=utils.mean_error_2d_contour,repair_method=utils.higham_closest_corr_matrix, merge_method=utils.merge_subspace_models_closest_rotation,debug=False):
         mean_vector=np.mean(data,axis=1)
-        centered_data=data-mean_vector
+        centered_data=data-mean_vector[:, None]
         cov_matrix=(1/(centered_data.shape[1]-1))*(centered_data@centered_data.T)
         corr_matrix,cov_sigmas=utils.corrcov(cov_matrix)
 
