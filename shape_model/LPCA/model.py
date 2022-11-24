@@ -1,4 +1,6 @@
 import numpy as np
+
+from constants import CORR_FISSURE_LABEL_DEFAULT_TS
 from shape_model.LPCA.LPCALib import utils as lpca_utils, subspacemodels as subspacemodels, dists as lpca_dists, \
     kernels as lpca_kernels
 
@@ -18,29 +20,7 @@ class LPCA():
         self.distance_matrix = None
         self.std_dev = None
 
-    def pca(self, data_matrix: np.ndarray):
-        """Performs a principal component analysis of the variance found in each coordinate of the given shapes
-
-        :param train_shapes: expected to be a 2-dimensional matrix, where each column represents one shape
-        :return: None
-        """
-        assert len(data_matrix.shape) == 2
-        print('Fit locality SSM (PCA) to training data: ')
-
-        pca_model = subspacemodels.SubspaceModelGenerator.compute_pca_subspace(data_matrix, self.target_variation,
-                                                                               debug=True)
-        # convert from matrix type to ndarray
-        self.mean_vector = np.asarray(pca_model.translation_vector)
-        self.eigenvectors = np.asarray(pca_model.basis)
-        self.eigenvalues = np.asarray(pca_model.eigenvalues).squeeze()
-        self.num_modes = pca_model.basis.shape[1]
-        self.percent_of_variance = self.target_variation  # todo: this is incorrect
-        # compute std-dev to predict distribution
-        self.std_dev = np.std(self.project_shapes(data_matrix).transpose(), axis=1)
-
-        return self.mean_vector, self.eigenvectors, self.eigenvalues, self.num_modes, self.percent_of_variance
-
-    def lpca(self, data_matrix: np.ndarray):
+    def klpca(self, data_matrix: np.ndarray):
         """Performs a principal component analysis of the variance found in each coordinate of the given shapes
 
         :param train_shapes: expected to be a 2-dimensional matrix, where each column represents one shape
@@ -79,13 +59,38 @@ class LPCA():
             merge_method=lpca_utils.merge_subspace_models_closest_rotation_decorr_kernel,
             test_method=None)
 
-        # localized_model = subspacemodels.SubspaceModelGenerator.compute_localized_subspace_media(data_matrix,
-        #                                                                                          self.target_variation,
-        #                                                                                          self.distance_matrix,
-        #                                                                                          distance_schedule,
-        #                                                                                          test_data=None,
-        #                                                                                          merge_method=lpca_utils.merge_subspace_models_closest_rotation_decorr,
-        #                                                                                          debug=True)
+        # convert from matrix type to ndarray
+        self.mean_vector = np.asarray(localized_model.translation_vector)
+        self.eigenvectors = np.asarray(localized_model.basis)
+        self.eigenvalues = np.asarray(localized_model.eigenvalues).squeeze()
+        self.num_modes = localized_model.basis.shape[1]
+        self.percent_of_variance = self.target_variation  # todo: this is incorrect
+        # compute std-dev to predict distribution
+        self.std_dev = np.std(self.project_shapes(data_matrix).transpose(), axis=1)
+
+        return self.mean_vector, self.eigenvectors, self.eigenvalues, self.num_modes, self.percent_of_variance
+
+    def lpca(self, data_matrix: np.ndarray):
+        """Performs a principal component analysis of the variance found in each coordinate of the given shapes
+
+        :param train_shapes: expected to be a 2-dimensional matrix, where each column represents one shape
+        :return: None
+        """
+        assert len(data_matrix.shape) == 2
+        print('Fit locality SSM (Media) to training data: ')
+        # compute the distance matrix for these shapes
+        self.compute_distance_matrix(data_matrix)
+        # compute a schedule for the locality levels, i.e. the maximum distances for each level
+        max_distance = np.max(self.distance_matrix)
+        distance_schedule = max_distance * np.power(0.5, np.array(range(0, self.number_of_levels)))
+
+        localized_model = subspacemodels.SubspaceModelGenerator.compute_localized_subspace_media(data_matrix,
+                                                                                                 self.target_variation,
+                                                                                                 self.distance_matrix,
+                                                                                                 distance_schedule,
+                                                                                                 test_data=None,
+                                                                                                 merge_method=lpca_utils.merge_subspace_models_closest_rotation_decorr,
+                                                                                                 debug=True)
         # convert from matrix type to ndarray
         self.mean_vector = np.asarray(localized_model.translation_vector)
         self.eigenvectors = np.asarray(localized_model.basis)
@@ -118,9 +123,9 @@ class LPCA():
 
         :return: obj_indicator: np.array with indices for each object
         """
-        indicator = np.zeros(2048)
-        indicator[1024:] = 1
-        return indicator
+        indicator = np.load(CORR_FISSURE_LABEL_DEFAULT_TS, allow_pickle=True)
+        indicator -= 1
+        return indicator.repeat(3)
 
     def compute_distance_matrix(self, data_matrix: np.ndarray) -> None:
         """Computes a modified (multi-object) geodesic distance on shapes as a matrix of N x N, where N = #pts*d

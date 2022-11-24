@@ -144,7 +144,7 @@ class LSSM(SSM):
         # run the training (only implemented in Numpy)
         train_shapes = train_shapes.cpu().numpy().T  # model expects data matrix with shapes in columns
         mean_shape, eigenvectors, eigenvalues, num_modes, percent_of_variance = \
-            self.lpca.lpca(train_shapes)
+            self.lpca.klpca(train_shapes)
 
         # convert the results to pytorch Parameters
         self.eigenvalues = nn.Parameter(torch.from_numpy(eigenvalues).unsqueeze(0).float(), requires_grad=False)
@@ -212,7 +212,7 @@ def load_shape(filepath, return_labels=False):
 
 if __name__ == '__main__':
     # load data
-    shape_folder = "results/corresponding_points/fissures/simple"
+    shape_folder = "results/corresponding_points_ts/fissures/simple"
     files = sorted(glob.glob(os.path.join(shape_folder, '*_corr_pts.npz')))
     shapes = []
     for f in files:
@@ -224,7 +224,7 @@ if __name__ == '__main__':
     train_shapes = shapes[:train_index]
     test_shapes = shapes[train_index:]
 
-    sm = SSM(alpha=3, target_variance=0.95)
+    sm = LSSM(alpha=3, target_variance=0.95)
     sm.fit(shape2vector(train_shapes))
 
     # test reconstruction
