@@ -129,18 +129,27 @@ def dgcnn_seg_bar_plot(metric='ASD'):
         for j, feat in zip(x, group.keys()):
             if len(tables[kp][feat]) <= 1:
                 continue
-            plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width, yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
+            plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width,
+                    yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
 
-    plt.xticks(index, labels=[kp for kp in tables.keys()])
-    plt.title(f'Mean {metric}')
-    plt.legend(handles=[Patch(facecolor=colors[feat], label=feat) for feat in feat_modes])
+    plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
+    plt.ylabel(f'mean {metric} [mm]')
     save_fig(fig, 'results/plots', f'dgcnn_seg_{metric}')
+
+    legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
+    legend_figure.legend(handles=[Patch(
+                         facecolor=colors[feat],
+                         label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
+        loc='center'
+    )
+    save_fig(legend_figure, 'results/plots', 'dgcnn_seg_legend')
+
 
 
 if __name__ == '__main__':
     KP_MODES.remove('noisy')
     FEATURE_MODES.remove('cnn')
-    FEATURE_MODES = FEATURE_MODES + ['no_feat']
+    FEATURE_MODES = FEATURE_MODES + ['nofeat']
     dgcnn_seg_table()
     dgcnn_seg_bar_plot('ASD')
     dgcnn_seg_bar_plot('HD')
