@@ -115,20 +115,25 @@ class DGCNN(nn.Module):
         self.linear3 = nn.Linear(256, output_channels)
 
     def forward(self, x):
+        if self.args.static:
+            fixed_knn = knn(x[:, :3], self.k)
+        else:
+            fixed_knn = None
+
         batch_size = x.size(0)
-        x = get_graph_feature(x, k=self.k)
+        x = get_graph_feature(x, k=self.k, idx=fixed_knn)
         x = self.conv1(x)
         x1 = x.max(dim=-1, keepdim=False)[0]
 
-        x = get_graph_feature(x1, k=self.k)
+        x = get_graph_feature(x1, k=self.k, idx=fixed_knn)
         x = self.conv2(x)
         x2 = x.max(dim=-1, keepdim=False)[0]
 
-        x = get_graph_feature(x2, k=self.k)
+        x = get_graph_feature(x2, k=self.k, idx=fixed_knn)
         x = self.conv3(x)
         x3 = x.max(dim=-1, keepdim=False)[0]
 
-        x = get_graph_feature(x3, k=self.k)
+        x = get_graph_feature(x3, k=self.k, idx=fixed_knn)
         x = self.conv4(x)
         x4 = x.max(dim=-1, keepdim=False)[0]
 

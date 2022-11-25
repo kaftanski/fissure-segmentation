@@ -95,8 +95,6 @@ class DGSSM(LoadableModel):
         super(DGSSM, self).__init__()
         if spatial_transformer:
             raise NotImplementedError()
-        if not dynamic:
-            raise NotImplementedError()
         if image_feat_module:
             raise NotImplementedError()
 
@@ -108,7 +106,8 @@ class DGSSM(LoadableModel):
         dgcnn_args = SimpleNamespace(
             k=k,
             emb_dims=1024,  # length of global feature vector
-            dropout=0.
+            dropout=0.,
+            static=not dynamic
         )
         # self.dgcnn = DGCNN(dgcnn_args, input_channels=in_features,
         #                    output_channels=ssm_modes + 9 if predict_affine_params else 0)

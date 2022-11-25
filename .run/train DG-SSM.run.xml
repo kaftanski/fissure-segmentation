@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="DG-SSM train" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="train DG-SSM [master]" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_dgcnn_ssm.py" />
-    <option name="PARAMETERS" value="--data fissures --ds data --coords --patch image --batch 32 --gpu 2 --output results/DG-SSM_staggered_heads --show --epochs 1000 --kp_mode enhancement --predict_affine --scheduler cosine --head_schedule {\&quot;main\&quot;:90,\&quot;translation\&quot;:0,\&quot;rotation\&quot;:60,\&quot;scaling\&quot;:30} --offline" />
+    <option name="PARAMETERS" value="--data fissures --ds ts --pts 2048 --k 40 --batch 8 --static --coords --gpu 2 --output results/DG-SSM_cnn_image --epochs 1000 --kp_mode cnn --patch image --predict_affine --scheduler cosine --head_schedule {\&quot;main\&quot;:90,\&quot;translation\&quot;:0,\&quot;rotation\&quot;:60,\&quot;scaling\&quot;:30} --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

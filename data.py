@@ -487,7 +487,6 @@ class CorrespondingPointDataset(PointDataset):
 
     @do_augmentation.setter
     def do_augmentation(self, value):
-        super(CorrespondingPointDataset, self).do_augmentation(value)
         self._do_augmentation_correspondingly = value
 
     def __getitem__(self, item):

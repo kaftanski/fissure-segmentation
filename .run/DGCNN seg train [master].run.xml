@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train.py" />
-    <option name="PARAMETERS" value="--data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 0 --output results/DGCNN_seg_enhancement_mind --kp_mode enhancement --patch mind --test_only" />
+    <option name="PARAMETERS" value="--data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 2 --output results/DGCNN_seg_enhancement_enhancement --kp_mode enhancement --patch enhancement --train_only --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
