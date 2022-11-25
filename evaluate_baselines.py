@@ -5,6 +5,7 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
+from tqdm import tqdm
 
 from data import LungData
 from data_processing.find_lobes import lobes_to_fissures
@@ -13,7 +14,7 @@ from train import compute_mesh_metrics, write_results
 from utils.detached_run import run_detached_from_pycharm
 
 
-def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_000", show=True):
+def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003", show=True):
     def _box_in_bounds(box, image_shape):
         """ from voxel2mesh utils.utils_common.py"""
         newbox = []
@@ -37,7 +38,7 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
         slices = tuple(slice(i[0], i[1]) for i in box)
         return slices, pad_width, needs_padding
 
-    ds = LungData('../data/')
+    ds = LungData(my_data_dir)
     n_folds = 5
 
     test_assd = torch.zeros(n_folds, n_fissures)
@@ -45,10 +46,14 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
     test_hd = torch.zeros_like(test_assd)
     test_hd95 = torch.zeros_like(test_assd)
 
+    test_dice = torch.zeros_like(test_assd)
+    label_overlap = sitk.LabelOverlapMeasuresImageFilter()
+
     for fold in range(n_folds):
         all_pred_meshes = []
         all_targ_meshes = []
         ids = []
+        dice_vals = []
 
         fold_dir = os.path.join(experiment_dir, f'trial_{fold+1}')
 
@@ -56,10 +61,10 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
         with open(os.path.join(fold_dir, 'source_code', 'config.py'), 'r') as config_file:
             for line in config_file:
                 if 'cfg.patch_shape' in line:
-                    patch_shape = eval(line.strip().replace('cfg.patch_shape=', ''))
+                    patch_shape = eval(line.strip().replace(" ", "").replace('cfg.patch_shape=', ''))
                     print(f"patch shape: {patch_shape}")
                 elif 'cfg.largest_image_shape' in line:
-                    largest_image_shape = eval(line.strip().replace('cfg.largest_image_shape=', ''))
+                    largest_image_shape = eval(line.strip().replace(" ", "").replace('cfg.largest_image_shape=', ''))
 
         try:
             largest_image_shape
@@ -79,7 +84,7 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
             else:
                 files_per_fissure.append(meshes)
 
-        for files in zip(*files_per_fissure):
+        for files in tqdm(zip(*files_per_fissure), total=len(files_per_fissure[0]), desc=f'eval v2m fold {fold}'):
             case, sequence = files[0].split('_')[-4:-2]
             sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving')
             ids.append((case, sequence))
@@ -124,16 +129,28 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
             all_label_image.CopyInformation(img)
             sitk.WriteImage(all_label_image, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
+            # compute dice
+            label_overlap.Execute(ds.get_regularized_fissures(img_index), all_label_image)
+            dice_vals.append([label_overlap.GetDiceCoefficient(lbl) for lbl in range(1, n_fissures + 1)])
+
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
             all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
-        write_results(os.path.join(fold_dir, 'test_results.csv'), None, None, mean_assd, std_assd, mean_sdsd, std_sdsd,
-                      mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
+
+        # compute dice stats
+        dice_vals = torch.tensor(dice_vals)
+        mean_dice = dice_vals.mean(0)
+        std_dice = dice_vals.std(0)
+
+        # write results per fold
+        write_results(os.path.join(fold_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd,
+                      mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
         test_assd[fold] += mean_assd
         test_sdsd[fold] += mean_sdsd
         test_hd[fold] += mean_hd
         test_hd95[fold] += mean_hd95
+        test_dice[fold] += mean_dice
 
     # compute averages over cross-validation folds
     mean_assd = test_assd.mean(0)
@@ -153,8 +170,8 @@ def evaluate_voxel2mesh(experiment_dir="/share/data_rechenknecht03_2/students/ka
     print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
 
     # output file
-    write_results(os.path.join(experiment_dir, 'cv_results.csv'), None, None, mean_assd, std_assd, mean_sdsd, std_sdsd,
-                  mean_hd, std_hd, mean_hd95, std_hd95)
+    write_results(os.path.join(experiment_dir, 'cv_results.csv'), test_dice.mean(0), test_dice.std(0),
+                  mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
 
 
 def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
@@ -258,14 +275,14 @@ if __name__ == '__main__':
 
     n_fissures = 3
 
-    # evaluate_voxel2mesh(show=False)
-
-    nnu_task = "Task503_FissuresTotalSeg"
     data_dir = '../TotalSegmentator/ThoraxCrop'
-    nnu_trainer = "nnUNetTrainerV2_200ep"
-    nnu_result_dir = f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
+    evaluate_voxel2mesh(data_dir, show=False)
+
+    # nnu_task = "Task503_FissuresTotalSeg"
+    # nnu_trainer = "nnUNetTrainerV2_200ep"
+    # nnu_result_dir = f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
     # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
-    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
+    # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
 
     # lobes_nnunet = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task502_LobesCOPDEMPIRE/nnUNetTrainerV2_200ep__nnUNetPlansv2.1'
     # evaluate_nnunet(lobes_nnunet, mode='surface', show=False)
