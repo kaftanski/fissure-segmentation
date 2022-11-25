@@ -108,7 +108,7 @@ def dgcnn_seg_table():
     # cols.insert(0, cols.pop(-1))
     # cols.insert(0, cols.pop(-1))
     # combined_table = combined_table[cols]
-    combined_table = combined_table.set_index(['Fissure', 'Keypoints', 'Features'], drop=True)
+    combined_table = combined_table.set_index(['Keypoints', 'Features', 'Fissure'], drop=True)
 
     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
@@ -121,7 +121,7 @@ def dgcnn_seg_bar_plot(metric='ASD'):
     bar_width = group_width / len(feat_modes)
     cmap = mpl.cm.get_cmap('tab10')
     colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
-    fig = plt.figure(figsize=textwidth_to_figsize(0.8))
+    fig = plt.figure(figsize=textwidth_to_figsize(0.7, 3/5))
 
     for i, kp in zip(index, tables.keys()):
         group = tables[kp]
