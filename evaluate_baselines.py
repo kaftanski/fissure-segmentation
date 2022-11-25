@@ -35,8 +35,8 @@ def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_
         """ from voxel2mesh utils.utils_common.py"""
         box = [(i - ps // 2, i - ps // 2 + ps) for i, ps in zip(center, patch_shape)]
         box, pad_width, needs_padding = _box_in_bounds(box, image_shape)
-        slices = tuple(slice(i[0], i[1]) for i in box)
-        return slices, pad_width, needs_padding
+        # slices = tuple(slice(i[0], i[1]) for i in box)
+        return box, pad_width, needs_padding
 
     ds = LungData(my_data_dir)
     n_folds = 5
@@ -99,16 +99,21 @@ def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_
             # prepare tensor for voxelization
             pred_label_maps = []
 
-            # prepare undoing of normalization and padding
+            # prepare undoing of normalization and padding / cropping
             img = ds.get_image(img_index)
-            shape_unit_spacing = [int(sz * sp) for sz, sp in zip(img.GetSize()[::-1], img.GetSpacing()[::-1])]
-            _, pad_width, _ = crop_indices(shape_unit_spacing, largest_image_shape, (s//2 for s in shape_unit_spacing))
+            shape_unit_spacing = [round(sz * sp) for sz, sp in zip(img.GetSize()[::-1], img.GetSpacing()[::-1])]
+            box, pad_width, _ = crop_indices(shape_unit_spacing, largest_image_shape, (s//2 for s in shape_unit_spacing))
             unpad_z, unpad_y, unpad_x = -pad_width[0][0], -pad_width[1][0], -pad_width[2][0]
+            uncrop_z, uncrop_y, uncrop_x = box[0][0], box[1][0], box[2][0]
+
+            unpad = np.asarray([unpad_x, unpad_y, unpad_z])
+            uncrop = np.asarray([uncrop_x, uncrop_y, uncrop_z])
+            assert np.logical_xor(unpad, uncrop).all()
             for i, (prediction, target) in enumerate(zip(pred_meshes, target_meshes)):
                 verts = np.asarray(prediction.vertices)
 
-                # undo normalization and padding
-                verts = (0.5 * (verts + 1)) * (max(largest_image_shape)-1) + np.asarray([unpad_x, unpad_y, unpad_z])
+                # undo normalization and padding / cropping
+                verts = (0.5 * (verts + 1)) * (max(largest_image_shape)-1) + unpad + uncrop
                 prediction = o3d.geometry.TriangleMesh(vertices=o3d.utility.Vector3dVector(verts),
                                                        triangles=prediction.triangles)
 
