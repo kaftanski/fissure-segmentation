@@ -6,7 +6,7 @@ import open3d as o3d
 import torch
 
 from cli.cl_args import get_seg_cnn_train_parser
-from cli.cli_utils import load_args_for_testing, store_args, load_args_dict
+from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
 from constants import IMG_DIR_TS, IMG_DIR
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
@@ -20,16 +20,20 @@ from utils.image_ops import write_image
 from visualization import visualize_with_overlay
 
 
+def get_model_class(args):
+    if args.model == 'v1':
+        return MobileNetASPP
+    elif args.model == 'v3':
+        return LRASPP_MobileNetv3_large_3d
+    else:
+        raise NotImplementedError()
+
+
 def test(ds: ImageDataset, device, out_dir, show):
     print('\nTESTING MODEL ...\n')
 
-    args = load_args_dict(os.path.join(out_dir, '..'))  # go to cv-run level
-    if args['model'] == 'v1':
-        model_class = MobileNetASPP
-    elif args['model'] == 'v3':
-        model_class = LRASPP_MobileNetv3_large_3d
-    else:
-        raise NotImplementedError()
+    args = load_args(os.path.join(out_dir, '..'))  # go to cv-run level
+    model_class = get_model_class(args)
 
     model = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
@@ -206,12 +210,7 @@ if __name__ == '__main__':
                       resample_spacing=args.spacing)
 
     # load the desired model
-    if args.model == 'v1':
-        model_class = MobileNetASPP
-    elif args.model == 'v3':
-        model_class = LRASPP_MobileNetv3_large_3d
-    else:
-        raise NotImplementedError()
+    model_class = get_model_class(args)
     model = model_class(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
     # save setup

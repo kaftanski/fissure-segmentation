@@ -8,8 +8,8 @@ import open3d as o3d
 import torch
 
 import model_trainer
-from cli.cl_args import get_dgcnn_train_parser
-from cli.cli_utils import load_args_for_testing, store_args
+from cli.cl_args import get_dgcnn_train_parser, get_point_segmentation_parser
+from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
 from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
@@ -18,11 +18,21 @@ from losses.access_losses import get_loss_fn
 from losses.dgssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
+from models.point_net import PointNetSeg
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map, create_o3d_mesh, nanstd
 from visualization import visualize_point_cloud, visualize_o3d_mesh
+
+
+def get_point_seg_model_class(args):
+    if args.model == 'DGCNN':
+        return DGCNNSeg
+    elif args.model == 'PointNet':
+        return PointNetSeg
+    else:
+        raise NotImplementedError()
 
 
 def train(model, ds, device, out_dir, args):
@@ -142,7 +152,10 @@ def test(ds: PointDataset, device, out_dir, show):
 
     img_ds = LungData(ds.image_folder)
 
-    net = DGCNNSeg.load(os.path.join(out_dir, 'model.pth'), device=device)
+    args = load_args(os.path.join(out_dir, '..'))  # go to cv-run level
+    model_class = get_point_seg_model_class(args)
+
+    net = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
     net.to(device)
     net.eval()
 
@@ -465,7 +478,7 @@ def get_deterministic_test_fn(test_fn):
 
 
 if __name__ == '__main__':
-    parser = get_dgcnn_train_parser()
+    parser = get_point_segmentation_parser()
     args = parser.parse_args()
     maybe_run_detached_cli(args)
 
@@ -497,8 +510,9 @@ if __name__ == '__main__':
 
     # setup model
     in_features = ds[0][0].shape[0]
-    net = DGCNNSeg(k=args.k, in_features=in_features, num_classes=ds.num_classes,
-                   spatial_transformer=args.transformer, dynamic=not args.static)
+    model_class = get_point_seg_model_class(args)
+    net = model_class(in_features=in_features, num_classes=ds.num_classes, k=args.k,
+                      spatial_transformer=args.transformer, dynamic=not args.static)
 
     if not args.test_only:
         store_args(args=args, out_dir=args.output)

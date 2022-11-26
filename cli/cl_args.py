@@ -89,6 +89,14 @@ def get_dgcnn_train_parser():
     return parser
 
 
+def get_point_segmentation_parser():
+    parser = get_dgcnn_train_parser()
+    group = parser.add_argument_group('Model Choice')
+    group.add_argument('--model', choices=['PointNet', 'DGCNN'], default='DGCNN',
+                       help='Choose the segmentation model class.')
+    return parser
+
+
 def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
 

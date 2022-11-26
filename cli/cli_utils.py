@@ -21,6 +21,10 @@ def load_args_dict(from_dir):
     return args_from_file
 
 
+def load_args(from_dir):
+    return Namespace(**load_args_dict(from_dir))
+
+
 def load_args_for_testing(from_dir, current_args: Namespace = None):
     args_from_file = load_args_dict(from_dir)
     if args_from_file is None and current_args is not None:
