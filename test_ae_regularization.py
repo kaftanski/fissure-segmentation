@@ -112,8 +112,8 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     output_is_mesh = model.ae.decoder.decode_mesh
 
-    pred_dir = new_dir(out_dir, 'test_predictions')
-    plot_dir = new_dir(pred_dir, 'plots')
+    # pred_dir = new_dir(out_dir, 'test_predictions')
+    plot_dir = new_dir(out_dir, 'plots')
 
     # visualize folding points
     folding_points = model.ae.decoder.get_folding_points(1).squeeze().cpu()
@@ -215,7 +215,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     dice_dummy = torch.zeros_like(mean_assd)
 
-    percent_missing = mean_assd.isnan().mean(0) * 100
+    percent_missing = mean_assd.isnan().float().mean(0) * 100
 
     write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
@@ -252,7 +252,7 @@ if __name__ == '__main__':
                                     os.path.join(pc_ae_args.output, f'fold{fold}', 'model.pth'),
                                     n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts)
         fold_dir = new_dir(args.output, f"fold{fold}")
-        model.save(os.path.join(fold_dir, 'model.pth'))
+        # model.save(os.path.join(fold_dir, 'model.pth'))
 
     if args.ds == 'data':
         point_dir = POINT_DIR
