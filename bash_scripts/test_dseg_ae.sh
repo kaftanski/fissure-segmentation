@@ -11,7 +11,7 @@ run () {
 GPU=3
 AE_DIR="results/pc_ae_regularized"
 OUT_SUFFIX="aereg_reg"
-keypoints=("cnn", "foerstner", "enhancement")
+keypoints=("cnn" "foerstner" "enhancement")
 features=("image" "mind" "mind_ssc" "enhancement" "nofeat")
 
 for kp in "${keypoints[@]}"

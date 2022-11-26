@@ -16,7 +16,7 @@ from models.modelio import LoadableModel, store_config_args
 from train import write_results, run
 from utils.detached_run import maybe_run_detached_cli
 from utils.image_ops import load_image_metadata
-from utils.utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes
+from utils.utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd
 from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis
 
 
@@ -24,7 +24,7 @@ def farthest_point_sampling(kpts, num_points):
     _, N, _ = kpts.size()
     if N <= num_points:
         print(f'Tried to sample {num_points} from a point cloud with only {N}')
-        return kpts
+        return kpts, torch.arange(N)
     ind = torch.zeros(num_points).long()
     ind[0] = torch.randint(N, (1,))
     dist = torch.sum((kpts - kpts[:, ind[0], :]) ** 2, dim=2)
@@ -64,8 +64,11 @@ class RegularizedSegDGCNN(LoadableModel):
             else:
                 raise NotImplementedError()
 
-            mesh = self.ae(sampled)
-            meshes.append(mesh)
+            if len(sampled) < self.ae.encoder.k:
+                meshes.append(None)
+            else:
+                mesh = self.ae(sampled)
+                meshes.append(mesh)
 
         return meshes, points
 
@@ -146,6 +149,13 @@ def test(ds: PointToMeshDS, device, out_dir, show):
             reconstruct_meshes, sampled_points_per_obj = model(x)
 
         for cur_obj, reconstruct_obj in enumerate(reconstruct_meshes):
+            if reconstruct_obj is None:
+                all_mean_assd[i, cur_obj] = float('NaN')
+                all_mean_sdsd[i, cur_obj] = float('NaN')
+                all_hd_assd[i, cur_obj] = float('NaN')
+                all_hd95_assd[i, cur_obj] = float('NaN')
+                continue
+
             # unnormalize point cloud
             input_coords = x[0, :3, lbl==cur_obj+1].transpose(0, 1)
             input_coords = ds.unnormalize_sampled_pc(input_coords, i)
@@ -173,8 +183,8 @@ def test(ds: PointToMeshDS, device, out_dir, show):
             fig = plt.figure()
             if output_is_mesh:
                 ax1 = fig.add_subplot(111, projection='3d')
-                point_cloud_on_axis(ax1, input_coords.cpu(), 'b', label='input', alpha=0.3)
-                point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'r', label='segmentation result', alpha=0.3)
+                # point_cloud_on_axis(ax1, input_coords.cpu(), 'b', label='input', alpha=0.3)
+                point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'k', label='segmented points', alpha=0.3)
                 trimesh_on_axis(ax1, reconstruct_obj.verts_padded().cpu().squeeze(), faces, facecolors=color_values, alpha=0.7, label='reconstruction')
             else:
                 ax1 = fig.add_subplot(121, projection='3d')
@@ -191,29 +201,31 @@ def test(ds: PointToMeshDS, device, out_dir, show):
                 plt.close(fig)
 
     # compute average metrics
-    mean_assd = all_mean_assd.mean(0)
-    std_assd = all_mean_assd.std(0)
+    mean_assd = all_mean_assd.nanmean(0)
+    std_assd = nanstd(all_mean_assd, 0)
 
-    mean_sdsd = all_mean_sdsd.mean(0)
-    std_sdsd = all_mean_sdsd.std(0)
+    mean_sdsd = all_mean_sdsd.nanmean(0)
+    std_sdsd = nanstd(all_mean_sdsd, 0)
 
-    mean_hd = all_hd_assd.mean(0)
-    std_hd = all_hd_assd.std(0)
+    mean_hd = all_hd_assd.nanmean(0)
+    std_hd = nanstd(all_hd_assd, 0)
 
-    mean_hd95 = all_hd95_assd.mean(0)
-    std_hd95 = all_hd95_assd.std(0)
+    mean_hd95 = all_hd95_assd.nanmean(0)
+    std_hd95 = nanstd(all_hd95_assd, 0)
 
     dice_dummy = torch.zeros_like(mean_assd)
 
+    percent_missing = mean_assd.isnan().mean(0) * 100
+
     write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
-                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95)
+                  std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
     # print out results
     print('\n============ RESULTS ============')
     print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
 
     return dice_dummy, dice_dummy, \
-        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, None
+        mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
 if __name__ == '__main__':
