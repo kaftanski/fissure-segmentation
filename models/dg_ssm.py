@@ -68,7 +68,7 @@ class MultiHeadDGCNN(DGCNN):
         coefficient_accumulation = torch.zeros(batch_size, self.linear3.out_features, 1, device=pc.device)
         transform_accumulation = {}
         for name in self.heads.keys():
-            transform_accumulation[name] = torch.zeros(batch_size, self.heads[name].layers[-1].out_features, 1, device=pc.device)
+            transform_accumulation[name] = torch.zeros(batch_size, self.heads[name].layers[-1].out_features, device=pc.device)
 
         for i in range(n_runs_min):
             perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
