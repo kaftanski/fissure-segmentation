@@ -376,13 +376,16 @@ def cross_val(model, ds, split_file, device, test_fn, args):
             test_missing.append(percent_missing)
 
             # read the train time file
-            with open(os.path.join(fold_dir, 'train_time.csv'), 'r') as time_file:
-                reader = csv.reader(time_file)
-                for row in reader:
-                    if 'train time' in row[0]:
-                        continue
-                    else:
-                        train_times_min.append(eval(row[0]))
+            try:
+                with open(os.path.join(fold_dir, 'train_time.csv'), 'r') as time_file:
+                    reader = csv.reader(time_file)
+                    for row in reader:
+                        if 'train time' in row[0]:
+                            continue
+                        else:
+                            train_times_min.append(eval(row[0]))
+            except FileNotFoundError:
+                train_times_min.append(0.0)
 
     test_dice = torch.stack(test_dice, dim=0)
     test_assd = torch.stack(test_assd, dim=0)

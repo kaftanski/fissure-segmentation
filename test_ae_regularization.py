@@ -7,7 +7,7 @@ from pytorch3d.structures import Meshes
 
 from cli.cl_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing
-from constants import POINT_DIR, POINT_DIR_TS
+from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR
 from data import PointDataset, load_split_file, save_split_file
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
@@ -22,6 +22,9 @@ from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_
 
 def farthest_point_sampling(kpts, num_points):
     _, N, _ = kpts.size()
+    if N <= num_points:
+        print(f'Tried to sample {num_points} from a point cloud with only {N}')
+        return kpts
     ind = torch.zeros(num_points).long()
     ind[0] = torch.randint(N, (1,))
     dist = torch.sum((kpts - kpts[:, ind[0], :]) ** 2, dim=2)
@@ -70,7 +73,10 @@ class RegularizedSegDGCNN(LoadableModel):
 class PointToMeshDS(PointDataset):
     def __init__(self, sample_points, kp_mode, folder, image_folder, use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
-        super(PointToMeshDS, self).__init__(sample_points, kp_mode, folder, use_coords, patch_feat, exclude_rhf, lobes, binary, do_augmentation)
+        super(PointToMeshDS, self).__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
+                                            image_folder=image_folder,
+                                            use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
+                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation)
         self.meshes = []
         self.img_sizes = []
         for case, sequence in self.ids:
@@ -127,7 +133,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
     else:
         plt.close(fig)
 
-    chamfer_dists = torch.zeros(len(ds.ids), ds.num_classes)
+    chamfer_dists = torch.zeros(len(ds.ids), ds.num_classes - 1)
     all_mean_assd = torch.zeros_like(chamfer_dists)
     all_mean_sdsd = torch.zeros_like(chamfer_dists)
     all_hd_assd = torch.zeros_like(chamfer_dists)
@@ -220,12 +226,14 @@ if __name__ == '__main__':
 
     assert dgcnn_args.data == pc_ae_args.data
     # assert dgcnn_args.ds == pc_ae_args.ds
-    assert dgcnn_args.data == pc_ae_args.data
     # assert dgcnn_args.exclude_rhf == pc_ae_args.exclude_rhf
     # assert dgcnn_args.split == pc_ae_args.split
     assert not dgcnn_args.binary
 
+    if dgcnn_args.split is None:
+        dgcnn_args.split = DEFAULT_SPLIT if dgcnn_args.ds == 'data' else DEFAULT_SPLIT_TS
     split = load_split_file(dgcnn_args.split)
+    new_dir(args.output)
     save_split_file(split, os.path.join(args.output, "cross_val_split.np.pkl"))
     for fold in range(len(split)):
         model = RegularizedSegDGCNN(os.path.join(dgcnn_args.output, f'fold{fold}', 'model.pth'),
@@ -236,10 +244,10 @@ if __name__ == '__main__':
 
     if args.ds == 'data':
         point_dir = POINT_DIR
-        img_dir = '../data'
+        img_dir = IMG_DIR
     elif args.ds == 'ts':
         point_dir = POINT_DIR_TS
-        img_dir = '../TotalSegmentator/ThoraxCrop'
+        img_dir = IMG_DIR_TS
     else:
         raise ValueError(f'No dataset named {args.ds}')
 
