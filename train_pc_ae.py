@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 
+from augmentations import point_augmentation
 from cli.cl_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import IMG_DIR, IMG_DIR_TS
@@ -65,9 +66,23 @@ class SampleFromMeshDS(CustomDataset):
         # normalize to pytorch grid coordinates
         samples = self.normalize_sampled_pc(samples, item).transpose(0, 1)
 
+        # augmentation
+        if self.do_augmentation:
+            samples, transform = point_augmentation(samples.unsqueeze(0))
+            samples = samples.squeeze(0)
+
+            # add point jitter
+            samples += torch.randn_like(samples) * 0.005
+        else:
+            transform = None
+
         # get the target: either the PC itself or the GT mesh
         if self.mesh_as_target:
             target = self.normalize_mesh(o3d_to_pt3d_meshes([current_mesh]), item)
+            if transform is not None:
+                # augment the mesh
+                mesh_verts, mesh_faces = target.get_mesh_verts_faces(0)
+                target = Meshes([transform.transform_points(mesh_verts)], [mesh_faces])
         else:
             target = samples
 
