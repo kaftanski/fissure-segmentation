@@ -242,6 +242,10 @@ class ModelTrainer:
             ax[i].plot(np.arange(self.initial_epoch, self.epochs), self.validation_history[key].cpu(), label=f'validation', c='r')
             ax[i].set_ylabel(key)
             ax[i].legend()
+            ymax = max(torch.quantile(self.training_history[key], q=(self.epochs-1)/(self.epochs + 1e-5)),
+                       torch.quantile(self.validation_history[key], q=(self.epochs-1)/(self.epochs + 1e-5)))
+            ax[i].set_ylim(top=ymax * 1.1)
+
         ax[-1].set_xlabel('epoch')
         fig.savefig(os.path.join(self.out_dir, f"training_progression.png"), dpi=300)
         if self.show:
