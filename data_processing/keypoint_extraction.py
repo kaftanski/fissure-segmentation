@@ -111,11 +111,10 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     # nonzero voxels to points
     kp = torch.nonzero(fissure_points) * ds.resample_spacing
 
-    # compute cnn features: sum of foreground softmax scores)
+    # compute cnn features: sum of foreground softmax scores
     kp_grid = kpts_to_grid(kp.flip(-1),
                            shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
     features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, feat_patch).squeeze().flatten(start_dim=1).transpose(0, 1)
-    # torch.save(features.cpu(), os.path.join(out_path, f'{case}_cnn_{sequence}.pth'))
 
     return kp.long(), features
 

@@ -203,9 +203,9 @@ def remove_all_but_biggest_component(mesh: o3d.geometry.TriangleMesh, right: boo
                 cluster_area[c] = -1 / cluster_area[c]
 
     triangles_to_remove = np.logical_not(triangle_clusters == cluster_area.argmax())
-    print('Removing triangles')
+    # print('Removing triangles')
     mesh.remove_triangles_by_mask(triangles_to_remove)
-    print('Removing unreferenced points')
+    # print('Removing unreferenced points')
     mesh.remove_unreferenced_vertices()
 
 
