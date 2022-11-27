@@ -129,6 +129,16 @@ def get_hessian_fissure_enhancement_kpts(enhanced_img, device, min_threshold=0.2
     return kp
 
 
+def limit_keypoints(kp, max_num_kpts=MAX_KPTS):
+    # limit to subset
+    if len(kp) > max_num_kpts:
+        perm = torch.randperm(len(kp), device=kp.device)[:max_num_kpts]
+        kp = kp[perm]
+    else:
+        perm = torch.arange(len(kp))
+    return kp, perm
+
+
 def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner',
                       enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:2'):
     if kp_mode == 'cnn':
