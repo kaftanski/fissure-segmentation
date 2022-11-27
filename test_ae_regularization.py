@@ -13,10 +13,11 @@ from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet
 from models.modelio import LoadableModel, store_config_args
-from train import write_results, run
+from train import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.image_ops import load_image_metadata
-from utils.utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd
+from utils.utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd, \
+    get_device, no_print
 from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis
 
 
@@ -53,7 +54,7 @@ class RegularizedSegDGCNN(LoadableModel):
         # get refined mesh for each object
         points = []
         meshes = []
-        for obj in seg.unique()[1:]:
+        for obj in range(1, self.seg_model.num_classes):
             # get coordinates from the current object point cloud
             pts_per_obj = x[:, :3].transpose(1, 2)[(seg == obj)].view(x.shape[0], -1, 3)
             points.append(pts_per_obj)
@@ -64,7 +65,7 @@ class RegularizedSegDGCNN(LoadableModel):
             else:
                 raise NotImplementedError()
 
-            if len(sampled) < self.ae.encoder.k:
+            if sampled.shape[-1] < self.ae.encoder.k:  # not enough points
                 meshes.append(None)
             else:
                 mesh = self.ae(sampled)
@@ -215,7 +216,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     dice_dummy = torch.zeros_like(mean_assd)
 
-    percent_missing = mean_assd.isnan().float().mean(0) * 100
+    percent_missing = all_mean_assd.isnan().float().mean(0) * 100
 
     write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
@@ -226,6 +227,37 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     return dice_dummy, dice_dummy, \
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
+
+
+def speed_test(ds: PointToMeshDS, device, out_dir):
+    model = RegularizedSegDGCNN.load(os.path.join(out_dir, 'fold0', 'model.pth'), device=device)
+    model.to(device)
+    model.eval()
+
+    torch.manual_seed(42)
+
+    # prepare measuring inference time
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    all_inference_times = []
+    all_points_per_fissure = []
+
+    for i in range(len(ds)):
+        x, lbl = ds.get_full_pointcloud(i)
+        x = x.unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            torch.cuda.synchronize()
+            starter.record()
+            reconstruct_meshes, sampled_points_per_obj = model(x)
+
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender) / 1000
+        all_inference_times.append(curr_time)
+
+        all_points_per_fissure.append(torch.tensor([len(o.squeeze()) for o in sampled_points_per_obj]))
+
+    write_speed_results(out_dir, all_inference_times, points_per_fissure=all_points_per_fissure)
 
 
 if __name__ == '__main__':
@@ -252,7 +284,7 @@ if __name__ == '__main__':
                                     os.path.join(pc_ae_args.output, f'fold{fold}', 'model.pth'),
                                     n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts)
         fold_dir = new_dir(args.output, f"fold{fold}")
-        # model.save(os.path.join(fold_dir, 'model.pth'))
+        model.save(os.path.join(fold_dir, 'model.pth'))
 
     if args.ds == 'data':
         point_dir = POINT_DIR
@@ -268,5 +300,9 @@ if __name__ == '__main__':
                        image_folder=img_dir,
                        patch_feat=dgcnn_args.patch, exclude_rhf=dgcnn_args.exclude_rhf, lobes=dgcnn_args.data == 'lobes',
                        binary=dgcnn_args.binary)
+
+    if args.speed:
+        with no_print():
+            speed_test(ds, get_device(args.gpu), args.output)
 
     run(ds, model, test, args)

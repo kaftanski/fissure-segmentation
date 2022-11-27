@@ -1,7 +1,7 @@
 #!/bin/bash
 
 run () {
-  cmd="python3.9 test_ae_regularization.py --ds ts --gpu "$GPU" --output results/AE_"$OUT_SUFFIX"_"$1"_"$2" --seg_dir results/DGCNN_seg_"$1"_"$2" --ae_dir "$AE_DIR""
+  cmd="python3.9 test_ae_regularization.py --ds ts --gpu "$GPU" --output results/DSEGAE_"$OUT_SUFFIX"_"$1"_"$2" --seg_dir results/DGCNN_seg_"$1"_"$2" --ae_dir "$AE_DIR" --speed"
   echo "#######################################################################################################################################################################"
   echo $cmd
   echo "#######################################################################################################################################################################"

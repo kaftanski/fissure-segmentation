@@ -1,4 +1,6 @@
+import contextlib
 import glob
+import inspect
 import itertools
 import os
 from typing import Sequence, List, Tuple
@@ -394,3 +396,20 @@ def get_device(gpu: int):
         print(f'Requested GPU with index {gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
 
     return device
+
+
+@contextlib.contextmanager
+def no_print():
+    # Store builtin print
+    old_print = print
+
+    def dont_print(*args, **kwargs):
+        # do nothing!
+        pass
+
+    try:
+        # Globaly replace print with new_print
+        inspect.builtins.print = dont_print
+        yield
+    finally:
+        inspect.builtins.print = old_print

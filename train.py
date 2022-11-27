@@ -319,7 +319,7 @@ def test(ds: PointDataset, device, out_dir, show):
 
 
 def speed_test(ds: PointDataset, device, out_dir):
-    args = load_args(os.path.join(out_dir))  # go to cv-run level
+    args = load_args(os.path.join(out_dir))
     model_class = get_point_seg_model_class(args)
 
     net = model_class.load(os.path.join(out_dir, 'fold0', 'model.pth'), device=device)
@@ -387,22 +387,35 @@ def speed_test(ds: PointDataset, device, out_dir):
 
         all_post_proc_times.append(time.time() - start_post_proc)
         unique_lbls, n_points = labels_pred.cpu().unique(return_counts=True)
-        accum = torch.zeros(unique_lbls.max() + 1)
+        accum = torch.zeros(ds.num_classes)
         accum[unique_lbls] += n_points
         points_per_fissure.append(accum[1:])
         print(f'[inference + post-proc time] {all_inference_times[-1]:.4f} + {all_post_proc_times[-1]:.4f} s')
 
+    write_speed_results(out_dir, all_inference_times, all_post_proc_times, points_per_fissure)
+
+
+def write_speed_results(out_dir, all_inference_times, all_post_proc_times=None, points_per_fissure=None):
     all_inference_times = torch.tensor(all_inference_times)
-    all_post_proc_times = torch.tensor(all_post_proc_times)
-    total_times = all_inference_times + all_post_proc_times
-    points_per_fissure = torch.stack(points_per_fissure).float()
+
+    if all_post_proc_times is not None:
+        all_post_proc_times = torch.tensor(all_post_proc_times)
+        total_times = all_inference_times + all_post_proc_times
+    else:
+        all_post_proc_times = torch.zeros_like(all_inference_times)
+        total_times = all_inference_times
+
+    if points_per_fissure is not None:
+        points_per_fissure = torch.stack(points_per_fissure).float()
+
     with open(os.path.join(out_dir, 'inference_time.csv'), 'w') as time_file:
         writer = csv.writer(time_file)
-        writer.writerow(['Inference', 'Inference_std', 'Post-Processing', 'Post-Processing_std', 'Total', 'Total_std', 'Points_per_Fissure', 'Points_per_Fissure_std'])
+        writer.writerow(['Inference', 'Inference_std', 'Post-Processing', 'Post-Processing_std', 'Total', 'Total_std']
+                        + ['Points_per_Fissure', 'Points_per_Fissure_std'] if points_per_fissure is not None else [])
         writer.writerow([all_inference_times.mean().item(), all_inference_times.std().item(),
                          all_post_proc_times.mean().item(), all_post_proc_times.std().item(),
-                         total_times.mean().item(), total_times.std().item(),
-                         points_per_fissure.mean().item(), points_per_fissure.std(0).mean().item()])
+                         total_times.mean().item(), total_times.std().item()]
+                        + [points_per_fissure.mean().item(), points_per_fissure.std(0).mean().item()] if points_per_fissure is not None else [])
 
 
 def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95,
