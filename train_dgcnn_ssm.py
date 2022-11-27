@@ -13,14 +13,13 @@ from losses.dgssm_loss import corresponding_point_distance, DGSSMLoss
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
-from train import run, write_results
+from train import run, write_results, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
+from utils.utils import no_print, get_device
 from visualization import point_cloud_on_axis
 
 
 def test(ds: CorrespondingPointDataset, device, out_dir, show):
-    ds.do_augmentation_correspondingly = False
-
     model = DGSSM.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
@@ -123,6 +122,39 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
            mean_corr_pt_dist_hd, std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95, None
 
 
+def speed_test(ds, device, out_dir):
+    model = DGSSM.load(os.path.join(out_dir, 'fold0', 'model.pth'), device=device)
+    model.to(device)
+    model.eval()
+
+    # prepare measuring inference time
+    torch.manual_seed(42)
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    all_inference_times = []
+
+    for i in range(len(ds)):
+        input_pts, input_lbls = ds.get_full_pointcloud(i)
+        input_pts = input_pts.unsqueeze(0).to(device)
+
+        with torch.no_grad(), no_print():
+            torch.cuda.synchronize()
+            starter.record()
+            prediction = model.dgcnn.predict_full_pointcloud(input_pts, ds.sample_points)
+            pred_weights, pred_rotation, pred_translation, pred_scaling = model.split_prediction(prediction)
+            reconstructions = model.ssm.decode(pred_weights)
+            pred_transform = compose_transform(pred_rotation, pred_translation, pred_scaling)
+            reconstructions = pred_transform.transform_points(reconstructions)
+
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender) / 1000
+        all_inference_times.append(curr_time)
+
+        print(f'{ds.ids[i]}: {all_inference_times[-1]:.4f} s')
+
+    write_speed_results(out_dir, all_inference_times)
+
+
 if __name__ == '__main__':
     parser = get_dgcnn_ssm_train_parser()
     args = parser.parse_args()
@@ -153,6 +185,10 @@ if __name__ == '__main__':
     ds = CorrespondingPointDataset(point_folder=point_dir, image_folder=img_dir, corr_folder=corr_pt_dir,
                                    sample_points=args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
                                    patch_feat=args.patch, undo_affine_reg=args.predict_affine, do_augmentation=True)
+
+    if args.speed:
+        speed_test(ds, get_device(args.gpu), args.output)
+        exit(0)
 
     # setup model
     in_features = ds[0][0].shape[0]
