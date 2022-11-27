@@ -206,6 +206,7 @@ def time_mind_feat(data_dir, device):
             all_inference_times_mind.append(curr_time)
 
             # MIND-SSC
+            torch.cuda.empty_cache()
             torch.cuda.synchronize()
             starter.record()
 
@@ -241,4 +242,4 @@ if __name__ == '__main__':
     # time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, 'cuda:3')
     # time_foerstner_kp(IMG_DIR_TS, 'cuda:3')
     # time_enhancement_kp(IMG_DIR_TS, 'cuda:3')
-    time_mind_feat(IMG_DIR_TS, 'cuda:2')
+    time_mind_feat(IMG_DIR_TS, 'cuda:0')
