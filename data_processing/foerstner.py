@@ -37,6 +37,28 @@ def invert_structure_tensor(struct):
     return struct_inv
 
 
+def invert_structure_tensor_only_trace(struct):
+    a = struct[:, 0, ...]
+    b = struct[:, 1, ...]
+    c = struct[:, 2, ...]
+    e = struct[:, 3, ...]
+    f = struct[:, 4, ...]
+    i = struct[:, 5, ...]
+
+    A = e * i - f * f
+    B = - b * i + c * f
+    C = b * f - c * e
+    E = a * i - c * c
+    # F = - a * f + b * c
+    I = a * e - b * b
+
+    det = (a * A + b * B + c * C).unsqueeze(1)
+
+    struct_inv = (1. / det) * torch.stack([A, E, I], dim=1)
+
+    return struct_inv
+
+
 def distinctiveness(img, sigma):
     device = img.device
 
@@ -45,9 +67,9 @@ def distinctiveness(img, sigma):
                       filter_1d(img, filt, 1),
                       filter_1d(img, filt, 2)], dim=1)
 
-    struct_inv = invert_structure_tensor(structure_tensor(grad, sigma))
+    struct_inv = invert_structure_tensor_only_trace(structure_tensor(grad, sigma))
 
-    D = 1. / (struct_inv[:, 0, ...] + struct_inv[:, 3, ...] + struct_inv[:, 5, ...]).unsqueeze(1)
+    D = 1. / struct_inv.sum(dim=1, keepdims=True)
     return D
 
 
