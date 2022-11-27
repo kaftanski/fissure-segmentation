@@ -182,6 +182,7 @@ def time_mind_feat(data_dir, device):
     ds = LungData(folder=data_dir)
     mind_sigma = 0.8
     delta = 1
+    spacing = 1.5
 
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
@@ -189,7 +190,7 @@ def time_mind_feat(data_dir, device):
     all_inference_times_ssc = []
     for i in range(len(ds)):
         img = ds.get_image(i)
-        img = resample_equal_spacing(img, target_spacing=1.5)
+        img = resample_equal_spacing(img, target_spacing=spacing)
         img_tensor = sitk_image_to_tensor(img).float().to(device)
 
         # measure mind feature computation
@@ -219,7 +220,7 @@ def time_mind_feat(data_dir, device):
 
         print(f'{ds.get_id(i)}: [MIND] {all_inference_times_mind[-1]:.4f} s, [SSC] {all_inference_times_ssc[-1]:.4f} s')
 
-    write_times(os.path.join(OUT_DIR, 'mind_feat.csv'), all_inference_times_mind)
+    write_times(os.path.join(OUT_DIR, f'mind_feat_{str(spacing).replace(".",",")}mm.csv'), all_inference_times_mind)
     write_times(os.path.join(OUT_DIR, 'ssc_feat.csv'), all_inference_times_ssc)
 
 
@@ -242,4 +243,4 @@ if __name__ == '__main__':
     # time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, 'cuda:3')
     # time_foerstner_kp(IMG_DIR_TS, 'cuda:3')
     # time_enhancement_kp(IMG_DIR_TS, 'cuda:3')
-    time_mind_feat(IMG_DIR_TS, 'cuda:0')
+    time_mind_feat(IMG_DIR_TS, 'cuda:2')
