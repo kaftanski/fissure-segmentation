@@ -383,3 +383,14 @@ def topk_alldims(tensor, k):
 
     idx = unravel_index(res.indices, tensor.size())
     return tensor[idx], idx
+
+
+def get_device(gpu: int):
+    if gpu in range(torch.cuda.device_count()):
+        device = f'cuda:{gpu}'
+        print(f"Using device: {device}")
+    else:
+        device = 'cpu'
+        print(f'Requested GPU with index {gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
+
+    return device

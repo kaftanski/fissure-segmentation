@@ -1,5 +1,6 @@
 import csv
 import os
+import time
 from typing import List, Tuple
 
 import SimpleITK as sitk
@@ -22,12 +23,12 @@ from models.point_net import PointNetSeg
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
-    points_to_label_map, create_o3d_mesh, nanstd
+    points_to_label_map, create_o3d_mesh, nanstd, get_device
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
 def get_point_seg_model_class(args):
-    if args.model == 'DGCNN':
+    if 'model' not in args or args.model == 'DGCNN':
         return DGCNNSeg
     elif args.model == 'PointNet':
         return PointNetSeg
@@ -317,6 +318,93 @@ def test(ds: PointDataset, device, out_dir, show):
     return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
+def speed_test(ds: PointDataset, device, out_dir):
+    args = load_args(os.path.join(out_dir))  # go to cv-run level
+    model_class = get_point_seg_model_class(args)
+
+    net = model_class.load(os.path.join(out_dir, 'fold0', 'model.pth'), device=device)
+    net.to(device)
+    net.eval()
+
+    img_ds = LungData(ds.image_folder)
+
+    # prepare for measurement of inference times
+    torch.manual_seed(42)
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    all_inference_times = []
+    all_post_proc_times = []
+    points_per_fissure = []
+    for i in range(len(ds)):
+        inputs, lbls = ds.get_full_pointcloud(i)
+        inputs = inputs.unsqueeze(0).to(device)
+
+        # convert points back to world coordinates
+        pts = inputs[0, :3].cpu()  # coords are the first 3 features
+        case, sequence = ds.ids[i]
+        spacing = torch.tensor(ds.spacings[i])
+        shape = torch.tensor(ds.img_sizes_index[i][::-1]) * spacing.flip(0)
+        pts = kpts_to_world(pts.transpose(0, 1), shape)  # points in millimeters
+
+        # load mask for post-processing
+        img_index = img_ds.get_index(case, sequence)
+        mask_img = img_ds.get_lung_mask(img_index)
+        mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask_img).astype(bool))
+
+        # measure inference time
+        with torch.no_grad():
+            torch.cuda.synchronize()
+            starter.record()
+            out = net.predict_full_pointcloud(inputs, ds.sample_points, n_runs_min=50)
+            pred = net(inputs)
+
+        labels_pred = out.argmax(1)
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender) / 1000
+        all_inference_times.append(curr_time)
+
+        labels_pred = labels_pred.cpu()
+        # measure post-processing time
+        start_post_proc = time.time()
+
+        # mesh fitting for each label
+        for j in range(net.num_classes - 1):  # excluding background
+            label = j + 1
+            try:
+                depth = 6
+                mesh_predict = pointcloud_surface_fitting(pts[labels_pred.squeeze() == label].numpy().astype(float),
+                    crop_to_bbox=True, depth=depth)
+
+            except ValueError as e:
+                # no points have been predicted to be in this class
+                continue
+
+            # post-process surfaces
+            mask_out_verts_from_mesh(mesh_predict, mask_tensor, spacing)  # apply lung mask
+            right = label > 1  # right fissure(s) are label 2 and 3
+            remove_all_but_biggest_component(mesh_predict, right=right,
+                                             center_x=shape[2] / 2)  # only keep the biggest connected component
+
+        all_post_proc_times.append(time.time() - start_post_proc)
+        unique_lbls, n_points = labels_pred.cpu().unique(return_counts=True)
+        accum = torch.zeros(unique_lbls.max() + 1)
+        accum[unique_lbls] += n_points
+        points_per_fissure.append(accum[1:])
+        print(f'[inference + post-proc time] {all_inference_times[-1]:.4f} + {all_post_proc_times[-1]:.4f} s')
+
+    all_inference_times = torch.tensor(all_inference_times)
+    all_post_proc_times = torch.tensor(all_post_proc_times)
+    total_times = all_inference_times + all_post_proc_times
+    points_per_fissure = torch.stack(points_per_fissure).float()
+    with open(os.path.join(out_dir, 'inference_time.csv'), 'w') as time_file:
+        writer = csv.writer(time_file)
+        writer.writerow(['Inference', 'Inference_std', 'Post-Processing', 'Post-Processing_std', 'Total', 'Total_std', 'Points_per_Fissure', 'Points_per_Fissure_std'])
+        writer.writerow([all_inference_times.mean().item(), all_inference_times.std().item(),
+                         all_post_proc_times.mean().item(), all_post_proc_times.std().item(),
+                         total_times.mean().item(), total_times.std().item(),
+                         points_per_fissure.mean().item(), points_per_fissure.std(0).mean().item()])
+
+
 def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95,
                   std_hd95, proportion_missing=None, **additional_metrics):
     with open(filepath, 'w') as csv_file:
@@ -441,12 +529,7 @@ def run(ds, model, test_fn, args):
     test_fn = get_deterministic_test_fn(test_fn)
 
     # set the device
-    if args.gpu in range(torch.cuda.device_count()):
-        device = f'cuda:{args.gpu}'
-        print(f"Using device: {device}")
-    else:
-        device = 'cpu'
-        print(f'Requested GPU with index {args.gpu} is not available. Only {torch.cuda.device_count()} GPUs detected.')
+    device = get_device(args.gpu)
 
     # setup directories
     os.makedirs(args.output, exist_ok=True)
@@ -482,7 +565,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     maybe_run_detached_cli(args)
 
-    if args.test_only:
+    if args.test_only or args.speed:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     # load data
@@ -507,6 +590,11 @@ if __name__ == '__main__':
                           exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
+
+    # run the speed test
+    if args.speed:
+        speed_test(ds, get_device(args.gpu), args.output)
+        exit(0)
 
     # setup model
     in_features = ds[0][0].shape[0]

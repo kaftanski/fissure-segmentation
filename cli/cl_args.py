@@ -60,6 +60,7 @@ def get_generic_parser(description):
                         help='Runs the script with nohup and detaches the script. Disables the --show option. '
                              'Output logs will be saved to "./results/logs/<script_name>_<timestamp>.txt"',
                         nargs='?')
+    parser.add_argument('--speed', const=True, default=False, nargs='?', help='Run inference speed test (nothing else)')
 
     add_training_parameters(parser)
     add_data_parameters(parser)
