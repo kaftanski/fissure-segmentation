@@ -221,7 +221,7 @@ def time_mind_feat(data_dir, device):
         print(f'{ds.get_id(i)}: [MIND] {all_inference_times_mind[-1]:.4f} s, [SSC] {all_inference_times_ssc[-1]:.4f} s')
 
     write_times(os.path.join(OUT_DIR, f'mind_feat_{str(spacing).replace(".",",")}mm.csv'), all_inference_times_mind)
-    write_times(os.path.join(OUT_DIR, 'ssc_feat.csv'), all_inference_times_ssc)
+    write_times(os.path.join(OUT_DIR, f'ssc_feat_{str(spacing).replace(".",",")}mm.csv'), all_inference_times_ssc)
 
 
 def write_times(out_filename, inference_times, num_points=None):
