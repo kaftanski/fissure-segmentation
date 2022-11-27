@@ -196,6 +196,7 @@ def time_mind_feat(data_dir, device):
         # measure mind feature computation
         with no_print():
             # MIND
+            torch.cuda.empty_cache()
             torch.cuda.synchronize()
             starter.record()
 
@@ -232,15 +233,15 @@ def write_times(out_filename, inference_times, num_points=None):
     with open(out_filename, 'w') as time_file:
         writer = csv.writer(time_file)
         writer.writerow(['Inference', 'Inference_std']
-                        + ['Num_Points', 'Num_Points_std'] if num_points is not None else [])
+                        + (['Num_Points', 'Num_Points_std'] if num_points is not None else []))
         writer.writerow([inference_times.mean().item(), inference_times.std().item()]
-                        + [num_points.mean().item(), num_points.std().item()] if num_points is not None else [])
+                        + ([num_points.mean().item(), num_points.std().item()] if num_points is not None else []))
 
 
 if __name__ == '__main__':
-    # run_detached_from_pycharm()
-
-    # time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, 'cuda:3')
-    # time_foerstner_kp(IMG_DIR_TS, 'cuda:3')
-    # time_enhancement_kp(IMG_DIR_TS, 'cuda:3')
-    time_mind_feat(IMG_DIR_TS, 'cuda:2')
+    run_detached_from_pycharm()
+    device = 'cuda:3'
+    time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, device)
+    time_foerstner_kp(IMG_DIR_TS, device)
+    # time_enhancement_kp(IMG_DIR_TS, device)
+    time_mind_feat(IMG_DIR_TS, device)

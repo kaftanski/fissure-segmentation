@@ -412,11 +412,11 @@ def write_speed_results(out_dir, all_inference_times, all_post_proc_times=None, 
     with open(os.path.join(out_dir, 'inference_time.csv'), 'w') as time_file:
         writer = csv.writer(time_file)
         writer.writerow(['Inference', 'Inference_std', 'Post-Processing', 'Post-Processing_std', 'Total', 'Total_std']
-                        + ['Points_per_Fissure', 'Points_per_Fissure_std'] if points_per_fissure is not None else [])
+                        + (['Points_per_Fissure', 'Points_per_Fissure_std'] if points_per_fissure is not None else []))
         writer.writerow([all_inference_times.mean().item(), all_inference_times.std().item(),
                          all_post_proc_times.mean().item(), all_post_proc_times.std().item(),
                          total_times.mean().item(), total_times.std().item()]
-                        + [points_per_fissure.mean().item(), points_per_fissure.std(0).mean().item()] if points_per_fissure is not None else [])
+                        + ([points_per_fissure.mean().item(), points_per_fissure.std(0).mean().item()] if points_per_fissure is not None else []))
 
 
 def write_results(filepath, mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95,
