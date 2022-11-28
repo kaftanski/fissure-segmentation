@@ -47,10 +47,11 @@ class RegularizedSegDGCNN(LoadableModel):
         self.sample_mode = sample_mode
 
     @torch.no_grad()
-    def forward(self, x):
-        # segmentation of the point cloud
-        seg = self.seg_model.predict_full_pointcloud(x, self.n_points_seg).argmax(1)
+    def segment(self, x):
+        return self.seg_model.predict_full_pointcloud(x, self.n_points_seg).argmax(1)
 
+    @torch.no_grad()
+    def reconstruct(self, x, seg):
         # get refined mesh for each object
         points = []
         meshes = []
@@ -72,6 +73,12 @@ class RegularizedSegDGCNN(LoadableModel):
                 meshes.append(mesh)
 
         return meshes, points
+
+    @torch.no_grad()
+    def forward(self, x):
+        # segmentation of the point cloud
+        seg = self.segment(x)
+        return self.reconstruct(x, seg)
 
 
 class PointToMeshDS(PointDataset):
@@ -239,25 +246,37 @@ def speed_test(ds: PointToMeshDS, device, out_dir):
     # prepare measuring inference time
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     all_inference_times = []
+    all_post_proc_times = []
     all_points_per_fissure = []
-
     for i in range(len(ds)):
         x, lbl = ds.get_full_pointcloud(i)
         x = x.unsqueeze(0).to(device)
 
-        with torch.no_grad():
+        with torch.no_grad(), no_print():
             torch.cuda.synchronize()
             starter.record()
-            reconstruct_meshes, sampled_points_per_obj = model(x)
 
-        ender.record()
-        torch.cuda.synchronize()
-        curr_time = starter.elapsed_time(ender) / 1000
-        all_inference_times.append(curr_time)
+            seg = model.segment(x)
+
+            ender.record()
+            torch.cuda.synchronize()
+            curr_time = starter.elapsed_time(ender) / 1000
+            all_inference_times.append(curr_time)
+
+            torch.cuda.synchronize()
+            starter.record()
+
+            reconstruct_meshes, sampled_points_per_obj = model.reconstruct(x, seg)
+
+            ender.record()
+            torch.cuda.synchronize()
+            curr_time = starter.elapsed_time(ender) / 1000
+            all_post_proc_times.append(curr_time)
 
         all_points_per_fissure.append(torch.tensor([len(o.squeeze()) for o in sampled_points_per_obj]))
 
-    write_speed_results(out_dir, all_inference_times, points_per_fissure=all_points_per_fissure)
+    write_speed_results(out_dir, all_inference_times, all_post_proc_times=all_post_proc_times,
+                        points_per_fissure=all_points_per_fissure)
 
 
 if __name__ == '__main__':
@@ -302,7 +321,6 @@ if __name__ == '__main__':
                        binary=dgcnn_args.binary)
 
     if args.speed:
-        with no_print():
-            speed_test(ds, get_device(args.gpu), args.output)
+        speed_test(ds, get_device(args.gpu), args.output)
 
     run(ds, model, test, args)
