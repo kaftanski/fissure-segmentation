@@ -1,4 +1,5 @@
 import os.path
+from collections import OrderedDict
 
 import matplotlib as mpl
 import numpy as np
@@ -13,26 +14,38 @@ from thesis.utils import save_fig
 
 def csv_to_df(csv_result_file):
     results_table = pd.read_csv(csv_result_file)
-    results_table = results_table.set_index('Class').transpose()
-    results_table = results_table[:-1]  # discard background
+    if 'Class' in results_table.columns:
+        results_table = results_table.set_index('Class').transpose()
+    else:
+        results_table = results_table.set_index('Fissure').transpose()
+        results_table['Fissure'] = results_table.index
+
+    if results_table.shape[0] > 4:
+        results_table = results_table[:4]  # discard background of dice column
+
+        def fix_dice(which='Mean'):
+            results_table[f'{which} Dice'][1] = results_table[f'{which} Dice'][2]
+            results_table[f'{which} Dice'][2] = results_table[f'{which} Dice'][3]
+            results_table[f'{which} Dice'][3] = results_table[f'{which} Dice']['mean']
+            results_table[f'{which} Dice']['mean'] = results_table[f'{which} Dice'][:-1].mean()
+
+    else:
+        def fix_dice(which=None):
+            pass
+
     results_table['Fissure'][:-1] = results_table['Fissure'][:-1].astype(int)
     results_table = results_table.set_index('Fissure')
     results_table = results_table.astype(float)
 
-    def fix_dice(which='Mean'):
-        results_table[f'{which} Dice'][1] = results_table[f'{which} Dice'][2]
-        results_table[f'{which} Dice'][2] = results_table[f'{which} Dice'][3]
-        results_table[f'{which} Dice'][3] = results_table[f'{which} Dice']['mean']
-        results_table[f'{which} Dice']['mean'] = results_table[f'{which} Dice'][:-1].mean()
-
-    fix_dice('Mean')
-    fix_dice('StdDev')
+    if 'Mean Dice' in results_table.columns:
+        fix_dice('Mean')
+        fix_dice('StdDev')
 
     results_table = results_table.round(2)
 
-    mod_table = pd.DataFrame(columns=['ASD_mean', 'ASD_std', 'SDSD_mean', 'SDSD_std', 'HD_mean', 'HD_std', 'missing'])
-    mod_table['ASD_mean'] = results_table['Mean ASSD']
-    mod_table['ASD_std'] = results_table['StdDev ASSD']
+    mod_table = pd.DataFrame(columns=['ASSD_mean', 'ASSD_std', 'SDSD_mean', 'SDSD_std', 'HD_mean', 'HD_std', 'missing'])
+    mod_table['ASSD_mean'] = results_table['Mean ASSD']
+    mod_table['ASSD_std'] = results_table['StdDev ASSD']
     mod_table['SDSD_mean'] = results_table['Mean SDSD']
     mod_table['SDSD_std'] = results_table['StdDev SDSD']
     mod_table['HD_mean'] = results_table['Mean HD']
@@ -61,7 +74,7 @@ def pm_table(table):
     return table
 
 
-def get_all_tables(model='DGCNN'):
+def get_all_tables(model='DGCNN_seg'):
     tables = {}
     for kp in KP_MODES:
         tables[kp] = {}
@@ -72,7 +85,7 @@ def get_all_tables(model='DGCNN'):
             cur_feat = FEATURE_MODES
 
         for feat in cur_feat:
-            folder = os.path.join('results', f'{model}_seg_{kp}_{feat}')
+            folder = os.path.join('results', f'{model}_{kp}_{feat}')
             result_file = os.path.join(folder, 'cv_results.csv')
             if os.path.isfile(result_file):
                 table = csv_to_df(result_file)
@@ -112,37 +125,37 @@ def get_all_tables(model='DGCNN'):
 #
 #     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
-
-def dgcnn_seg_bar_plot(metric='ASD'):
-    feat_modes = FEATURE_MODES + ['cnn']
-    tables = get_all_tables()
-    index = np.arange(len(tables.keys()))
-    group_width = 0.7
-    bar_width = group_width / len(feat_modes)
-    cmap = mpl.cm.get_cmap('tab10')
-    colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
-    fig = plt.figure(figsize=textwidth_to_figsize(0.7, 3/5))
-
-    for i, kp in zip(index, tables.keys()):
-        group = tables[kp]
-        x = np.linspace(i - bar_width*len(group)/2, i + bar_width*len(group)/2, num=len(group))
-        for j, feat in zip(x, group.keys()):
-            if len(tables[kp][feat]) <= 1:
-                continue
-            plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width,
-                    yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
-
-    plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
-    plt.ylabel(f'mean {metric} [mm]')
-    save_fig(fig, 'results/plots', f'dgcnn_seg_{metric}')
-
-    legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
-    legend_figure.legend(handles=[Patch(
-                         facecolor=colors[feat],
-                         label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
-        loc='center'
-    )
-    save_fig(legend_figure, 'results/plots', 'dgcnn_seg_legend')
+#
+# def dgcnn_seg_bar_plot(metric='ASD'):
+#     feat_modes = FEATURE_MODES + ['cnn']
+#     tables = get_all_tables()
+#     index = np.arange(len(tables.keys()))
+#     group_width = 0.7
+#     bar_width = group_width / len(feat_modes)
+#     cmap = mpl.cm.get_cmap('tab10')
+#     colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
+#     fig = plt.figure(figsize=textwidth_to_figsize(0.7, 3/5))
+#
+#     for i, kp in zip(index, tables.keys()):
+#         group = tables[kp]
+#         x = np.linspace(i - bar_width*len(group)/2, i + bar_width*len(group)/2, num=len(group))
+#         for j, feat in zip(x, group.keys()):
+#             if len(tables[kp][feat]) <= 1:
+#                 continue
+#             plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width,
+#                     yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
+#
+#     plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
+#     plt.ylabel(f'mean {metric} [mm]')
+#     save_fig(fig, 'results/plots', f'dgcnn_seg_{metric}')
+#
+#     legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
+#     legend_figure.legend(handles=[Patch(
+#                          facecolor=colors[feat],
+#                          label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
+#         loc='center'
+#     )
+#     save_fig(legend_figure, 'results/plots', 'dgcnn_seg_legend')
 
 
 def time_table(path='results/preproc_timing/timings.csv'):
@@ -153,7 +166,7 @@ def time_table(path='results/preproc_timing/timings.csv'):
     print(table.to_latex(multirow=True, multicolumn=True))
 
 
-def seg_table(model='DGCNN', only_one_feature: str=None):
+def seg_table(model='DGCNN_seg', only_one_feature: str=None):
     tables = get_all_tables(model)
 
     combined_table = None
@@ -173,7 +186,7 @@ def seg_table(model='DGCNN', only_one_feature: str=None):
 
 
 def bar_plot(model):
-    for metric in ['ASD', 'SDSD', 'HD']:
+    for metric in ['ASSD', 'SDSD', 'HD']:
         feat_modes = FEATURE_MODES + ['cnn']
         tables = get_all_tables(model)
         index = np.arange(len(tables.keys()))
@@ -194,7 +207,7 @@ def bar_plot(model):
 
         plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
         plt.ylabel(f'mean {metric} [mm]')
-        save_fig(fig, 'results/plots', f'{model}_seg_{metric}')
+        save_fig(fig, 'results/plots', f'{model}_{metric}')
 
         legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
         legend_figure.legend(handles=[Patch(
@@ -202,15 +215,70 @@ def bar_plot(model):
                              label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
             loc='center'
         )
-        save_fig(legend_figure, 'results/plots', f'{model}_seg_legend')
+        save_fig(legend_figure, 'results/plots', f'{model}_legend')
+
+
+def comparative_bar_plot(tables_per_model):
+    for metric in ['ASSD', 'SDSD', 'HD']:
+        index = np.arange(len(tables_per_model.keys()))
+        models = list(tables_per_model.keys())
+        group_width = 0.7
+        bar_width = group_width / len(models)
+        col = list(mpl.cm.get_cmap('Dark2').colors)
+        col[4] = col[0]
+        col[1] = col[5]
+        col[0] = mpl.cm.get_cmap('tab10').colors[2]
+        colors = {model: col[i] for i, model in enumerate(models)}
+        fig = plt.figure(figsize=textwidth_to_figsize(0.3, 3/2))
+
+        x = np.linspace(0, bar_width*len(models), num=len(models))
+        for i, model in zip(index, tables_per_model.keys()):
+            plt.bar(x[i], height=tables_per_model[model][f'{metric}_mean']['mean'], width=bar_width,
+                    yerr=tables_per_model[model][f'{metric}_std']['mean'], color=colors[model])
+
+        plt.xticks([], [])
+        plt.ylabel(f'mean {metric} [mm]')
+        save_fig(fig, 'results/plots', f'comparison_{metric}')
+
+        legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
+        legend_figure.legend(handles=[Patch(facecolor=colors[model], label=model) for model in models], loc='center')
+        save_fig(legend_figure, 'results/plots', f'comparison_legend')
 
 
 def point_net_seg_table():
-    seg_table('PointNet', 'image')
+    seg_table('PointNet_seg', 'image')
 
 
 def dgcnn_seg_table():
-    seg_table('DGCNN', None)
+    seg_table('DGCNN_seg', None)
+
+
+def nnunet_table(mode='surface'):
+    assert mode in ['voxels', 'surface']
+    res_path = '../nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
+    file = f'cv_results_{mode}.csv'
+    table = csv_to_df(res_path + file)
+    return table
+
+
+def v2m_table():
+    res_path = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003/cv_results.csv'
+    table = csv_to_df(res_path)
+    return table
+
+
+def model_comparison():
+    dseg_tables = get_all_tables('DGCNN_seg')
+    dseg_ae_tables = get_all_tables('DSEGAE_reg_aug_1024')
+    dg_ssm_tables = get_all_tables('DG-SSM')
+    tables = OrderedDict([
+        ("DGCNN-Seg (cnn+image) + PSR", dseg_tables['cnn']['image']),
+        ("DGCNN-Seg (cnn+image) + AE", dseg_ae_tables['cnn']['image']),
+        #("GCN-SSM (cnn+image) (PC-to-mesh-SD)", dg_ssm_tables['cnn']['image']),
+        ("nnU-Net (SD)", nnunet_table('surface')),
+        ("nnU-Net (label-to-mesh SD)", nnunet_table('voxels')),
+        ("Voxel2Mesh", v2m_table())])
+    comparative_bar_plot(tables)
 
 
 if __name__ == '__main__':
@@ -221,5 +289,7 @@ if __name__ == '__main__':
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
-    # bar_plot('DGCNN')
-    seg_table('DGCNN', 'image')
+    # bar_plot('DGCNN_seg')
+    bar_plot('DSEGAE_reg_aug_1024')
+    # seg_table('DGCNN', 'image')
+    # model_comparison()
