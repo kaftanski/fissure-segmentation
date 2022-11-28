@@ -91,7 +91,7 @@ class Decoder(LoadableModel, ABC):
     @store_config_args
     def __init__(self, shape_type, decode_mesh=True):
         super(Decoder, self).__init__()
-        self.m = 2025  # 45 * 45.
+        self.m = 1024  # 32 * 32
         self.shape_type = shape_type
         self.folding_points = None
         self.faces = None
