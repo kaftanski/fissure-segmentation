@@ -8,9 +8,9 @@ run () {
   $cmd
 }
 
-GPU=3
-AE_DIR="results/pc_ae_regularized"
-OUT_SUFFIX="reg"
+GPU=2
+AE_DIR="results/PC_AE_regularized_augment_1024"
+OUT_SUFFIX="reg_aug_1024"
 keypoints=("cnn" "foerstner" "enhancement")
 features=("image" "mind" "mind_ssc" "enhancement" "nofeat")
 

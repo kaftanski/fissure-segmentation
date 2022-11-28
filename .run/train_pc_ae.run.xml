@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_pc_ae.py" />
-    <option name="PARAMETERS" value="--ds ts --k 40 --pts 2048 --batch 8 --output results/PC_AE_regularized_augment --shape plane --latent 512 --epochs 333 --deform --scheduler cosine --mesh --gpu 3 --offline" />
+    <option name="PARAMETERS" value="--ds ts --k 20 --pts 1024 --batch 8 --output results/PC_AE_noreg_augment_1024 --loss_weights 1. 0. 0. 0. --shape plane --latent 512 --epochs 333 --deform --scheduler cosine --mesh --gpu 3 --offline" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
