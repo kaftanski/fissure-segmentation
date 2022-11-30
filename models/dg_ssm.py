@@ -91,7 +91,7 @@ def create_in_feature_hook(feature_dict, name):
 class DGSSM(LoadableModel):
     @store_config_args
     def __init__(self, k, in_features, spatial_transformer=False, dynamic=True, image_feat_module=False,
-                 predict_affine_params=True, ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1, lssm=False):
+                 predict_affine_params=True, ssm_alpha=3., ssm_targ_var=0.95, ssm_modes=1, lssm=False, only_affine=False):
         super(DGSSM, self).__init__()
         if spatial_transformer:
             raise NotImplementedError()
@@ -99,7 +99,8 @@ class DGSSM(LoadableModel):
             raise NotImplementedError()
 
         SSMClass = SSM if not lssm else LSSM
-        self.predict_affine_params = predict_affine_params
+        self.predict_affine_params = predict_affine_params or only_affine
+        self.only_affine = only_affine
         self.ssm = SSMClass(ssm_alpha, ssm_targ_var)
         # self.dgcnn = DGCNNReg(k, in_features, dgcnn_out_features,  # placeholder number of modes, has to be updated after training SSM
         #                       spatial_transformer, dynamic, image_feat_module)
@@ -123,7 +124,10 @@ class DGSSM(LoadableModel):
 
         x = self.dgcnn(x)
         coefficients, so3_rotation, translation, scaling = self.split_prediction(x)
-        pred_weights = coefficients.squeeze() * self.ssm.eigenvalues  # coefficients are multipliers for the eigenvalues
+        if not self.only_affine:
+            pred_weights = coefficients.squeeze() * self.ssm.eigenvalues  # coefficients are multipliers for the eigenvalues
+        else:
+            pred_weights = torch.zeros_like(coefficients, device=x.device)
         reconstructions = self.ssm.decode(pred_weights)
 
         if self.predict_affine_params:

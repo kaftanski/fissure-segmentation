@@ -195,7 +195,7 @@ if __name__ == '__main__':
     model = DGSSM(k=args.k, in_features=in_features,
                   spatial_transformer=args.transformer, dynamic=not args.static,
                   ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm,
-                  predict_affine_params=args.predict_affine)
+                  predict_affine_params=args.predict_affine, only_affine=args.only_affine)
 
     if not args.predict_affine:
         # set the loss weight for affine params to zero

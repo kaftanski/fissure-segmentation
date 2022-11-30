@@ -127,6 +127,8 @@ def get_dgcnn_ssm_train_parser():
                        help='mode of the point correspondence generation')
     group.add_argument('--head_schedule', default={'main': 150, 'translation': 0, 'rotation': 100, 'scaling': 50},
                        type=json.loads, help='json string containing the epoch when the particular head is supposed to be actived during training.')
+    group.add_argument('--only_affine', const=True, default=False, nargs='?',
+                       help='only train the affine heads.')
 
     parser.set_defaults(loss='ssm')
     return parser
