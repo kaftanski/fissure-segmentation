@@ -3,7 +3,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-from utils.utils import new_dir
+from utils.general_utils import new_dir
 
 LOG_DIR = new_dir('./results', 'logs')
 

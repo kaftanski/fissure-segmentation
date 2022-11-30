@@ -12,7 +12,7 @@ from data import LungData, normalize_img
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
 from utils.image_utils import filter_1d, smooth
-from utils.utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
+from utils.general_utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
     new_dir
 
 

@@ -19,7 +19,7 @@ from shape_model.point_cloud_registration import inverse_transformation_at_sampl
 from shape_model.ssm import save_shape
 from utils.detached_run import maybe_run_detached_cli
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import new_dir, inverse_affine_transform
+from utils.general_utils import new_dir, inverse_affine_transform
 from visualization import trimesh_on_axis, point_cloud_on_axis
 
 CORRESPONDENCE_MODES = ["kmeans", "cluster", "simple"]

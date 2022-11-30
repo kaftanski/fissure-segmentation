@@ -8,8 +8,7 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Patch
 
 from constants import KP_MODES, FEATURE_MODES
-from thesis import textwidth_to_figsize
-from thesis.utils import save_fig
+from thesis.utils import save_fig, legend_figure, textwidth_to_figsize
 
 
 def csv_to_df(csv_result_file):
@@ -246,9 +245,8 @@ def comparative_bar_plot(tables_per_model, colors=None):
         plt.ylabel(f'mean {metric} [mm]')
         save_fig(fig, 'results/plots', f'comparison_{metric}')
 
-        legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
-        legend_figure.legend(handles=[Patch(facecolor=colors[model], label=model) for model in models], loc='center')
-        save_fig(legend_figure, 'results/plots', f'comparison_legend')
+        legend_figure(labels=models, colors=[colors[model] for model in models],
+                      outdir='results/plots', basename='comparison_legend')
 
 
 def point_net_seg_table():

@@ -8,7 +8,7 @@ from data_processing.find_lobes import find_lobes
 from data_processing.keypoint_extraction import compute_keypoints
 from data_processing.surface_fitting import poisson_reconstruction
 from utils.image_ops import apply_mask
-from utils.utils import save_meshes
+from utils.general_utils import save_meshes
 
 IMG_DATA_DIR = '/home/kaftan/FissureSegmentation/data'
 POINT_DATA_DIR = '/home/kaftan/FissureSegmentation/point_data'

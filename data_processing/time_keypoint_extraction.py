@@ -16,7 +16,7 @@ from train_segmentation_net import get_model_class
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor
 from utils.image_utils import smooth
-from utils.utils import kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, no_print, new_dir, topk_alldims, \
+from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, no_print, new_dir, topk_alldims, \
     load_points
 import SimpleITK as sitk
 

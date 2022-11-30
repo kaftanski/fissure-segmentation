@@ -2,7 +2,7 @@ from unittest import TestCase
 
 import torch
 
-from utils.utils import sample_patches_at_kpts, kpts_to_grid, ALIGN_CORNERS
+from utils.general_utils import sample_patches_at_kpts, kpts_to_grid, ALIGN_CORNERS
 
 
 class Test(TestCase):
@@ -56,7 +56,7 @@ class Test(TestCase):
                                  point[0] - radius:point[0] + radius + 1].tolist(), patch.tolist())
 
 
-from utils.utils import nanstd
+from utils.general_utils import nanstd
 class TestNanStd(TestCase):
     def setUp(self) -> None:
         torch.random.manual_seed(42)

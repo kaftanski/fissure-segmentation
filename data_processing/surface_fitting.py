@@ -13,7 +13,7 @@ from pytorch3d.structures import Meshes
 import data
 from data import image2tensor
 from data_processing.surface_fitting_optimization import fit_plane_to_fissure
-from utils.utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component, save_meshes
+from utils.general_utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component, save_meshes
 
 
 def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],

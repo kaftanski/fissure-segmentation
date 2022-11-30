@@ -14,7 +14,7 @@ from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
-from utils.utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims
+from utils.general_utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims, find_test_fold_for_id
 
 MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
@@ -69,16 +69,9 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     ds = ImageDataset(folder=data_dir, do_augmentation=False, patch_size=(args.patch_size,)*3,
                       resample_spacing=args.spacing)
     cross_val_split = load_split_file(os.path.join(cv_dir, "cross_val_split.np.pkl"))
-    sequence_temp = sequence.replace('moving', 'mov').replace('fixed', 'fix')
 
     # find the fold, where this image has been in the test-split
-    fold_nr = None
-    for i, fold in enumerate(cross_val_split):
-        if any(case in name and sequence_temp in name for name in fold['val']):
-            fold_nr = i
-
-    if fold_nr is None:
-        raise ValueError(f'ID {case}_{sequence} is not present in any cross-validation test split (directory: {cv_dir})')
+    fold_nr = find_test_fold_for_id(case, sequence, cross_val_split)
 
     if args.model == 'v1':
         model_class = MobileNetASPP

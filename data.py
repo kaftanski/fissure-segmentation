@@ -20,7 +20,7 @@ from augmentations import image_augmentation, point_augmentation, compose_transf
 from shape_model.ssm import load_shape
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
     get_resample_factors, load_image_metadata
-from utils.utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
+from utils.general_utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
     decompose_similarity_transform
 
 IMG_MIN = -1000

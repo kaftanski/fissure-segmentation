@@ -75,7 +75,7 @@ class HandlerBremmCmap(HandlerBase):
         return stripes
 
 
-def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None):
+def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None, colors=('r', 'g', 'b', 'y')):
     if isinstance(image, torch.Tensor):
         image = image.cpu().numpy()
     if isinstance(segmentation, torch.Tensor):
@@ -87,7 +87,7 @@ def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str
 
     if segmentation.ndim == 2:
         if onehot_encoding:
-            segmentation = segmentation.reshape([*segmentation.shape, 1])
+            segmentation = segmentation.reshape([*segmentation.shape, 2])
         else:
             # encoding is a label map with numbers representing the objects
             labels = np.unique(segmentation)
@@ -102,7 +102,7 @@ def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str
             segmentation = segmentation_onehot
 
     ax.imshow(image)
-    colors = ['r', 'g', 'b', 'y']
+    ax.set_axis_off()
 
     for i in range(segmentation.shape[-1]):
         ax.imshow(np.ma.masked_where(segmentation[:, :, i] == 0, np.full([*segmentation.shape[:2]], fill_value=255)),

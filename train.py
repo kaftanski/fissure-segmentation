@@ -22,7 +22,7 @@ from models.dgcnn import DGCNNSeg
 from models.point_net import PointNetSeg
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
-from utils.utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
+from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
     points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 

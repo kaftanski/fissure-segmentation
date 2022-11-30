@@ -5,7 +5,7 @@ import open3d as o3d
 import torch
 from numpy.typing import ArrayLike
 
-from utils.utils import mask_to_points
+from utils.general_utils import mask_to_points
 
 
 def point_surface_distance(query_points: ArrayLike, trg_points: ArrayLike, trg_tris: ArrayLike) -> torch.Tensor:

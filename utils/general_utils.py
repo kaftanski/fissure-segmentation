@@ -413,3 +413,18 @@ def no_print():
         yield
     finally:
         inspect.builtins.print = old_print
+
+
+def find_test_fold_for_id(case, sequence, split):
+    """ find the fold, where this image has been in the test-split """
+    sequence = sequence.replace('moving', 'mov').replace('fixed', 'fix')
+
+    fold_nr = None
+    for i, fold in enumerate(split):
+        if any(case in name and sequence in name for name in fold['val']):
+            fold_nr = i
+
+    if fold_nr is None:
+        raise ValueError(f'ID {case}_{sequence} is not present in any cross-validation test split)')
+
+    return fold_nr

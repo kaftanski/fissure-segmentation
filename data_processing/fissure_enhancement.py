@@ -22,7 +22,7 @@ from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, apply_mask
 from utils.image_utils import filter_1d
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import new_dir
+from utils.general_utils import new_dir
 from visualization import plot_slice
 
 FISSURE_STATS_FILE = "./results/fissure_HU_mu_sigma.csv"

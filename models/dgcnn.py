@@ -8,7 +8,7 @@ from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
 from models.utils import init_weights
-from utils.utils import knn
+from utils.general_utils import knn
 
 
 def create_neighbor_features(x: torch.Tensor, k: int, fixed_knn_graph: torch.Tensor = None, knn_only_over_coords=False) -> torch.Tensor:

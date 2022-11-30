@@ -16,7 +16,7 @@ from data import ImageDataset
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from shape_model.ssm import save_shape
 from utils.tqdm_utils import tqdm_redirect
-from utils.utils import new_dir
+from utils.general_utils import new_dir
 
 INTERPOLATION_MODES = ['knn', 'tps']
 

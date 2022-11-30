@@ -15,7 +15,7 @@ from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
 from train import run, write_results, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
-from utils.utils import no_print, get_device
+from utils.general_utils import no_print, get_device
 from visualization import point_cloud_on_axis
 
 

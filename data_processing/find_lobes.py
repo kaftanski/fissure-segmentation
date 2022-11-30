@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 from data import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
-from utils.utils import create_o3d_mesh
+from utils.general_utils import create_o3d_mesh
 from visualization import visualize_o3d_mesh
 
 

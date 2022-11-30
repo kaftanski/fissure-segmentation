@@ -17,7 +17,7 @@ from models.folding_net import DGCNNFoldingNet
 from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.image_ops import load_image_metadata
-from utils.utils import load_meshes, new_dir, kpts_to_grid, ALIGN_CORNERS, kpts_to_world, o3d_to_pt3d_meshes, \
+from utils.general_utils import load_meshes, new_dir, kpts_to_grid, ALIGN_CORNERS, kpts_to_world, o3d_to_pt3d_meshes, \
     pt3d_to_o3d_meshes
 from visualization import point_cloud_on_axis, trimesh_on_axis, color_2d_points_bremm, color_2d_mesh_bremm
 
