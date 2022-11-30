@@ -218,20 +218,26 @@ def bar_plot(model):
         save_fig(legend_figure, 'results/plots', f'{model}_legend')
 
 
-def comparative_bar_plot(tables_per_model):
-    for metric in ['ASSD', 'SDSD', 'HD']:
-        index = np.arange(len(tables_per_model.keys()))
-        models = list(tables_per_model.keys())
-        group_width = 0.7
-        bar_width = group_width / len(models)
+def comparative_bar_plot(tables_per_model, colors=None):
+    index = np.arange(len(tables_per_model.keys()))
+    models = list(tables_per_model.keys())
+    group_width = 0.7
+    bar_width = group_width / len(models)
+
+    if colors is None:
         col = list(mpl.cm.get_cmap('Dark2').colors)
         col[4] = col[0]
         col[1] = col[5]
         col[0] = mpl.cm.get_cmap('tab10').colors[2]
         colors = {model: col[i] for i, model in enumerate(models)}
-        fig = plt.figure(figsize=textwidth_to_figsize(0.3, 3/2))
+    else:
+        colors = {model: c for model, c in zip(models, colors)}
 
-        x = np.linspace(0, bar_width*len(models), num=len(models))
+
+    x = np.linspace(0, bar_width*len(models), num=len(models))
+    for metric in ['ASSD', 'SDSD', 'HD']:
+
+        fig = plt.figure(figsize=textwidth_to_figsize(0.3, 3/2))
         for i, model in zip(index, tables_per_model.keys()):
             plt.bar(x[i], height=tables_per_model[model][f'{metric}_mean']['mean'], width=bar_width,
                     yerr=tables_per_model[model][f'{metric}_std']['mean'], color=colors[model])
@@ -258,12 +264,14 @@ def nnunet_table(mode='surface'):
     res_path = '../nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
     file = f'cv_results_{mode}.csv'
     table = csv_to_df(res_path + file)
+    table['Fissure'] = table.index
     return table
 
 
 def v2m_table():
     res_path = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003/cv_results.csv'
     table = csv_to_df(res_path)
+    table['Fissure'] = table.index
     return table
 
 
@@ -274,11 +282,32 @@ def model_comparison():
     tables = OrderedDict([
         ("DGCNN-Seg (cnn+image) + PSR", dseg_tables['cnn']['image']),
         ("DGCNN-Seg (cnn+image) + AE", dseg_ae_tables['cnn']['image']),
-        #("GCN-SSM (cnn+image) (PC-to-mesh-SD)", dg_ssm_tables['cnn']['image']),
-        ("nnU-Net (SD)", nnunet_table('surface')),
+        ("GCN-SSM (cnn+image) (PC-to-mesh-SD)", dg_ssm_tables['cnn']['image']),
+        # ("nnU-Net (SD)", nnunet_table('surface')),
         ("nnU-Net (label-to-mesh SD)", nnunet_table('voxels')),
         ("Voxel2Mesh", v2m_table())])
-    comparative_bar_plot(tables)
+
+    colors = [mpl.cm.get_cmap('tab10').colors[2],
+              mpl.cm.get_cmap('Dark2').colors[5],
+              mpl.cm.get_cmap('Dark2').colors[2],
+              mpl.cm.get_cmap('Dark2').colors[3],
+              mpl.cm.get_cmap('Accent').colors[6]]
+
+    comparative_bar_plot(tables, colors)
+
+    # join dataframes for a latex table
+    combined_table = None
+    for model, table in tables.items():
+        table = pm_table(table)
+        table = table.drop(['Features', 'Keypoints'], errors="ignore", axis=1)
+        table['Model'] = model
+        if combined_table is not None:
+            combined_table = pd.concat((combined_table, table))
+        else:
+            combined_table = table
+
+    combined_table = combined_table.set_index(['Model', 'Fissure'])
+    print(combined_table.to_latex(multirow=True, multicolumn=True))
 
 
 if __name__ == '__main__':
@@ -290,6 +319,6 @@ if __name__ == '__main__':
     # time_table()
     # point_net_seg_table()
     # bar_plot('DGCNN_seg')
-    bar_plot('DSEGAE_reg_aug_1024')
+    # bar_plot('DSEGAE_reg_aug_1024')
     # seg_table('DGCNN', 'image')
-    # model_comparison()
+    model_comparison()
