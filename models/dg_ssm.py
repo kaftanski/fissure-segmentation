@@ -144,15 +144,15 @@ class DGSSM(LoadableModel):
         # # make the model regress the correct number of modes for the SSM
         # self.dgcnn.regression[-1] = SharedFullyConnected(256, self.ssm.num_modes, dim=1, last_layer=True).to(next(self.parameters()).device)
         # self.dgcnn.init_weights()
-        self.dgcnn.linear3 = nn.Linear(256, self.config['ssm_modes'] if self.predict_affine_params else 0)
+        self.dgcnn.linear3 = nn.Linear(256, self.config['ssm_modes'])
         self.dgcnn.apply(init_weights)
 
     def split_prediction(self, dgcnn_pred):
         if self.predict_affine_params:
             return dgcnn_pred[0], dgcnn_pred[1]['rotation'], dgcnn_pred[1]['translation'], dgcnn_pred[1]['scaling']
         else:
-            bs = dgcnn_pred.shape[0]
-            return dgcnn_pred, torch.zeros(bs, 3).to(dgcnn_pred), torch.zeros(bs, 3).to(dgcnn_pred), torch.zeros(bs, 3).to(dgcnn_pred)
+            bs = dgcnn_pred[0].shape[0]
+            return dgcnn_pred[0], torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.zeros(bs, 3).to(dgcnn_pred[0])
 
     @classmethod
     def load(cls, path, device):
