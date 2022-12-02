@@ -63,7 +63,12 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
         weight_stats[i] += pred_weights.squeeze().cpu()
         weight_stats_ssm[i] += ssm_weights.squeeze().cpu()
 
-        error = corresponding_point_distance(reconstructions, corr_pts_not_affine).cpu()
+        if model.predict_affine_params:
+            error = corresponding_point_distance(reconstructions, corr_pts_not_affine).cpu()
+        else:
+            # measure error only on shape-model level
+            error = corresponding_point_distance(reconstructions, corr_pts_affine_reg).cpu()
+
         baseline_error = corresponding_point_distance(reconstruction_baseline, corr_pts_affine_reg).cpu()
         for c in range(ds.num_classes):
             corr_point_dist[i, c] = error[0, ds.corr_points.label == c+1].mean()
