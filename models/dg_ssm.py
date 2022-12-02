@@ -152,7 +152,7 @@ class DGSSM(LoadableModel):
             return dgcnn_pred[0], dgcnn_pred[1]['rotation'], dgcnn_pred[1]['translation'], dgcnn_pred[1]['scaling']
         else:
             bs = dgcnn_pred[0].shape[0]
-            return dgcnn_pred[0], torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.zeros(bs, 3).to(dgcnn_pred[0])
+            return dgcnn_pred[0], torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.zeros(bs, 3).to(dgcnn_pred[0]), torch.ones(bs, 3).to(dgcnn_pred[0])
 
     @classmethod
     def load(cls, path, device):
