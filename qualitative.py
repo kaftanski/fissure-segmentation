@@ -16,6 +16,15 @@ slices = {'s0070': [70, 180]}
 result_folder = 'results/plots/qualitative'
 
 
+def create_image_figure(img):
+    return plt.figure(figsize=textwidth_to_figsize(2, aspect=img.shape[0] / img.shape[1]))
+
+
+def slice_image(img_3d, slice_num, slice_dim):
+    index = [slice(None)] * slice_dim + [slice(slice_num, slice_num + 1)]
+    return img_3d[index].squeeze()
+
+
 def fissure_window_level_and_mask(img: np.ndarray, mask: np.ndarray):
     low = -1024
     high = -600
@@ -52,7 +61,7 @@ def multi_model_overlay(img, label_maps, slice_num, slice_dim=2, fig_name='keypo
         combined_label[label[index] != 0] = i + 1
         models.append(model)
 
-    fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
+    fig = create_image_figure(img_slice)
 
     colors = matplotlib.cm.get_cmap('tab10').colors
     visualize_with_overlay(img_slice.squeeze(), combined_label.squeeze(), alpha=0.6, colors=colors, ax=fig.gca())
@@ -62,7 +71,7 @@ def multi_model_overlay(img, label_maps, slice_num, slice_dim=2, fig_name='keypo
                   outdir='results/plots/qualitative', basename=f'{fig_name}_legend')
 
     # plot the slice without labels
-    fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
+    fig = create_image_figure(img_slice)
     visualize_with_overlay(img_slice.squeeze(), np.zeros_like(combined_label.squeeze()), ax=fig.gca())
     save_fig(fig, 'results/plots/qualitative', f'{patid}_slice{slice_num}', pdf=False)
 
@@ -87,13 +96,12 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2):
     for slice_num in slices[patid]:
         # slice index
         slice_num_cropped = slice_num - crop_indices[slice_dim].start
-        index = [slice(None)] * slice_dim + [slice(slice_num_cropped, slice_num_cropped + 1)]
-        img_slice = img[index].squeeze()
+        img_slice, index = slice_image(img, slice_num_cropped, slice_dim)
 
         label_slice = label_map[index].squeeze()
 
         # figure
-        fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
+        fig = create_image_figure(img_slice)
         colors = [c for i, c in enumerate(CLASS_COLORS) if i+1 in np.unique(label_slice)]
         visualize_with_overlay(img_slice, label_slice, alpha=0.6, ax=fig.gca(), colors=colors)
 
@@ -102,7 +110,7 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2):
                       outdir='results/plots/qualitative', basename=f'classes_legend')
 
         # plot the slice without labels
-        fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
+        fig = create_image_figure(img_slice)
         visualize_with_overlay(img_slice, np.zeros_like(label_slice), ax=fig.gca())
         save_fig(fig, 'results/plots/qualitative', f'{patid}_slice{slice_num}', pdf=False)
 

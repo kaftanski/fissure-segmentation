@@ -51,7 +51,7 @@ class HessianEnhancementFilter(PatchBasedModule):
                                     torch.from_numpy(gaussian_kernel_1d(gaussian_smoothing_sigma)).float(),
                                     requires_grad=False))
 
-    def forward(self, img):
+    def forward(self, img, return_intermediate=False):
         # smooth image with gaussian kernel
         img_smooth = img
         for dim in range(len(img.shape)-2):
@@ -69,11 +69,21 @@ class HessianEnhancementFilter(PatchBasedModule):
 
         # compute the fissure enhanced image
         fissure_enhanced = fissure_filter(img.squeeze(), eigenvalues[..., 0], eigenvalues[..., 1], self.fissure_mu,
-                                          self.fissure_sigma, show=self.show).unsqueeze(0).unsqueeze(0)
+                                          self.fissure_sigma, show=self.show, return_intermediate=return_intermediate)
+        if return_intermediate:
+            P, hu_weights = fissure_enhanced[1:]
+            fissure_enhanced = fissure_enhanced[0]
+        else:
+            P = hu_weights = None
+
+        fissure_enhanced = fissure_enhanced.unsqueeze(0).unsqueeze(0)
         if torch.any(torch.isnan(fissure_enhanced)) or torch.any(torch.isinf(fissure_enhanced)):
             warnings.warn('NaN or inf value in fissure enhancement image')
 
-        return fissure_enhanced
+        if not return_intermediate:
+            return fissure_enhanced
+        else:
+            return fissure_enhanced, P, hu_weights
 
     def compute_hessian_matrix(self, img):
         H = torch.zeros(*img.squeeze().shape, 3, 3, device=img.device)
@@ -152,7 +162,7 @@ def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissur
     return fissures_enhanced.squeeze()
 
 
-def fissure_filter(img, hessian_lambda1, hessian_lambda2, fissure_mu, fissure_sigma, show=False):
+def fissure_filter(img, hessian_lambda1, hessian_lambda2, fissure_mu, fissure_sigma, show=False, return_intermediate=False):
     backend = torch if isinstance(hessian_lambda1, torch.Tensor) else np
     # compute planeness value
     P = backend.zeros_like(hessian_lambda1)
@@ -180,7 +190,10 @@ def fissure_filter(img, hessian_lambda1, hessian_lambda2, fissure_mu, fissure_si
         plot_slice(maybe_to_cpu(F[None, None]), s=F.shape[dim]//2, dim=dim, title='fissure-ness')
         plot_slice(maybe_to_cpu(hu_weights[None, None]), s=hu_weights.shape[dim] // 2, dim=dim, title='HU weights')
 
-    return F
+    if not return_intermediate:
+        return F
+    else:
+        return F, P, hu_weights
 
 
 def hessian_based_enhancement(img: np.ndarray, fissure_mu: float, fissure_sigma: float, show=False):
