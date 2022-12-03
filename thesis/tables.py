@@ -189,11 +189,11 @@ def bar_plot(model):
         feat_modes = FEATURE_MODES + ['cnn']
         tables = get_all_tables(model)
         index = np.arange(len(tables.keys()))
-        group_width = 0.7
+        group_width = 0.75
         bar_width = group_width / len(feat_modes)
         cmap = mpl.cm.get_cmap('tab10')
         colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
-        fig = plt.figure(figsize=textwidth_to_figsize(0.7, 3/5))
+        fig = plt.figure(figsize=textwidth_to_figsize(0.5, 3/4))
 
         for i, kp in zip(index, tables.keys()):
             group = tables[kp]
@@ -316,7 +316,7 @@ if __name__ == '__main__':
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
-    # bar_plot('DGCNN_seg')
+    bar_plot('DGCNN_seg')
     # bar_plot('DSEGAE_reg_aug_1024')
     # seg_table('DGCNN', 'image')
-    model_comparison()
+    # model_comparison()
