@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
@@ -8,7 +9,8 @@ from pytorch3d.structures import Meshes
 from cli.cl_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR
-from data import PointDataset, load_split_file, save_split_file
+from data import PointDataset, load_split_file, save_split_file, ImageDataset
+from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet
@@ -19,6 +21,7 @@ from utils.image_ops import load_image_metadata
 from utils.general_utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd, \
     get_device, no_print
 from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis
+import SimpleITK as sitk
 
 
 def farthest_point_sampling(kpts, num_points):
@@ -120,6 +123,10 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     output_is_mesh = model.ae.decoder.decode_mesh
 
+    if output_is_mesh:
+        image_ds = ImageDataset(ds.image_folder, do_augmentation=False)
+        label_dir = new_dir(out_dir, 'test_predictions', 'label_maps')
+
     # pred_dir = new_dir(out_dir, 'test_predictions')
     plot_dir = new_dir(out_dir, 'plots')
 
@@ -156,6 +163,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
         with torch.no_grad():
             reconstruct_meshes, sampled_points_per_obj = model(x)
 
+        meshes_pred_o3d = []
         for cur_obj, reconstruct_obj in enumerate(reconstruct_meshes):
             if reconstruct_obj is None:
                 all_mean_assd[i, cur_obj] = float('NaN')
@@ -179,7 +187,9 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
             # compute surface distance
             if output_is_mesh:
-                mean, std, hd, hd95 = assd(pt3d_to_o3d_meshes(reconstruct_obj)[0], ds.meshes[i][cur_obj])
+                reconstruct_obj_o3d = pt3d_to_o3d_meshes(reconstruct_obj)[0]
+                meshes_pred_o3d.append(reconstruct_obj_o3d)
+                mean, std, hd, hd95 = assd(reconstruct_obj_o3d, ds.meshes[i][cur_obj])
             else:
                 mean, std, hd, hd95 = pseudo_symmetric_point_to_mesh_distance(reconstruct_obj.cpu(), ds.meshes[i][cur_obj])
             all_mean_assd[i, cur_obj] = mean
@@ -207,6 +217,14 @@ def test(ds: PointToMeshDS, device, out_dir, show):
                 plt.show()
             else:
                 plt.close(fig)
+
+        if output_is_mesh:
+            # voxelize meshes to label maps
+            case, sequence = ds.ids[i]
+            label_map_predict = o3d_mesh_to_labelmap(meshes_pred_o3d, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])
+            label_image_predict = sitk.GetImageFromArray(label_map_predict.numpy().astype(np.uint8))
+            label_image_predict.CopyInformation(image_ds.get_lung_mask(image_ds.get_index(case, sequence)))
+            sitk.WriteImage(label_image_predict, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
 
     # compute average metrics
     mean_assd = all_mean_assd.nanmean(0)
