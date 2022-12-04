@@ -22,12 +22,11 @@ def create_image_figure(img):
 
 def slice_image(img_3d, slice_num, slice_dim):
     index = [slice(None)] * slice_dim + [slice(slice_num, slice_num + 1)]
-    return img_3d[index].squeeze()
+    return img_3d[index].squeeze(), index
 
 
-def fissure_window_level_and_mask(img: np.ndarray, mask: np.ndarray):
+def fissure_window_level_and_mask(img: np.ndarray, mask: np.ndarray, high=-600):
     low = -1024
-    high = -600
     img[img < low] = low
     img[img > high] = high
     img[mask == 0] = high + 1
@@ -126,12 +125,12 @@ def kp_comparison_figure(patid='s0070', ae=False):
     img_windowed, fold = get_image_and_fold(patid)
     result_folders = {model: os.path.join(folder, f'fold{fold}', 'test_predictions', 'labelmaps') for model, folder in model_folders.items()}
 
-    target = sitk.ReadImage(os.path.join(result_folders['cnn'], f'{patid}_fissures_targ_fixed.nii.gz'))
+    target = sitk.ReadImage(os.path.join(result_folders['cnn'].replace(model, 'DGCNN_seg'), f'{patid}_fissures_targ_fixed.nii.gz'))
     label_maps = {model: sitk.ReadImage(os.path.join(path, f'{patid}_fissures_pred_fixed.nii.gz')) for model, path in result_folders.items()}
     label_maps['ground-truth'] = target
 
     for kp in label_maps.keys():
-        model_name = f'DGCNN_seg_{kp}_image' if kp != 'ground-truth' else 'ground-truth'
+        model_name = f'{model}_{kp}_image' if kp != 'ground-truth' else 'ground-truth'
         multi_class_overlay(img_windowed, label_maps[kp], slice_dim=2, model_name=model_name, patid=patid)
 
 
@@ -161,4 +160,4 @@ def comparative_figures(patid='s0070'):
 
 if __name__ == '__main__':
     # comparative_figures()
-    kp_comparison_figure()
+    kp_comparison_figure(ae=True)
