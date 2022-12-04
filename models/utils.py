@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from thop import profile, clever_format
 
 
 def count_parameters(model):
@@ -12,3 +13,8 @@ def init_weights(m):
         nn.init.xavier_normal_(m.weight)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)
+
+
+def params_flops(model, inputs):
+    flops, params = profile(model, (inputs, ))
+    clever_format([flops, params], "%.3f")
