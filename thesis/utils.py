@@ -1,4 +1,8 @@
+import csv
 import os.path
+
+import torch
+from thop import profile, clever_format
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -8,6 +12,19 @@ TEXT_WIDTH_INCH = 6.22404097223
 
 
 plt.style.use('seaborn-paper')
+
+
+def param_and_op_count(model, input_shape, out_dir=None):
+    input = torch.zeros(input_shape)
+    macs, params = profile(model, (input, ))
+    if out_dir is not None:
+        with open(os.path.join(out_dir, 'op_count.csv'), 'w') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(['Parameters', 'FLOPs'])
+            writer.writerow([params, macs])
+    macs, params = clever_format([macs, params], "%.3f")
+    print(macs, params)
+    return macs, params
 
 
 def save_fig(fig, outdir, basename_without_extension, dpi=300, show=True, pdf=True, padding=False):

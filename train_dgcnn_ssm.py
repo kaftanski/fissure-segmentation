@@ -13,6 +13,7 @@ from losses.dgssm_loss import corresponding_point_distance, DGSSMLoss
 from models.dg_ssm import DGSSM
 from shape_model.qualitative_evaluation import mode_plot
 from shape_model.ssm import vector2shape
+from thesis.utils import param_and_op_count
 from train import run, write_results, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import no_print, get_device
@@ -201,6 +202,8 @@ if __name__ == '__main__':
                   spatial_transformer=args.transformer, dynamic=not args.static,
                   ssm_alpha=args.alpha, ssm_targ_var=args.target_variance, lssm=args.lssm,
                   predict_affine_params=args.predict_affine, only_affine=args.only_affine)
+
+    # param_and_op_count(DGSSM.load(args.output+'/fold0/model.pth', 'cpu'), (1, *ds[0][0].shape), out_dir=args.output)
 
     if not args.predict_affine:
         # set the loss weight for affine params to zero

@@ -13,6 +13,7 @@ from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
+from thesis.utils import param_and_op_count
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
@@ -212,6 +213,8 @@ if __name__ == '__main__':
     # load the desired model
     model_class = get_model_class(args)
     model = model_class(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
+
+    param_and_op_count(model, (1, 1, *ds[0][0].shape), out_dir=args.output)
 
     # save setup
     if not args.test_only:

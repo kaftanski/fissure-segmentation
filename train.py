@@ -20,6 +20,7 @@ from losses.dgssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.dgcnn import DGCNNSeg
 from models.point_net import PointNetSeg
+from thesis.utils import param_and_op_count
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
@@ -615,6 +616,8 @@ if __name__ == '__main__':
     model_class = get_point_seg_model_class(args)
     net = model_class(in_features=in_features, num_classes=ds.num_classes, k=args.k,
                       spatial_transformer=args.transformer, dynamic=not args.static)
+
+    param_and_op_count(net, (1, *ds[0][0].shape), out_dir=args.output)
 
     if not args.test_only:
         store_args(args=args, out_dir=args.output)

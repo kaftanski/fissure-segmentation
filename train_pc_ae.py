@@ -14,6 +14,7 @@ from constants import IMG_DIR, IMG_DIR_TS
 from data import CustomDataset
 from metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
+from thesis.utils import param_and_op_count
 from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.image_ops import load_image_metadata
@@ -276,6 +277,8 @@ if __name__ == '__main__':
 
     model = DGCNNFoldingNet(k=args.k, n_embedding=args.latent, shape_type=args.shape, decode_mesh=args.mesh,
                             deform=args.deform)
+
+    param_and_op_count(model, (ds.num_objects, *ds[0][0].shape), out_dir=args.output)
 
     # store config
     if not args.test_only:
