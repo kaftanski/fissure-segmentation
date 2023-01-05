@@ -191,6 +191,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
     test_hd = torch.zeros_like(test_assd)
     test_hd95 = torch.zeros_like(test_assd)
     test_missing_percent = torch.zeros_like(test_assd)
+    all_times = []
     for fold in range(n_folds):
         fold_dir = os.path.join(result_dir, f'fold_{fold}')
         files = sorted(glob(os.path.join(fold_dir, 'validation_raw_postprocessed', '*.nii.gz')))
@@ -219,7 +220,8 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
                 labelmap_predict, _ = lobes_to_fissures(labelmap_predict, mask=ds.get_lung_mask(img_index))
 
             if mode == 'surface':
-                _, predicted_meshes = poisson_reconstruction(labelmap_predict, ds.get_lung_mask(img_index))
+                _, predicted_meshes, times = poisson_reconstruction(labelmap_predict, ds.get_lung_mask(img_index), return_times=True)
+                all_times.append(torch.tensor(times))
                 # TODO: compare Poisson to Marching Cubes mesh generation
                 for i, m in enumerate(predicted_meshes):
                     # save reconstructed mesh
@@ -240,6 +242,8 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
                 # img = sitk.GetImageFromArray(fissure_skeleton.numpy().astype(np.uint8))
                 # img.CopyInformation(fissures_predict)
                 # sitk.WriteImage(img, f'./results/nnunet_pred_skeletonized_{case}_{sequence}.nii.gz')
+
+            print(f'Current mean time per fissure: {torch.stack(all_times).sum(1).mean():4f}s +- {torch.stack(all_times).sum(1).std():4f}s')
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
@@ -281,12 +285,13 @@ if __name__ == '__main__':
     n_fissures = 3
 
     data_dir = '../TotalSegmentator/ThoraxCrop'
-    evaluate_voxel2mesh(data_dir, show=False)
 
-    # nnu_task = "Task503_FissuresTotalSeg"
-    # nnu_trainer = "nnUNetTrainerV2_200ep"
-    # nnu_result_dir = f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
-    # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
+    # evaluate_voxel2mesh(data_dir, show=False)
+
+    nnu_task = "Task503_FissuresTotalSeg"
+    nnu_trainer = "nnUNetTrainerV2_200ep"
+    nnu_result_dir = f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
+    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
     # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
 
     # lobes_nnunet = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task502_LobesCOPDEMPIRE/nnUNetTrainerV2_200ep__nnUNetPlansv2.1'
