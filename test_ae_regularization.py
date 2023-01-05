@@ -13,7 +13,7 @@ from data import PointDataset, load_split_file, save_split_file, ImageDataset
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
-from models.folding_net import DGCNNFoldingNet
+from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
 from train import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
@@ -125,7 +125,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     if output_is_mesh:
         image_ds = ImageDataset(ds.image_folder, do_augmentation=False)
-        label_dir = new_dir(out_dir, 'test_predictions', 'label_maps')
+        label_dir = new_dir(out_dir, 'test_predictions', 'labelmaps')
 
     # pred_dir = new_dir(out_dir, 'test_predictions')
     plot_dir = new_dir(out_dir, 'plots')
@@ -150,6 +150,10 @@ def test(ds: PointToMeshDS, device, out_dir, show):
         plt.show()
     else:
         plt.close(fig)
+
+    if isinstance(model.ae.decoder, FoldingDecoder):
+        # show only the points from now on
+        color_values = color_2d_points_bremm(folding_points[:, :2])
 
     chamfer_dists = torch.zeros(len(ds.ids), ds.num_classes - 1)
     all_mean_assd = torch.zeros_like(chamfer_dists)
@@ -199,16 +203,20 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
             # visualize reconstruction
             fig = plt.figure()
-            if output_is_mesh:
+            if output_is_mesh and not isinstance(model.ae.decoder, FoldingDecoder):
                 ax1 = fig.add_subplot(111, projection='3d')
                 # point_cloud_on_axis(ax1, input_coords.cpu(), 'b', label='input', alpha=0.3)
                 point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'k', label='segmented points', alpha=0.3)
                 trimesh_on_axis(ax1, reconstruct_obj.verts_padded().cpu().squeeze(), faces, facecolors=color_values, alpha=0.7, label='reconstruction')
             else:
+                if isinstance(model.ae.decoder, FoldingDecoder):
+                    points = reconstruct_obj.verts_padded().cpu().squeeze()
+                else:
+                    points = reconstruct_obj.cpu()
                 ax1 = fig.add_subplot(121, projection='3d')
                 ax2 = fig.add_subplot(122, projection='3d')
                 point_cloud_on_axis(ax1, input_coords.cpu(), 'k', title='input')
-                point_cloud_on_axis(ax2, reconstruct_obj.cpu(), color_values, title='reconstruction')
+                point_cloud_on_axis(ax2, points, color_values, title='reconstruction')
 
             fig.savefig(os.path.join(plot_dir,
                                      f'{"_".join(ds.ids[i])}_{"fissure" if not ds.lobes else "lobe"}{cur_obj+1}_reconstruction.png'),
