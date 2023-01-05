@@ -184,37 +184,114 @@ def seg_table(model='DGCNN_seg', only_one_feature: str=None):
     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
 
-def bar_plot(model):
+def bar_plot(model, presentation=False):
+    tables = get_all_tables(model)
+
     for metric in ['ASSD', 'SDSD', 'HD']:
-        feat_modes = FEATURE_MODES + ['cnn']
-        tables = get_all_tables(model)
-        index = np.arange(len(tables.keys()))
-        group_width = 0.75
-        bar_width = group_width / len(feat_modes)
+
         cmap = mpl.cm.get_cmap('tab10')
-        colors = {feat: cmap(i/10) for i, feat in enumerate(feat_modes)}
-        fig = plt.figure(figsize=textwidth_to_figsize(0.5, 3/4))
+        if not presentation:
+            feat_modes = FEATURE_MODES + ['cnn']
+            colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
+            group_width = 0.75
+        else:
+            plt.style.use("seaborn-talk")
+            feat_modes = ['image', 'nofeat']
+            colors = {'image': cmap.colors[2], 'nofeat': 'gray'}
+            group_width = 0.8
+
+        index = np.arange(len(tables.keys()))
+        bar_width = group_width / len(feat_modes)
+        fig = plt.figure(figsize=textwidth_to_figsize(0.5, 3/4, presentation))
 
         for i, kp in zip(index, tables.keys()):
             group = tables[kp]
-            x = np.linspace(i - bar_width*len(group)/2, i + bar_width*len(group)/2, num=len(group))
-            for j, feat in zip(x, group.keys()):
+            cur_feat = list(group.keys())
+            cur_feat = [f for f in cur_feat if f in feat_modes]
+            x = np.linspace(i - group_width/2 + bar_width/2, i + group_width/2 - bar_width/2, num=len(cur_feat))
+            for j, feat in zip(x, cur_feat):
                 if len(tables[kp][feat]) <= 1:
                     continue
-                plt.bar(j, height=tables[kp][feat][f'{metric}_mean']['mean'], width=bar_width,
-                        yerr=tables[kp][feat][f'{metric}_std']['mean'], color=colors[feat])
+
+                value = tables[kp][feat][f'{metric}_mean']['mean']
+                if not presentation:
+                    # error bar
+                    bar_kwargs = {'yerr': tables[kp][feat][f'{metric}_std']['mean']}
+                else:
+                    # no error bar
+                    bar_kwargs = {}
+                bar = plt.bar(j, height=value, width=bar_width*0.9, color=colors[feat], **bar_kwargs)
+
+                if presentation:
+                    # show value
+                    plt.bar_label(bar)
 
         plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
         plt.ylabel(f'mean {metric} [mm]')
-        save_fig(fig, 'results/plots', f'{model}_{metric}')
+        save_fig(fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}', pdf=not presentation)
 
-        legend_figure = plt.figure(figsize=textwidth_to_figsize(0.2, 1/2))
+        legend_figure = plt.figure(figsize=textwidth_to_figsize(0.1 if presentation else 0.2, 1/2, presentation))
         legend_figure.legend(handles=[Patch(
-                             facecolor=colors[feat],
-                             label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
+            facecolor=colors[feat],
+            label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
             loc='center'
         )
-        save_fig(legend_figure, 'results/plots', f'{model}_legend')
+        save_fig(legend_figure, 'results/plots', f'{model}_{"presentation_" if presentation else ""}legend', pdf=not presentation)
+
+
+def bar_plot_pointnet_vs_dgcnn(presentation=False):
+    dgcnn_tables = get_all_tables('DGCNN_seg')
+    pointnet_tables = get_all_tables('PointNet_seg')
+    feature = 'image'
+    tables = {kp: {'DGCNN': dgcnn_tables[kp][feature], 'PointNet': pointnet_tables[kp][feature]} for kp in dgcnn_tables.keys()}
+
+    for metric in ['ASSD', 'SDSD', 'HD']:
+
+        cmap = mpl.cm.get_cmap('tab10')
+        if not presentation:
+            group_width = 0.75
+        else:
+            plt.style.use("seaborn-talk")
+            group_width = 0.8
+
+        models = ['DGCNN', 'PointNet']
+        colors = {'DGCNN': cmap.colors[2], 'PointNet': cmap.colors[0]}
+
+        index = np.arange(len(tables.keys()))
+        bar_width = group_width / len(models)
+        fig = plt.figure(figsize=textwidth_to_figsize(0.5, 3 / 4, presentation))
+
+        for i, kp in zip(index, tables.keys()):
+            group = tables[kp]
+            cur_feat = list(group.keys())
+            cur_feat = [f for f in cur_feat if f in models]
+            x = np.linspace(i - group_width / 2 + bar_width / 2, i + group_width / 2 - bar_width / 2, num=len(cur_feat))
+            for j, feat in zip(x, cur_feat):
+                if len(tables[kp][feat]) <= 1:
+                    continue
+
+                value = tables[kp][feat][f'{metric}_mean']['mean']
+                if not presentation:
+                    # error bar
+                    bar_kwargs = {'yerr': tables[kp][feat][f'{metric}_std']['mean']}
+                else:
+                    # no error bar
+                    bar_kwargs = {}
+                bar = plt.bar(j, height=value, width=bar_width * 0.9, color=colors[feat], **bar_kwargs)
+
+                if presentation:
+                    # show value
+                    plt.bar_label(bar)
+
+        plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
+        plt.ylabel(f'mean {metric} [mm]')
+        save_fig(fig, 'results/plots', f'DGCNNvPointNet_{metric}{"_presentation" if presentation else ""}',
+                 pdf=not presentation)
+
+        legend_figure = plt.figure(figsize=textwidth_to_figsize(0.1 if presentation else 0.2, 1 / 2, presentation))
+        legend_figure.legend(handles=[Patch(facecolor=colors[model], label=model) for model in models], loc='center')
+        save_fig(legend_figure, 'results/plots', f'DGCNNvPointNet_{"presentation_" if presentation else ""}legend',
+                 pdf=not presentation)
 
 
 def comparative_bar_plot(tables_per_model, colors=None):
@@ -316,7 +393,8 @@ if __name__ == '__main__':
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
-    bar_plot('DGCNN_seg')
-    # bar_plot('DSEGAE_reg_aug_1024')
+    bar_plot('DGCNN_seg', presentation=True)
+    bar_plot('DSEGAE_reg_aug_1024', presentation=True)
+    bar_plot_pointnet_vs_dgcnn(presentation=True)
     # seg_table('DGCNN', 'image')
     # model_comparison()

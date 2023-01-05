@@ -37,8 +37,8 @@ def plot_keypoints(image, mode, patid, slice_num, slice_dim=1, spacing=1.5, crop
     ax = fig.gca()
     ax.set_axis_off()
     ax.imshow(img_slice, cmap='gray')
-    ax.scatter(pts_slice[:, pts_index[0]], pts_slice[:, pts_index[1]], marker='+', s=150, c='orangered', linewidths=2)
-    save_fig(fig, result_folder, f'{mode}_keypoints_{patid}_slice{slice_num}', pdf=False)
+    ax.scatter(pts_slice[:, pts_index[0]], pts_slice[:, pts_index[1]], marker='+', s=300, c='orangered', linewidths=3)
+    save_fig(fig, result_folder, f'{mode}_keypoints_{patid}_slice{slice_num}_largemarker', pdf=False)
 
     fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
     ax = fig.gca()

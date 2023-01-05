@@ -9,7 +9,7 @@ from matplotlib.patches import Patch
 
 TEXT_WIDTH_INCH = 6.22404097223
 # default pyplot figure size w=6.4, h=4.8
-
+SLIDE_WIDTH_INCH = 13.3334646  # default wide screen power point slide
 
 plt.style.use('seaborn-paper')
 
@@ -45,7 +45,7 @@ def legend_figure(labels, colors, outdir, basename):
     save_fig(legend_figure, outdir, basename, show=False)
 
 
-def textwidth_to_figsize(w_frac, aspect=2/3):
-    w = w_frac * TEXT_WIDTH_INCH
+def textwidth_to_figsize(w_frac, aspect=2/3, presentation=False):
+    w = w_frac * (TEXT_WIDTH_INCH if not presentation else SLIDE_WIDTH_INCH)
     h = w * aspect
     return w, h
