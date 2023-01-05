@@ -81,7 +81,7 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     return poisson_mesh
 
 
-def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
+def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=False):
     print('Performing surface fitting via Poisson Reconstruction')
     # transforming labelmap to unit spacing
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
@@ -92,6 +92,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
 
     # fit plane to each separate fissure
     labels = fissures_tensor.unique()[1:]
+    times = []
     for f in labels:
         print(f'Fitting fissure {f} ...')
         # extract the current fissure and construct independent image
@@ -107,6 +108,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
 
         # extract point cloud from thinned fissures
         fissure_points = mask_to_points(label_tensor, spacing)
+        times.append(time.time() - start)
         print(f'\tTook {time.time() - start:.4f} s')
 
         # compute the mesh
@@ -119,6 +121,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
         remove_all_but_biggest_component(poisson_mesh, right=right,
                                          center_x=(fissures.GetSize()[0] * fissures.GetSpacing()[0]) / 2)
         fissure_meshes.append(poisson_mesh)
+        times[-1] += time.time() - start
         print(f'\tTook {time.time() - start:.4f} s')
 
     # convert mesh to labelmap by sampling points
@@ -128,7 +131,10 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image):
     regularized_fissures.CopyInformation(fissures)
 
     print('DONE\n')
-    return regularized_fissures, fissure_meshes
+    if return_times:
+        return regularized_fissures, fissure_meshes, times
+    else:
+        return regularized_fissures, fissure_meshes
 
 
 def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spacing: Tuple[float], n_samples=10**7) -> torch.Tensor:
