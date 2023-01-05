@@ -16,4 +16,4 @@ FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement', 'cnn']
 
 CORR_FISSURE_LABEL_DEFAULT_TS = "/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/fissure-segmentation/results/corresponding_points_ts/fissures/simple/labels.npz"
 CLASSES = {1: 'LOF', 2: 'ROF', 3: 'RHF'}
-CLASS_COLORS = ('r', matplotlib.cm.get_cmap('Set1').colors[2], 'b')
+CLASS_COLORS = ('r', matplotlib.cm.get_cmap('Set1').colors[2], 'dodgerblue')

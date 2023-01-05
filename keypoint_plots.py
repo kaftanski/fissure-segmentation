@@ -40,6 +40,12 @@ def plot_keypoints(image, mode, patid, slice_num, slice_dim=1, spacing=1.5, crop
     ax.scatter(pts_slice[:, pts_index[0]], pts_slice[:, pts_index[1]], marker='+', s=150, c='orangered', linewidths=2)
     save_fig(fig, result_folder, f'{mode}_keypoints_{patid}_slice{slice_num}', pdf=False)
 
+    fig = plt.figure(figsize=textwidth_to_figsize(2, aspect=img_slice.shape[0] / img_slice.shape[1]))
+    ax = fig.gca()
+    ax.set_axis_off()
+    ax.imshow(img_slice, cmap='gray')
+    save_fig(fig, result_folder, f'{patid}_slice{slice_num}', pdf=False)
+
 
 def plot_all(patid='s0070'):
     ds = ImageDataset(IMG_DIR_TS)
@@ -127,6 +133,6 @@ def plot_enhancement(patid='s0070'):
 
 if __name__ == '__main__':
     KP_MODES.remove('noisy')
-    # plot_all()
-    # plot_enhancement()
-    plot_bad_example_enhancement()
+    plot_all()
+    # # plot_enhancement()
+    # plot_bad_example_enhancement()

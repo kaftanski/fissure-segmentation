@@ -159,5 +159,5 @@ def comparative_figures(patid='s0070'):
 
 
 if __name__ == '__main__':
-    # comparative_figures()
     kp_comparison_figure(ae=True)
+    comparative_figures()
