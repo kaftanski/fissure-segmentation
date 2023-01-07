@@ -191,13 +191,18 @@ def bar_plot(model, presentation=False):
 
         cmap = mpl.cm.get_cmap('tab10')
         if not presentation:
+            use_ssc = False  # unused in this application
             feat_modes = FEATURE_MODES + ['cnn']
             colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
             group_width = 0.75
         else:
+            use_ssc = True
             plt.style.use("seaborn-talk")
             feat_modes = ['image', 'nofeat']
             colors = {'image': cmap.colors[2], 'nofeat': 'gray'}
+            if use_ssc:
+                feat_modes.insert(1, 'mind_ssc')
+                colors['mind_ssc'] = cmap.colors[1]
             group_width = 0.8
 
         index = np.arange(len(tables.keys()))
@@ -228,7 +233,7 @@ def bar_plot(model, presentation=False):
 
         plt.xticks(index, labels=[kp.replace('oe', 'ö').replace('enhancement', 'hessian') for kp in tables.keys()])
         plt.ylabel(f'mean {metric} [mm]')
-        save_fig(fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}', pdf=not presentation)
+        save_fig(fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}{"_with_ssc" if use_ssc else ""}', pdf=not presentation)
 
         legend_figure = plt.figure(figsize=textwidth_to_figsize(0.1 if presentation else 0.2, 1/2, presentation))
         legend_figure.legend(handles=[Patch(
@@ -236,7 +241,7 @@ def bar_plot(model, presentation=False):
             label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
             loc='center'
         )
-        save_fig(legend_figure, 'results/plots', f'{model}_{"presentation_" if presentation else ""}legend', pdf=not presentation)
+        save_fig(legend_figure, 'results/plots', f'{model}_{"presentation_" if presentation else ""}legend{"_with_ssc" if use_ssc else ""}', pdf=not presentation)
 
 
 def bar_plot_pointnet_vs_dgcnn(presentation=False):

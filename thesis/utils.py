@@ -32,7 +32,17 @@ def save_fig(fig, outdir, basename_without_extension, dpi=300, show=True, pdf=Tr
         os.makedirs(outdir, exist_ok=True)
     extension = '.png' if not pdf else '.pdf'
     path = os.path.join(outdir, basename_without_extension + extension)
-    fig.savefig(path, bbox_inches='tight', dpi=dpi, **{} if padding else {'pad_inches': 0})
+
+    if padding:
+        pad_inches = 0.1
+    else:
+        if not pdf:
+            # need a little padding for pngs
+            pad_inches = 0.02
+        else:
+            pad_inches = 0
+
+    fig.savefig(path, bbox_inches='tight', dpi=dpi, pad_inches=pad_inches)
     if show:
         plt.show()
     else:
