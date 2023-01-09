@@ -1,8 +1,10 @@
 import glob
 import os
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
 
 from losses.dgssm_loss import corresponding_point_distance
 from shape_model.ssm import SSM, load_shape
@@ -85,7 +87,7 @@ def latent_interpolation(shape_from: torch.Tensor, shape_to: torch.Tensor, model
 def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None, show=True):
     device = ssm.eigenvalues.device
 
-    fig = plt.figure(figsize=(3*plots_per_mode, 5*modes_to_plot))
+    fig = plt.figure(figsize=(5*plots_per_mode, 3*modes_to_plot))
     for mode in range(modes_to_plot):
         coeff_range = torch.linspace(-ssm.alpha, ssm.alpha, steps=plots_per_mode, device=device) * ssm.eigenvalues[0, mode].sqrt()
         for plot in range(plots_per_mode+1):
@@ -99,16 +101,25 @@ def mode_plot(ssm: SSM, modes_to_plot=3, plots_per_mode=5, savepath=None, show=T
                 coefficients = torch.zeros(1, ssm.num_modes, device=device)
                 coefficients[0, mode] = coeff_range[plot-1]
                 shape = ssm.decode(coefficients).squeeze()
-                point_cloud_on_axis(ax, shape, c='r', cmap=None)
+                point_cloud_on_axis(ax, shape, c=np.concatenate([np.full(1024, c) for c in range(len(shape)//1024)]),
+                                    cmap=ListedColormap(['r', 'g', 'b']))
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                ax.set_zticklabels([])
+                ax.set_xlabel(None)
+                ax.set_ylabel(None)
+                ax.set_zlabel(None)
 
             if mode == 0:
                 if plot == 1:
                     ax.set_title('$-\\alpha\sqrt{\lambda_i}$')
                 if plot == plots_per_mode:
                     ax.set_title('$\\alpha\sqrt{\lambda_i}$')
+                if plot == plots_per_mode // 2 + 1:
+                    ax.set_title('Mean Shape')
 
     if savepath is not None:
-        fig.savefig(savepath, bbox_inches='tight', dpi=300)
+        fig.savefig(savepath, bbox_inches='tight', dpi=300, pad_inches=0)
     if show:
         plt.show()
     else:
