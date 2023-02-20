@@ -18,10 +18,10 @@ from torch.utils.data import Dataset
 
 from augmentations import image_augmentation, point_augmentation, compose_transform
 from shape_model.ssm import load_shape
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
-    get_resample_factors, load_image_metadata
 from utils.general_utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
     decompose_similarity_transform
+from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
+    get_resample_factors, load_image_metadata
 
 IMG_MIN = -1000
 IMG_MAX = 1500
@@ -340,6 +340,16 @@ class ImageDataset(LungData, CustomDataset):
 
         return collate_fn
 
+    def get_class_weights(self):
+        frequency = torch.zeros(self.num_classes)
+        for i in range(len(self)):
+            f = self.get_regularized_fissures(i)
+            for c in range(self.num_classes):
+                frequency[c] += (sitk.GetArrayFromImage(f) == c).sum().item()
+
+        class_weights = compute_class_weights(frequency)
+        return class_weights
+
 
 def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
     return (img - min_val) / (max_val - min_val) * 2 - 1  # get inputs into range [-1, 1]
@@ -430,13 +440,8 @@ class PointDataset(CustomDataset):
         for lbl in self.labels:
             for c in range(self.num_classes):
                 frequency[c] += torch.sum(lbl == c)
-        frequency /= frequency.sum()
-        print(f'Label frequency in point data set: {frequency.tolist()}')
 
-        class_weights = 1 - frequency
-        class_weights *= self.num_classes
-        print(f'Class weights: {class_weights.tolist()}')
-
+        class_weights = compute_class_weights(frequency)
         return class_weights
 
     def get_full_pointcloud(self, i):
@@ -453,6 +458,17 @@ class PointDataset(CustomDataset):
 
     def get_coords(self, i):
         return self.points[i]
+
+
+def compute_class_weights(class_frequency):
+    class_frequency = class_frequency / class_frequency.sum()
+    print(f'Label frequency in point data set: {class_frequency.tolist()}')
+
+    class_weights = 1 - class_frequency
+    class_weights *= len(class_frequency)
+    print(f'Class weights: {class_weights.tolist()}')
+
+    return class_weights
 
 
 class CorrespondingPointDataset(PointDataset):
