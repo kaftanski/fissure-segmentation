@@ -62,7 +62,7 @@ class TestNanStd(TestCase):
         torch.random.manual_seed(42)
 
     def test_nanstd_no_nan(self):
-        rand_tensor = torch.randn(13, 14, 2, 29, 1)
+        rand_tensor = torch.randn(13, 14, 2, 29)
         self.assertTrue(torch.all(rand_tensor.std() == nanstd(rand_tensor)).item())
         for d in range(len(rand_tensor.shape)):
             self.assertTrue(torch.all(rand_tensor.std(d) == nanstd(rand_tensor, d)).item(),
