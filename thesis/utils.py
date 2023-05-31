@@ -9,7 +9,8 @@ from matplotlib.patches import Patch
 
 TEXT_WIDTH_INCH = 6.22404097223
 # default pyplot figure size w=6.4, h=4.8
-SLIDE_WIDTH_INCH = 13.3334646  # default wide screen power point slide
+SLIDE_WIDTH_INCH = 13.3334646  # default wide screen power point slide (16:9)
+SLIDE_HEIGHT_INCH = 7.5  # default 16:9 slide
 
 plt.style.use('seaborn-paper')
 
@@ -27,7 +28,7 @@ def param_and_op_count(model, input_shape, out_dir=None):
     return macs, params
 
 
-def save_fig(fig, outdir, basename_without_extension, dpi=300, show=True, pdf=True, padding=False):
+def save_fig(fig, outdir, basename_without_extension, dpi=300, show=True, pdf=True, padding=False, bbox_inches='tight'):
     if not os.path.isdir(outdir):
         os.makedirs(outdir, exist_ok=True)
     extension = '.png' if not pdf else '.pdf'
@@ -42,7 +43,7 @@ def save_fig(fig, outdir, basename_without_extension, dpi=300, show=True, pdf=Tr
         else:
             pad_inches = 0
 
-    fig.savefig(path, bbox_inches='tight', dpi=dpi, pad_inches=pad_inches)
+    fig.savefig(path, bbox_inches=bbox_inches, dpi=dpi, pad_inches=pad_inches)
     if show:
         plt.show()
     else:

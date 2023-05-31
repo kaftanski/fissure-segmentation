@@ -5,10 +5,12 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+import seaborn as sns
 
 from constants import KP_MODES, FEATURE_MODES
-from thesis.utils import save_fig, legend_figure, textwidth_to_figsize
+from thesis.utils import save_fig, legend_figure, textwidth_to_figsize, SLIDE_WIDTH_INCH, SLIDE_HEIGHT_INCH
 
 
 def csv_to_df(csv_result_file):
@@ -73,7 +75,7 @@ def pm_table(table):
     return table
 
 
-def get_all_tables(model='DGCNN_seg'):
+def get_all_tables(model='DGCNN_seg', cv=True):
     tables = {}
     for kp in KP_MODES:
         tables[kp] = {}
@@ -84,23 +86,42 @@ def get_all_tables(model='DGCNN_seg'):
             cur_feat = FEATURE_MODES
 
         for feat in cur_feat:
-            folder = os.path.join('results', f'{model}_{kp}_{feat}')
-            result_file = os.path.join(folder, 'cv_results.csv')
-            if os.path.isfile(result_file):
-                table = csv_to_df(result_file)
-                print(f"{kp}_{feat}")
-                table['Fissure'] = [1, 2, 3, 'mean']
+            folder = os.path.join('./results', f'{model}_{kp}_{feat}')
+            if cv:
+                # only take averaged cross-validation results
+                table = get_table_from_folder(feat, kp, folder, 'cv_results.csv')
             else:
-                table = pd.DataFrame(index=[0])
-                print(f'missing experiment {kp}_{feat}')
-                table['Fissure'] = None
+                # join values from all folds in the table
+                table = None
+                for f in range(5):
+                    fold_table = get_table_from_folder(feat, kp, os.path.join(folder, f'fold{f}'), 'test_results.csv')
+                    if table is None:
+                        table = pd.DataFrame(columns=fold_table.columns)
 
-            table['Keypoints'] = kp
-            table['Features'] = feat
+                    try:
+                        table.loc[f] = fold_table.loc['mean']
+                    except KeyError:
+                        # experiment is missing altogether
+                        table = fold_table
 
             tables[kp][feat] = table
 
     return tables
+
+
+def get_table_from_folder(feat, kp, folder, filename):
+    result_file = os.path.join(folder, filename)
+    if os.path.isfile(result_file):
+        table = csv_to_df(result_file)
+        print(f"{kp}_{feat}")
+        table['Fissure'] = [1, 2, 3, 'mean']
+    else:
+        table = pd.DataFrame(index=[0])
+        print(f'missing experiment {kp}_{feat}')
+        table['Fissure'] = None
+    table['Keypoints'] = kp
+    table['Features'] = feat
+    return table
 
 
 # def dgcnn_seg_table():
@@ -236,9 +257,8 @@ def bar_plot(model, presentation=False):
         save_fig(fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}{"_with_ssc" if use_ssc else ""}', pdf=not presentation)
 
         legend_figure = plt.figure(figsize=textwidth_to_figsize(0.1 if presentation else 0.2, 1/2, presentation))
-        legend_figure.legend(handles=[Patch(
-            facecolor=colors[feat],
-            label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
+        legend_figure.legend(handles=[Patch(facecolor=colors[feat],
+                  label=feat.capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND')) for feat in feat_modes],
             loc='center'
         )
         save_fig(legend_figure, 'results/plots', f'{model}_{"presentation_" if presentation else ""}legend{"_with_ssc" if use_ssc else ""}', pdf=not presentation)
@@ -331,6 +351,73 @@ def comparative_bar_plot(tables_per_model, colors=None):
                       outdir='results/plots', basename='comparison_legend')
 
 
+def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=True, add_nnu_value=True):
+    tables = get_all_tables(model, cv=False)
+    combined_table = pd.concat([tables[kp][feat] for kp in tables.keys() for feat in tables[kp].keys()])
+
+    # fix the index (need ascending integers)
+    combined_table = combined_table.set_index(np.arange(combined_table.shape[0]))
+
+    # fix the spelling
+    combined_table = combined_table.replace(FEATURE_MODES + ['cnn'], FEATURE_MODES_NORMALIZED + ['CNN'])
+    combined_table = combined_table.replace(KP_MODES, KP_MODES_NORMALIZED)
+    combined_table = combined_table.rename(columns={'ASSD_mean': 'ASSD', 'SDSD_mean': 'SDSD', 'HD_mean': 'HD'})
+
+    print(combined_table)
+
+    # plotting
+    cmap = mpl.cm.get_cmap('tab10')
+    if not presentation:
+        feat_modes = FEATURE_MODES_NORMALIZED + ['CNN']
+        colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
+    else:
+        plt.style.use("seaborn-talk")
+        feat_modes = ['Image', 'SSC', 'None']
+        colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[2], 'None': 'gray'}
+        combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
+
+    sns.set_theme()
+
+    print(combined_table)
+
+    for metric in ['ASSD', 'SDSD', 'HD']:
+        # swarm plot in categories
+        swarm_plot = sns.catplot(data=combined_table, x='Features', y=metric, col='Keypoints', hue='Features', kind='swarm', palette=colors,
+                           height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=False, legend='auto')
+
+        # overlay mean-lines by adding boxplots without their boxes
+        m_props = {'color': 'k', 'ls': '-', 'lw': 1.5}
+        swarm_plot.map_dataframe(sns.boxplot, data=combined_table, x='Features', y=metric, zorder=10,
+                                 showmeans=True, meanline=True,
+                                 meanprops={'visible': not use_median_instead_of_mean, **m_props},
+                                 medianprops={'visible': use_median_instead_of_mean, **m_props},
+                                 whiskerprops={'visible': False},
+                                 showfliers=False,
+                                 showbox=False,
+                                 showcaps=False,
+                                 labels=['mean'])
+
+        # add the nnu-net baseline value
+        if add_nnu_value:
+            nnu = nnunet_table('voxels', cv=True)
+            if use_median_instead_of_mean:
+                nnu_error_value = nnu[f'{metric}_mean'].median()
+            else:
+                nnu_error_value = nnu[f'{metric}_mean'].mean()
+            print(nnu_error_value)
+            swarm_plot.map(plt.axhline, y=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3])
+
+        swarm_plot.set_axis_labels(x_var='', y_var=f'mean {metric} [mm]')
+        handles, labels = swarm_plot.axes[-1][-1].get_legend_handles_labels()
+        handles = handles + [Line2D([],[],linestyle=''), Line2D([], [], color='k', lw=1.5, label='Mean' if not use_median_instead_of_mean else 'Median'),
+                             Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
+        swarm_plot.add_legend(title='Features:', handles=handles)
+        swarm_plot.set_titles('{col_name} KPs')
+
+        save_fig(swarm_plot.fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}_swarmplot{"_nnu" if add_nnu_value else ""}{"_median" if use_median_instead_of_mean else ""}', pdf=not presentation, bbox_inches='')
+    plt.show()
+
+
 def point_net_seg_table():
     seg_table('PointNet_seg', 'image')
 
@@ -339,17 +426,31 @@ def dgcnn_seg_table():
     seg_table('DGCNN_seg', None)
 
 
-def nnunet_table(mode='surface'):
+def nnunet_table(mode='surface', cv=False):
     assert mode in ['voxels', 'surface']
-    res_path = '../nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
-    file = f'cv_results_{mode}.csv'
-    table = csv_to_df(res_path + file)
-    table['Fissure'] = table.index
+    res_path = '../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
+
+    if not cv:
+        file = f'cv_results_{mode}.csv'
+        table = csv_to_df(res_path + file)
+        table['Fissure'] = table.index
+    else:
+        table = None
+        for f in range(5):
+            res_path_fold = os.path.join(res_path, f'fold_{f}', 'validation_mesh_reconstructions')
+            file = f'test_results_{mode}.csv'
+            fold_table = csv_to_df(os.path.join(res_path_fold, file))
+            fold_table['Fissure'] = fold_table.index
+            if table is None:
+                table = pd.DataFrame(columns=fold_table.columns)
+            table.loc[f] = fold_table.loc['mean']
+        print(table)
+
     return table
 
 
 def v2m_table():
-    res_path = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003/cv_results.csv'
+    res_path = '../voxel2mesh-master/resultsExperiment_003/cv_results.csv'
     table = csv_to_df(res_path)
     table['Fissure'] = table.index
     return table
@@ -390,16 +491,29 @@ def model_comparison():
     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
 
+def feat_mode_normalizer(feat):
+    return feat.lower().capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND').replace('Enhancement', 'Hessian')
+
+
+def kp_mode_normalizer(kp):
+    return kp.lower().replace('oe', 'ö').replace('enhancement', 'hessian').capitalize()
+
+
 if __name__ == '__main__':
     KP_MODES.remove('noisy')
+    KP_MODES_NORMALIZED = [kp_mode_normalizer(kp) for kp in KP_MODES]
+    print(KP_MODES, KP_MODES_NORMALIZED)
+
     FEATURE_MODES.remove('cnn')
     FEATURE_MODES = FEATURE_MODES + ['nofeat']
+    FEATURE_MODES_NORMALIZED = [feat_mode_normalizer(feat) for feat in FEATURE_MODES]
 
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
-    bar_plot('DGCNN_seg', presentation=True)
-    bar_plot('DSEGAE_reg_aug_1024', presentation=True)
-    bar_plot_pointnet_vs_dgcnn(presentation=True)
+    # bar_plot('DGCNN_seg', presentation=True)
+    # bar_plot('DSEGAE_reg_aug_1024', presentation=True)
+    # bar_plot_pointnet_vs_dgcnn(presentation=True)
     # seg_table('DGCNN', 'image')
     # model_comparison()
+    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
