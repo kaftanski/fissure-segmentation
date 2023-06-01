@@ -3,7 +3,7 @@ import os
 import matplotlib.cm
 
 KP_MODES = ['foerstner', 'noisy', 'enhancement', 'cnn']
-POINT_DIR = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data'
+POINT_DIR = '../point_data'
 POINT_DIR_TS = os.path.join(POINT_DIR, 'ts')
 
 IMG_DIR = '../data'

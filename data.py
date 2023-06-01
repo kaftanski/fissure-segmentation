@@ -17,6 +17,7 @@ from pytorch3d.transforms import so3_log_map, Transform3d
 from torch.utils.data import Dataset
 
 from augmentations import image_augmentation, point_augmentation, compose_transform
+from constants import POINT_DIR, IMG_DIR
 from shape_model.ssm import load_shape
 from utils.general_utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
     decompose_similarity_transform
@@ -357,8 +358,7 @@ def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
 
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode,
-                 folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/',
-                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data',
+                 folder=POINT_DIR, image_folder=IMG_DIR,
                  use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary)
@@ -472,10 +472,9 @@ def compute_class_weights(class_frequency):
 
 
 class CorrespondingPointDataset(PointDataset):
-    def __init__(self, sample_points, kp_mode, point_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/point_data/',
+    def __init__(self, sample_points, kp_mode, point_folder=POINT_DIR,
                  use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
-                 image_folder='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/data/',
-                 do_augmentation=True, undo_affine_reg=False):
+                 image_folder=IMG_DIR, do_augmentation=True, undo_affine_reg=False):
         super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, image_folder, use_coords,
                                                         patch_feat, exclude_rhf=True, do_augmentation=False)
         self.corr_points = CorrespondingPoints(corr_folder)
