@@ -31,6 +31,8 @@ def add_test_parameters(parser):
     group.add_argument('--fold', default=None, type=int,
                        help='specify if only one fold should be evaluated '
                             '(needs to be in range of folds in the split file)')
+    group.add_argument('--copd', const=True, default=False, nargs='?',
+                       help='validate model on COPD data set (disables cross-validation)')
 
 
 def add_data_parameters(parser):

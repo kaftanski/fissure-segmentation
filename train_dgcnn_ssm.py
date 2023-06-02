@@ -20,7 +20,7 @@ from utils.general_utils import no_print, get_device
 from visualization import point_cloud_on_axis
 
 
-def test(ds: CorrespondingPointDataset, device, out_dir, show):
+def test(ds: CorrespondingPointDataset, device, out_dir, show, args):
     model = DGSSM.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
@@ -117,7 +117,7 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show):
     dice_dummy = torch.zeros_like(mean_corr_pt_dist)
 
     # output file
-    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_corr_pt_dist,
+    write_results(os.path.join(out_dir, f'test_results{"_copd" if args.copd else ""}.csv'), dice_dummy, dice_dummy, mean_corr_pt_dist,
                   std_corr_pt_dist, mean_corr_pt_dist_sd, std_corr_pt_dist_sd, mean_corr_pt_dist_hd,
                   std_corr_pt_dist_hd, mean_corr_pt_dist_hd95, std_corr_pt_dist_hd95,
                   ssm_baseline_error=ssm_error_baseline.mean(0), ssm_baseline_error_std=ssm_error_baseline.std(0),
@@ -170,7 +170,10 @@ if __name__ == '__main__':
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     if args.data == 'lobes':
-        raise NotImplementedError()
+        raise NotImplementedError('DG-SSM not implemented for Lobe data')
+    elif args.copd:
+        raise NotImplementedError('COPD data validation is not yet implemented for DG-SSM')
+
     if args.binary:
         warnings.warn('--binary option has no effect when training the DG-SSM')
     if args.exclude_rhf:

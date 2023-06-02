@@ -359,7 +359,6 @@ def nanstd(tensor, dim: int=None):
         for index in itertools.product(*[range(s) for s in leftover_shape]):
             index_slice = list(index)
             index_slice.insert(dim, slice(None))
-            print(index_slice)
             indexed = tensor[index_slice]
             out[index] = indexed[~indexed.isnan()].std()
         return out

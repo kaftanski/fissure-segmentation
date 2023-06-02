@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from torch import nn
 
-from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES
+from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES, IMG_DIR, IMG_DIR_TS
 from data import LungData, normalize_img
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
@@ -209,21 +209,23 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
+    # run_detached_from_pycharm()
 
-    ts = True
+    device = 'cuda:3' if torch.cuda.is_available() else 'cpu'
+
+    ts = False
 
     if ts:
-        data_dir = '../TotalSegmentator/ThoraxCrop_v2'
+        data_dir = IMG_DIR_TS
         point_dir = POINT_DIR_TS
     else:
-        data_dir = '../data'
+        data_dir = IMG_DIR
         point_dir = POINT_DIR
 
     ds = LungData(data_dir)
 
     for kp_mode in KP_MODES:
-        if kp_mode == 'noisy' or kp_mode == 'cnn':
+        if kp_mode == 'noisy':
             continue
 
         out_dir = new_dir(point_dir, kp_mode)
@@ -239,4 +241,4 @@ if __name__ == '__main__':
                     print('\tNo fissure segmentation found.')
                     continue
 
-                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device='cuda:3')
+                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device=device)

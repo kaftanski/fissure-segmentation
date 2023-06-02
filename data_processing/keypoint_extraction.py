@@ -71,7 +71,11 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     cross_val_split = load_split_file(os.path.join(cv_dir, "cross_val_split.np.pkl"))
 
     # find the fold, where this image has been in the test-split
-    fold_nr = find_test_fold_for_id(case, sequence, cross_val_split)
+    try:  # for the case of cross-validated data, only use the model that has not seen the data
+        fold_nr = find_test_fold_for_id(case, sequence, cross_val_split)
+        folds_to_evaluate = [fold_nr]
+    except ValueError:  # otherwise ensemble all folds
+        folds_to_evaluate = [0]# TODO list(range(5))  # use all folds for an ensemble prediction
 
     if args.model == 'v1':
         model_class = MobileNetASPP
@@ -80,19 +84,22 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     else:
         raise NotImplementedError()
 
-    model = model_class.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
-    model.eval()
-    model.to(device)
-
+    # forward pass 3D-CNN
     img_index = ds.get_index(case, sequence)
     input_img = ds.get_batch_collate_fn()([ds[img_index]])[0].to(device)
-    with torch.no_grad():
-        softmax_pred = model.predict_all_patches(input_img)
+    softmax_pred = torch.zeros(1, ds.num_classes, *input_img.shape[2:], dtype=torch.float, device=device)
+    for fold_nr in folds_to_evaluate:
+        model = model_class.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
+        model.eval()
+        model.to(device)
 
-    # threshold the softmax scores
-    # fissure_points = torch.zeros(softmax_pred.shape[2:], device=device)
-    # for lbl in range(1, model.num_classes):  # TODO: take argmax?
-    #     fissure_points = torch.logical_or(fissure_points, softmax_pred[0, lbl] > softmax_threshold)
+        with torch.no_grad():
+            out = model.predict_all_patches(input_img)
+
+        # ensemble prediction like in nnu-net: average softmax scores (sum is enough here because of later argmax)
+        softmax_pred += out
+
+    # find predicted fissure points
     fissure_points = softmax_pred.argmax(1).squeeze() != 0
 
     # apply lung mask
@@ -219,9 +226,9 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
+    # run_detached_from_pycharm()
 
-    ts = True
+    ts = False
 
     if ts:
         data_dir = '../TotalSegmentator/ThoraxCrop_v2'
@@ -230,7 +237,7 @@ if __name__ == '__main__':
     else:
         data_dir = '../data'
         point_dir = POINT_DIR
-        cnn_dir = 'results/recall_loss'
+        cnn_dir = 'results/lraspp_recall_loss'
 
     ds = LungData(data_dir)
 
@@ -253,7 +260,7 @@ if __name__ == '__main__':
             lobes = ds.get_lobes(i)
             mask = ds.get_lung_mask(i)
 
-            if mode == 'foerstner' and np.prod(img.GetSize()) > 26.5 * 1e6:
+            if mode == 'foerstner' and np.prod(img.GetSize()) > 26.5 * 1e6 or not torch.cuda.is_available():
                 device = 'cpu'
             else:
                 device = 'cuda:0'

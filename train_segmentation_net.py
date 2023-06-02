@@ -30,10 +30,9 @@ def get_model_class(args):
         raise NotImplementedError()
 
 
-def test(ds: ImageDataset, device, out_dir, show):
+def test(ds: ImageDataset, device, out_dir, show, args):
     print('\nTESTING MODEL ...\n')
 
-    args = load_args(os.path.join(out_dir, '..'))  # go to cv-run level
     model_class = get_model_class(args)
 
     model = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)

@@ -359,7 +359,8 @@ def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode,
                  folder=POINT_DIR, image_folder=IMG_DIR,
-                 use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
+                 use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True,
+                 copd=False):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary)
 
@@ -381,8 +382,13 @@ class PointDataset(CustomDataset):
         self.points = []
         self.features = []
         self.labels = []
+        self.copd = copd
         for file in files:
             case, _, sequence = file.split('/')[-1].split('_')
+            if copd:
+                # ignore non-copd cases
+                if 'COPD' not in case:
+                    continue
             sequence = sequence.split('.')[0]
             pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, patch_feat)
             if lobes:

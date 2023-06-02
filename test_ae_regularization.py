@@ -116,7 +116,7 @@ class PointToMeshDS(PointDataset):
         return Meshes([self.unnormalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
 
 
-def test(ds: PointToMeshDS, device, out_dir, show):
+def test(ds: PointToMeshDS, device, out_dir, show, args):
     model = RegularizedSegDGCNN.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
@@ -251,7 +251,7 @@ def test(ds: PointToMeshDS, device, out_dir, show):
 
     percent_missing = all_mean_assd.isnan().float().mean(0) * 100
 
-    write_results(os.path.join(out_dir, 'test_results.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
+    write_results(os.path.join(out_dir, f'test_results{"_copd" if args.copd else ""}.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
     # print out results
@@ -308,6 +308,10 @@ def speed_test(ds: PointToMeshDS, device, out_dir):
 if __name__ == '__main__':
     parser = get_ae_reg_parser()
     args = parser.parse_args()
+
+    if args.copd:
+        raise NotImplementedError('COPD data validation is not yet implemented for DGCNN + PC-AE')
+
     maybe_run_detached_cli(args)
 
     dgcnn_args = load_args_for_testing(args.seg_dir, args)

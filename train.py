@@ -87,7 +87,7 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     hd95_surface_dist = torch.zeros_like(avg_surface_dist)
 
     for i, (all_parts_predictions, all_parts_targets) in enumerate(zip(meshes_predict, meshes_target)):
-        pred_points = []
+        pred_points = []  # if predictions is voxel-based, this will store the sampled point-cloud
         for j, targ_part in enumerate(all_parts_targets):
             try:
                 pred_part = all_parts_predictions[j]
@@ -148,13 +148,11 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
-def test(ds: PointDataset, device, out_dir, show):
+def test(ds: PointDataset, device, out_dir, show, args):
     print('\nTESTING MODEL ...\n')
-    # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
 
     img_ds = LungData(ds.image_folder)
 
-    args = load_args(os.path.join(out_dir, '..'))  # go to cv-run level
     model_class = get_point_seg_model_class(args)
 
     net = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
@@ -244,7 +242,7 @@ def test(ds: PointDataset, device, out_dir, show):
 
         # mesh fitting for each label
         meshes_predict = []
-        for j in range(len(meshes_target)):  # excluding background
+        for j in range(net.num_classes-1):  # excluding background
             label = j+1
             try:
                 if not ds.lobes:
@@ -313,7 +311,8 @@ def test(ds: PointDataset, device, out_dir, show):
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
 
     # output file
-    write_results(os.path.join(out_dir, 'test_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
+    write_results(os.path.join(out_dir, f'test_results{"_copd" if args.copd else ""}.csv'),
+                  mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
     return mean_dice, std_dice, mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
@@ -468,7 +467,12 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     train_times_min = []
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
-        train_ds, val_ds = ds.split_data_set(tr_val_fold)
+        if not args.copd:
+            train_ds, val_ds = ds.split_data_set(tr_val_fold)
+        else:
+            assert args.test_only
+            train_ds = None
+            val_ds = ds
 
         fold_dir = os.path.join(args.output, f'fold{fold}')
         if not args.test_only:
@@ -479,7 +483,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 
         if not args.train_only:
             mean_dice, _, mean_assd, _, mean_sdsd, _, mean_hd, _, mean_hd95, _, percent_missing = test_fn(
-                val_ds, device, fold_dir, args.show)
+                val_ds, device, fold_dir, args.show, args)
 
             if percent_missing is None:
                 percent_missing = torch.zeros_like(mean_assd)
@@ -532,7 +536,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     print(f'Mean dice per class: {mean_dice} +- {std_dice}')
 
     # output file
-    write_results(os.path.join(args.output, 'cv_results.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
+    write_results(os.path.join(args.output, f'cv_results{"_copd" if args.copd else ""}.csv'), mean_dice, std_dice, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, test_missing.mean(0),
                   mean_train_time_in_min=train_times_min.mean(), stddev_train_time_in_min=train_times_min.std())
 
@@ -563,8 +567,12 @@ def run(ds, model, test_fn, args):
         else:
             # test with the specified fold from the split file
             folder = os.path.join(args.output, f'fold{args.fold}')
-            _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            test_fn(test_ds, device, folder, args.show)
+            if not args.copd:
+                _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
+            else:
+                # use the whole COPD dataset for testing
+                test_ds = ds
+            test_fn(test_ds, device, folder, args.show, args)
 
 
 def get_deterministic_test_fn(test_fn):
@@ -580,7 +588,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     maybe_run_detached_cli(args)
 
-    if args.test_only or args.speed:
+    if args.test_only or args.speed or args.copd:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     # load data
@@ -589,7 +597,7 @@ if __name__ == '__main__':
             print('No features specified, defaulting to coords as features. '
                   'To specify, provide arguments --coords and/or --patch.')
 
-        if args.ds == 'data':
+        if args.ds == 'data' or args.copd:
             point_dir = POINT_DIR
             img_dir = IMG_DIR
         elif args.ds == 'ts':
@@ -598,11 +606,16 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'No dataset named {args.ds}')
 
-        print(f'Using point data from {point_dir}')
+        if args.copd:
+            print('Validating with COPD dataset')
+            args.test_only = True
+            args.speed = False
+        else:
+            print(f'Using point data from {point_dir}')
         ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
                           folder=point_dir, image_folder=img_dir,
                           patch_feat=args.patch,
-                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary)
+                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary, copd=args.copd)
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
 

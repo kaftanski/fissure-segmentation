@@ -141,7 +141,7 @@ def unnormalize_zstd(pc, mu, sigma):
     return pc * sigma + mu
 
 
-def test(ds: SampleFromMeshDS, device, out_dir, show):
+def test(ds: SampleFromMeshDS, device, out_dir, show, args):
     model = DGCNNFoldingNet.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
@@ -256,6 +256,8 @@ def test(ds: SampleFromMeshDS, device, out_dir, show):
 if __name__ == '__main__':
     parser = get_pc_ae_train_parser()
     args = parser.parse_args()
+    if args.copd:
+        raise NotImplementedError('COPD data validation is not applicable to PC-AE')
     maybe_run_detached_cli(args)
 
     if args.test_only:
