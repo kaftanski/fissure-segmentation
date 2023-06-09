@@ -63,7 +63,7 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
 
     # compute the mesh
     print(f'Poisson reconstruction from {pcd}')
-    poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth, width=width, scale=scale, linear_fit=False)[0]
+    poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=depth, width=width, scale=scale, linear_fit=False, n_threads=1)[0]
 
     # cropping
     if crop_to_bbox:
