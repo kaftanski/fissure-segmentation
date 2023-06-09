@@ -23,8 +23,9 @@ from models.point_net import PointNetSeg
 from thesis.utils import param_and_op_count
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
-from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, mask_to_points, \
-    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print
+from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, \
+    mask_to_points, \
+    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print, load_points
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
@@ -467,12 +468,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
     train_times_min = []
     for fold, tr_val_fold in enumerate(split):
         print(f"------------ FOLD {fold} ----------------------")
-        if not args.copd:
-            train_ds, val_ds = ds.split_data_set(tr_val_fold)
-        else:
-            assert args.test_only
-            train_ds = None
-            val_ds = ds
+        train_ds, val_ds = ds.split_data_set(tr_val_fold, fold_nr=fold)
 
         fold_dir = os.path.join(args.output, f'fold{fold}')
         if not args.test_only:
@@ -567,11 +563,7 @@ def run(ds, model, test_fn, args):
         else:
             # test with the specified fold from the split file
             folder = os.path.join(args.output, f'fold{args.fold}')
-            if not args.copd:
-                _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold])
-            else:
-                # use the whole COPD dataset for testing
-                test_ds = ds
+            _, test_ds = ds.split_data_set(load_split_file(split_file)[args.fold], fold_nr=args.fold)
             test_fn(test_ds, device, folder, args.show, args)
 
 

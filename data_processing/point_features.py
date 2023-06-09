@@ -208,10 +208,25 @@ def compute_point_features(ds: LungData, case, sequence, kp_dir, feature_mode='m
     torch.save(features.cpu(), os.path.join(kp_dir, f'{case}_{feature_mode}_{sequence}.pth'))
 
 
+def compute_all_feat_modes(ds, out_dir, device):
+    for feat_mode in FEATURE_MODES:
+        if feat_mode == 'cnn':
+            continue
+
+        for i in range(len(ds)):
+            case, sequence = ds.get_id(i)
+            print(f'Computing point features for case {case}, {sequence}...')
+            if ds.fissures[i] is None:
+                print('\tNo fissure segmentation found.')
+                continue
+
+            compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device=device)
+
+
 if __name__ == '__main__':
     # run_detached_from_pycharm()
 
-    device = 'cuda:3' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
 
     ts = False
 
@@ -225,20 +240,21 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for kp_mode in KP_MODES:
-        if kp_mode == 'noisy':
+        # if kp_mode == 'noisy':
+        #     continue
+        if kp_mode != 'cnn':
             continue
 
         out_dir = new_dir(point_dir, kp_mode)
 
-        for feat_mode in FEATURE_MODES:
-            if feat_mode == 'cnn':
-                continue
+        if kp_mode != 'cnn':
+            compute_all_feat_modes(ds, out_dir, device)
+        else:
+            try:
+                compute_all_feat_modes(ds, out_dir, device)
+            except FileNotFoundError:
+                pass
 
-            for i in range(len(ds)):
-                case, sequence = ds.get_id(i)
-                print(f'Computing point features for case {case}, {sequence}...')
-                if ds.fissures[i] is None:
-                    print('\tNo fissure segmentation found.')
-                    continue
-
-                compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device=device)
+            # compute features for different folds of pre-seg cnn kpts
+            for fold in range(5):
+                compute_all_feat_modes(ds, new_dir(out_dir, f"fold{fold}"), device)

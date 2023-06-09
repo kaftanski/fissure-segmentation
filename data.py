@@ -182,10 +182,11 @@ class LungData(Dataset):
 
 
 class CustomDataset(Dataset, ABC):
-    def __init__(self, exclude_rhf, do_augmentation, binary):
+    def __init__(self, exclude_rhf, do_augmentation, binary, copd=False):
         self.exclude_rhf = exclude_rhf
         self._do_augmentation = do_augmentation
         self.binary = binary
+        self.copd = copd
         try:
             getattr(self, 'ids')
         except AttributeError:
@@ -212,7 +213,7 @@ class CustomDataset(Dataset, ABC):
     def get_batch_collate_fn(self):
         return None
 
-    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+    def split_data_set(self, split: OrderedDict[str, np.ndarray], fold_nr=None):
         train_ds = deepcopy(self)
         val_ds = deepcopy(self)
 
@@ -362,7 +363,7 @@ class PointDataset(CustomDataset):
                  use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True,
                  copd=False):
 
-        super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary)
+        super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary, copd=copd)
 
         if lobes and binary:
             raise NotImplementedError(
@@ -372,25 +373,28 @@ class PointDataset(CustomDataset):
             raise ValueError('Coords have to be present for this to work...')
             # assert patch_feat is not None, 'Neither Coords nor Features specified for PointDataset'
 
-        self.folder = os.path.join(folder, kp_mode)
+        if kp_mode not in folder:
+            self.folder = os.path.join(folder, kp_mode)
+        else:
+            self.folder = folder
         files = sorted(glob(os.path.join(self.folder, '*_coords_*')))
         self.image_folder = image_folder
         self.kp_mode = kp_mode
         self.use_coords = use_coords
+        self.patch_feat = patch_feat
         self.lobes = lobes
         self.sample_points = sample_points
         self.points = []
         self.features = []
         self.labels = []
-        self.copd = copd
         for file in files:
             case, _, sequence = file.split('/')[-1].split('_')
-            if copd:
+            if self.copd:
                 # ignore non-copd cases
                 if 'COPD' not in case:
                     continue
             sequence = sequence.split('.')[0]
-            pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, patch_feat)
+            pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, self.patch_feat)
             if lobes:
                 lbls = lobe_lbl
             else:
@@ -465,6 +469,19 @@ class PointDataset(CustomDataset):
     def get_coords(self, i):
         return self.points[i]
 
+    def split_data_set(self, split: OrderedDict[str, np.ndarray], fold_nr=None):
+        if self.copd:
+            # this is a pure validation data set so no splitting required, no training-ds either!
+            if self.kp_mode == 'cnn':
+                assert fold_nr is not None, 'Please specify the number of the fold to use'
+                # different folds yielded different pre-seg CNNs
+                return None, PointDataset(self.sample_points, self.kp_mode, os.path.join(self.folder, f"fold{fold_nr}"),
+                    self.image_folder, self.use_coords, self.patch_feat, self.exclude_rhf, self.lobes, self.binary,
+                    self.do_augmentation, self.copd)
+            else:
+                return None, self
+        else:
+            return super().split_data_set(split)
 
 def compute_class_weights(class_frequency):
     class_frequency = class_frequency / class_frequency.sum()
@@ -559,7 +576,7 @@ class CorrespondingPointDataset(PointDataset):
 
         return pts, (target_corr_pts, target_transform_params)  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
 
-    def split_data_set(self, split: OrderedDict[str, np.ndarray]):
+    def split_data_set(self, split: OrderedDict[str, np.ndarray], fold_nr=None):
         train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
         train_ds._remove_non_matched_from_corr_points()
         val_ds._remove_non_matched_from_corr_points()

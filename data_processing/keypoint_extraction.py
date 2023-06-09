@@ -14,7 +14,7 @@ from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
-from utils.general_utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims, find_test_fold_for_id
+from utils.general_utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims, find_test_fold_for_id, new_dir
 
 MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
@@ -74,8 +74,8 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     try:  # for the case of cross-validated data, only use the model that has not seen the data
         fold_nr = find_test_fold_for_id(case, sequence, cross_val_split)
         folds_to_evaluate = [fold_nr]
-    except ValueError:  # otherwise ensemble all folds
-        folds_to_evaluate = [0]# TODO list(range(5))  # use all folds for an ensemble prediction
+    except ValueError:  # otherwise compute with model from all 5 folds
+        folds_to_evaluate = list(range(5))
 
     if args.model == 'v1':
         model_class = MobileNetASPP
@@ -88,35 +88,47 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     img_index = ds.get_index(case, sequence)
     input_img = ds.get_batch_collate_fn()([ds[img_index]])[0].to(device)
     softmax_pred = torch.zeros(1, ds.num_classes, *input_img.shape[2:], dtype=torch.float, device=device)
+    predictions = []
     for fold_nr in folds_to_evaluate:
         model = model_class.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
         model.eval()
         model.to(device)
-
         with torch.no_grad():
             out = model.predict_all_patches(input_img)
 
-        # ensemble prediction like in nnu-net: average softmax scores (sum is enough here because of later argmax)
-        softmax_pred += out
+        predictions.append(out)
 
-    # find predicted fissure points
-    fissure_points = softmax_pred.argmax(1).squeeze() != 0
+    def keypoints_from_prediction(softmax_pred):
+        # find predicted fissure points
+        fissure_points = softmax_pred.argmax(1).squeeze() != 0
 
-    # apply lung mask
-    lung_mask = resample_equal_spacing(ds.get_lung_mask(ds.get_index(case, sequence)),
-                                       ds.resample_spacing, use_nearest_neighbor=True)
-    lung_mask = sitk_image_to_tensor(lung_mask).to(device)
-    fissure_points = torch.logical_and(fissure_points, lung_mask)
+        # apply lung mask
+        lung_mask = resample_equal_spacing(ds.get_lung_mask(ds.get_index(case, sequence)),
+                                           ds.resample_spacing, use_nearest_neighbor=True)
+        lung_mask = sitk_image_to_tensor(lung_mask).to(device)
+        fissure_points = torch.logical_and(fissure_points, lung_mask)
 
-    # nonzero voxels to points
-    kp = torch.nonzero(fissure_points) * ds.resample_spacing
+        # nonzero voxels to points
+        kp = torch.nonzero(fissure_points) * ds.resample_spacing
 
-    # compute cnn features: sum of foreground softmax scores
-    kp_grid = kpts_to_grid(kp.flip(-1),
-                           shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
-    features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, feat_patch).squeeze().flatten(start_dim=1).transpose(0, 1)
+        # compute cnn features: sum of foreground softmax scores
+        kp_grid = kpts_to_grid(kp.flip(-1),
+                               shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
+        features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, feat_patch).squeeze().flatten(start_dim=1).transpose(0, 1)
+        return kp.long(), features
 
-    return kp.long(), features
+    if len(predictions) > 1:
+        kps = []
+        feats = []
+        for softmax_pred in predictions:
+            kp, feat = keypoints_from_prediction(softmax_pred)
+            kps.append(kp)
+            feats.append(feat)
+
+        return kps, feats
+
+    else:
+        return keypoints_from_prediction(predictions[0])
 
 
 def get_hessian_fissure_enhancement_kpts(enhanced_img, device, min_threshold=0.2):
@@ -174,6 +186,13 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 
     elif kp_mode == 'cnn':
         kp, cnn_feat = get_cnn_keypoints(cv_dir=cnn_dir, case=case, sequence=sequence, device=device, out_path=out_dir)
+        if isinstance(kp, (list, tuple)):
+            # save an instance of points foreach fold
+            for fold, (pts, feat) in enumerate(zip(kp, cnn_feat)):
+                save_keypoints(case, device, fissures_tensor, img, img_tensor, pts, kp_mode, new_dir(out_dir, f'fold{fold}'), sequence, feat)
+        else:
+            save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, out_dir, sequence, cnn_feat=cnn_feat)
+        return
 
     elif kp_mode == 'enhancement':
         assert enhanced_img_path is not None, \
@@ -184,6 +203,10 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
     else:
         raise ValueError(f'No keypoint-mode named "{kp_mode}".')
 
+    save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, out_dir, sequence)
+
+
+def save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, out_dir, sequence, cnn_feat=None):
     # limit number of keypoints
     if len(kp) > MAX_KPTS:
         perm = torch.randperm(len(kp), device=kp.device)[:MAX_KPTS]
@@ -227,7 +250,7 @@ def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mo
 
 if __name__ == '__main__':
     # run_detached_from_pycharm()
-
+    print(torch.cuda.is_available())
     ts = False
 
     if ts:
