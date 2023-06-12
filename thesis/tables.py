@@ -13,6 +13,14 @@ from constants import KP_MODES, FEATURE_MODES
 from thesis.utils import save_fig, legend_figure, textwidth_to_figsize, SLIDE_WIDTH_INCH, SLIDE_HEIGHT_INCH
 
 
+def removesuffix(text, suffix):
+    """ for compatibility in Python 3.8 """
+    if text.endswith(suffix):
+        return text[:-len(suffix)]
+    else:
+        return text
+
+
 def csv_to_df(csv_result_file):
     results_table = pd.read_csv(csv_result_file)
     if 'Class' in results_table.columns:
@@ -34,7 +42,8 @@ def csv_to_df(csv_result_file):
         def fix_dice(which=None):
             pass
 
-    results_table['Fissure'][:-1] = results_table['Fissure'][:-1].astype(int)
+    results_table.replace(float('NaN'), 0, inplace=True)
+    results_table['Fissure'][results_table['Fissure']!='mean'] = results_table['Fissure'][results_table['Fissure']!='mean'].astype(int)
     results_table = results_table.set_index('Fissure')
     results_table = results_table.astype(float)
 
@@ -52,6 +61,8 @@ def csv_to_df(csv_result_file):
     mod_table['HD_mean'] = results_table['Mean HD']
     mod_table['HD_std'] = results_table['StdDev HD']
     mod_table['missing'] = results_table['proportion missing']
+    if mod_table.index[-1]==0:
+        mod_table = mod_table.drop(index=0)
     return mod_table
 
 
@@ -60,9 +71,9 @@ def pm_table(table):
     std_exits = []
     for id in map(str.strip, table.columns):
         if id.endswith('_mean'):
-            mean_exits.append(id.removesuffix('_mean'))
+            mean_exits.append(removesuffix(id, '_mean'))
         if id.endswith('_std'):
-            std_exits.append(id.removesuffix('_std'))
+            std_exits.append(removesuffix(id, '_std'))
 
     for id in sorted(set(mean_exits).intersection(set(std_exits))):
         m_column = id + '_mean'
@@ -75,7 +86,7 @@ def pm_table(table):
     return table
 
 
-def get_all_tables(model='DGCNN_seg', cv=True):
+def get_all_tables(model='DGCNN_seg', cv=True, copd=False, exclude_rhf=False):
     tables = {}
     for kp in KP_MODES:
         tables[kp] = {}
@@ -89,12 +100,12 @@ def get_all_tables(model='DGCNN_seg', cv=True):
             folder = os.path.join('./results', f'{model}_{kp}_{feat}')
             if cv:
                 # only take averaged cross-validation results
-                table = get_table_from_folder(feat, kp, folder, 'cv_results.csv')
+                table = get_table_from_folder(feat, kp, folder, f'cv_results{"_copd" if copd else ""}.csv', exclude_rhf=exclude_rhf)
             else:
                 # join values from all folds in the table
                 table = None
                 for f in range(5):
-                    fold_table = get_table_from_folder(feat, kp, os.path.join(folder, f'fold{f}'), 'test_results.csv')
+                    fold_table = get_table_from_folder(feat, kp, os.path.join(folder, f'fold{f}'), f'test_results{"_copd" if copd else ""}.csv', exclude_rhf=exclude_rhf)
                     if table is None:
                         table = pd.DataFrame(columns=fold_table.columns)
 
@@ -109,12 +120,16 @@ def get_all_tables(model='DGCNN_seg', cv=True):
     return tables
 
 
-def get_table_from_folder(feat, kp, folder, filename):
+def get_table_from_folder(feat, kp, folder, filename, exclude_rhf=False):
     result_file = os.path.join(folder, filename)
     if os.path.isfile(result_file):
         table = csv_to_df(result_file)
         print(f"{kp}_{feat}")
-        table['Fissure'] = [1, 2, 3, 'mean']
+        if exclude_rhf:
+            table.drop(index=3, inplace=True)
+            table[table.index=='mean'] = table[table.index!='mean'].mean().round(2)
+
+        table['Fissure'] = [*range(1, len(table)), 'mean']
     else:
         table = pd.DataFrame(index=[0])
         print(f'missing experiment {kp}_{feat}')
@@ -186,8 +201,8 @@ def time_table(path='results/preproc_timing/timings.csv'):
     print(table.to_latex(multirow=True, multicolumn=True))
 
 
-def seg_table(model='DGCNN_seg', only_one_feature: str=None):
-    tables = get_all_tables(model)
+def seg_table(model='DGCNN_seg', only_one_feature: str=None, copd=False, exclude_rhf=False):
+    tables = get_all_tables(model, copd=copd, exclude_rhf=exclude_rhf)
 
     combined_table = None
     for kp in tables.keys():
@@ -351,8 +366,8 @@ def comparative_bar_plot(tables_per_model, colors=None):
                       outdir='results/plots', basename='comparison_legend')
 
 
-def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=True, add_nnu_value=True):
-    tables = get_all_tables(model, cv=False)
+def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=True, add_nnu_value=True, copd=False):
+    tables = get_all_tables(model, cv=False, copd=copd)
     combined_table = pd.concat([tables[kp][feat] for kp in tables.keys() for feat in tables[kp].keys()])
 
     # fix the index (need ascending integers)
@@ -399,7 +414,7 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
 
         # add the nnu-net baseline value
         if add_nnu_value:
-            nnu = nnunet_table('voxels', cv=True)
+            nnu = nnunet_table('voxels', cv=True, copd=copd)
             if use_median_instead_of_mean:
                 nnu_error_value = nnu[f'{metric}_mean'].median()
             else:
@@ -414,7 +429,7 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
         swarm_plot.add_legend(title='Features:', handles=handles)
         swarm_plot.set_titles('{col_name} KPs')
 
-        save_fig(swarm_plot.fig, 'results/plots', f'{model}_{metric}{"_presentation" if presentation else ""}_swarmplot{"_nnu" if add_nnu_value else ""}{"_median" if use_median_instead_of_mean else ""}', pdf=not presentation, bbox_inches='')
+        save_fig(swarm_plot.fig, 'results/plots', f'{model}_{metric}{"_copd" if copd else ""}{"_presentation" if presentation else ""}_swarmplot{"_nnu" if add_nnu_value else ""}{"_median" if use_median_instead_of_mean else ""}', pdf=not presentation, bbox_inches='')
     plt.show()
 
 
@@ -426,9 +441,13 @@ def dgcnn_seg_table():
     seg_table('DGCNN_seg', None)
 
 
-def nnunet_table(mode='surface', cv=False):
+def nnunet_table(mode='surface', cv=False, copd=False):
     assert mode in ['voxels', 'surface']
-    res_path = '../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
+
+    if not copd:
+        res_path = '../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
+    else:
+        res_path = '../nnUNet/output/copd_pred'
 
     if not cv:
         file = f'cv_results_{mode}.csv'
@@ -516,4 +535,6 @@ if __name__ == '__main__':
     # bar_plot_pointnet_vs_dgcnn(presentation=True)
     # seg_table('DGCNN', 'image')
     # model_comparison()
-    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+#    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+    # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
+    seg_table("DGCNN_seg", copd=False, exclude_rhf=True)

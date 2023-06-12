@@ -1,4 +1,5 @@
 import os
+import re
 from glob import glob
 
 import SimpleITK as sitk
@@ -180,11 +181,14 @@ def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_
 
 
 def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task501_FissureCOPDEMPIRE/nnUNetTrainerV2__nnUNetPlansv2.1',
-                    my_data_dir='../data', mode='surface', show=True):
+                    my_data_dir='../data', mode='surface', show=True, copd=False):
     assert mode in ['surface', 'voxels']
 
     ds = LungData(my_data_dir)
     n_folds = 5
+
+    if copd:
+        n_fissures = 2
 
     test_assd = torch.zeros(n_folds, n_fissures)
     test_sdsd = torch.zeros_like(test_assd)
@@ -194,7 +198,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
     all_times = []
     for fold in range(n_folds):
         fold_dir = os.path.join(result_dir, f'fold_{fold}')
-        files = sorted(glob(os.path.join(fold_dir, 'validation_raw_postprocessed', '*.nii.gz')))
+        files = sorted(glob(os.path.join(fold_dir, 'validation_raw_postprocessed' if not copd else '', '*.nii.gz')))
 
         mesh_dir = os.path.join(fold_dir, 'validation_mesh_reconstructions')
         plot_dir = os.path.join(fold_dir, f'plots_{mode}')
@@ -206,8 +210,21 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
         ids = []
         spacings = []
         for f in files:
-            case, sequence = f.split(os.sep)[-1].split('_')[-2:]
-            sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving').replace('.nii.gz', '')
+            filename = f.split(os.sep)[-1]
+            if not copd:
+                case, sequence = filename.split('_')[-2:]
+                sequence = sequence.replace('fix', 'fixed').replace('mov', 'moving').replace('.nii.gz', '')
+            else:
+                match = re.match('COPD[0-1][0-9]', filename)
+                case = match.group(0)
+                sequence = filename.replace(case, "")[0]
+                if sequence == "f":
+                    sequence = "fixed"
+                elif sequence == "m":
+                    sequence= "moving"
+                else:
+                    raise ValueError(f'No sequence for char "{sequence}"')
+
             ids.append((case, sequence))
             print(case, sequence)
 
@@ -234,6 +251,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
                 # predicted_fissures = [torch.from_numpy(skeletonize_3d(fissure_tensor == f) > 0) for f in fissure_tensor.unique()[1:]]
                 all_predictions.append(predicted_fissures)
                 spacings.append(labelmap_predict.GetSpacing())
+                all_times.append(torch.tensor([-1., -1.]))
 
                 # # re-assemble labelmap
                 # fissure_skeleton = torch.zeros_like(predicted_fissures[0], dtype=torch.long)
@@ -280,7 +298,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
+    # run_detached_from_pycharm()
 
     n_fissures = 3
 
@@ -291,8 +309,13 @@ if __name__ == '__main__':
     nnu_task = "Task503_FissuresTotalSeg"
     nnu_trainer = "nnUNetTrainerV2_200ep"
     nnu_result_dir = f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
-    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
+    # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
     # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
+
+    copd_data_dir = "../data"
+    nnu_copd_result_dir = "../nnUNet/output/copd_pred"
+    evaluate_nnunet(nnu_copd_result_dir, my_data_dir=copd_data_dir, mode='surface', show=False, copd=True)
+    # evaluate_nnunet(nnu_copd_result_dir, my_data_dir=copd_data_dir, mode='voxels', show=False, copd=True)
 
     # lobes_nnunet = '/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task502_LobesCOPDEMPIRE/nnUNetTrainerV2_200ep__nnUNetPlansv2.1'
     # evaluate_nnunet(lobes_nnunet, mode='surface', show=False)
