@@ -1,23 +1,27 @@
 import os.path
-
+from typing import Sequence
 import SimpleITK as sitk
 import matplotlib.cm
 import numpy as np
 from matplotlib import pyplot as plt
 
-from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR_TSv1, CLASS_COLORS, CLASSES
+from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR_TSv1, CLASS_COLORS, CLASSES, IMG_DIR
 from data import load_split_file, ImageDataset
 from preprocess_totalsegmentator_dataset import find_non_zero_ranges
 from thesis.utils import legend_figure, save_fig, textwidth_to_figsize
 from utils.general_utils import find_test_fold_for_id
 from visualization import visualize_with_overlay
 
-slices = {'s0070': [70, 180]}
+DEFAULT_SLICES = {'s0070': [70, 180]}
 result_folder = 'results/plots/qualitative'
 
 
-def create_image_figure(img):
-    return plt.figure(figsize=textwidth_to_figsize(2, aspect=img.shape[0] / img.shape[1]))
+def create_image_figure(img, spacing=None):
+    if spacing is None:
+        aspect_ratio = img.shape[0] / img.shape[1]
+    else:
+        aspect_ratio = img.shape[0] * spacing[0] / (img.shape[1] * spacing[1])
+    return plt.figure(figsize=textwidth_to_figsize(2, aspect=aspect_ratio))
 
 
 def slice_image(img_3d, slice_num, slice_dim):
@@ -75,7 +79,7 @@ def multi_model_overlay(img, label_maps, slice_num, slice_dim=2, fig_name='keypo
     save_fig(fig, 'results/plots/qualitative', f'{patid}_slice{slice_num}', pdf=False)
 
 
-def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2):
+def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2, slices=DEFAULT_SLICES):
     """
 
     :param img:
@@ -86,10 +90,14 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2):
     """
 
     # assemble label map
+    spacing = label_map.GetSpacing()
+    spacing = list(spacing)[::-1]
+    spacing.pop(slice_dim)
     label_map = sitk.GetArrayFromImage(label_map)
 
     # crop the interesting image region
     crop_indices = crop_to_lung_indices(img)
+    print(crop_indices)
     img = img[crop_indices]
     label_map = label_map[crop_indices]
     for slice_num in slices[patid]:
@@ -100,17 +108,17 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2):
         label_slice = label_map[index].squeeze()
 
         # figure
-        fig = create_image_figure(img_slice)
+        fig = create_image_figure(img_slice, spacing)
         colors = [c for i, c in enumerate(CLASS_COLORS) if i+1 in np.unique(label_slice)]
-        visualize_with_overlay(img_slice, label_slice, alpha=0.6, ax=fig.gca(), colors=colors)
+        visualize_with_overlay(img_slice, label_slice, alpha=0.6, ax=fig.gca(), colors=colors, spacing=spacing)
 
         save_fig(fig, 'results/plots/qualitative', f'{model_name}_{patid}_slice{slice_num}', pdf=False)
         legend_figure(labels=[CLASSES[i] for i in sorted(list(CLASSES.keys()))], colors=CLASS_COLORS,
                       outdir='results/plots/qualitative', basename=f'classes_legend')
 
         # plot the slice without labels
-        fig = create_image_figure(img_slice)
-        visualize_with_overlay(img_slice, np.zeros_like(label_slice), ax=fig.gca())
+        fig = create_image_figure(img_slice, spacing)
+        visualize_with_overlay(img_slice, np.zeros_like(label_slice), ax=fig.gca(), spacing=spacing)
         save_fig(fig, 'results/plots/qualitative', f'{patid}_slice{slice_num}', pdf=False)
 
 
@@ -134,11 +142,14 @@ def kp_comparison_figure(patid='s0070', ae=False):
         multi_class_overlay(img_windowed, label_maps[kp], slice_dim=2, model_name=model_name, patid=patid)
 
 
-def get_image_and_fold(patid, ds_path=IMG_DIR_TS):
+def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=DEFAULT_SPLIT_TS):
     ds = ImageDataset(ds_path, do_augmentation=False)
-    img_index = ds.get_index(patid, 'fixed')
-    split = load_split_file(DEFAULT_SPLIT_TS)
-    fold = find_test_fold_for_id(patid, sequence='fixed', split=split)
+    img_index = ds.get_index(patid, sequence)
+    if split_file is not None:
+        split = load_split_file(split_file)
+        fold = find_test_fold_for_id(patid, sequence=sequence, split=split)
+    else:
+        fold = None
     img = ds.get_image(img_index)
     mask = ds.get_lung_mask(img_index)
     img_windowed = fissure_window_level_and_mask(sitk.GetArrayFromImage(img), sitk.GetArrayFromImage(mask))
@@ -148,16 +159,30 @@ def get_image_and_fold(patid, ds_path=IMG_DIR_TS):
 def comparative_figures(patid='s0070'):
     img_windowed, fold = get_image_and_fold(patid, IMG_DIR_TSv1)
     label_map_nnu = sitk.ReadImage(os.path.join(
-        f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/nnUNet_baseline/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/fold_{fold}/validation_raw_postprocessed',
+        f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/fold_{fold}/validation_raw_postprocessed',
         f'{patid}_fix.nii.gz'))
     multi_class_overlay(img_windowed, label_map_nnu, slice_dim=2, model_name='nnU-Net', patid=patid)
 
     label_map_v2m = sitk.ReadImage(os.path.join(
-        f'/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003/trial_{fold+1}/best_performance/voxels',
+        f'../voxel2mesh-master/resultsExperiment_003/trial_{fold+1}/best_performance/voxels',
         f'{patid}_fissures_pred_fixed.nii.gz'))
     multi_class_overlay(img_windowed, label_map_v2m, slice_dim=2, model_name='v2m', patid=patid)
 
 
+def copd_figures():
+    sequences = ['fixed', 'moving']
+    patids = ['COPD01']
+    slices = {'COPD01_fixed': [140, 380],
+              'COPD01_moving': [140, 380]}
+    for p in patids:
+        for s in sequences:
+            img_windowed, _ = get_image_and_fold(p, s, ds_path=IMG_DIR, split_file=None)
+            labelmap = sitk.ReadImage(f'../data/{p}_fissures_poisson_{s}.nii.gz')
+
+            multi_class_overlay(img_windowed, labelmap, model_name="ground-truth", patid=f'{p}_{s}', slices=slices)
+
+
 if __name__ == '__main__':
-    kp_comparison_figure(ae=True)
-    comparative_figures()
+    # kp_comparison_figure(ae=True)
+    # comparative_figures()
+    copd_figures()

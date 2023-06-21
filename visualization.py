@@ -75,7 +75,7 @@ class HandlerBremmCmap(HandlerBase):
         return stripes
 
 
-def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None, colors=('r', 'g', 'b', 'y')):
+def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str = None, alpha=0.5, onehot_encoding: bool = False, ax=None, colors=('r', 'g', 'b', 'y'), spacing=None):
     if isinstance(image, torch.Tensor):
         image = image.cpu().numpy()
     if isinstance(segmentation, torch.Tensor):
@@ -101,12 +101,13 @@ def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str
 
             segmentation = segmentation_onehot
 
-    ax.imshow(image)
+    aspect_ratio = 1 if spacing is None else spacing[0] / spacing[1]
+    ax.imshow(image, aspect=aspect_ratio)
     ax.set_axis_off()
-
     for i in range(segmentation.shape[-1]):
         ax.imshow(np.ma.masked_where(segmentation[:, :, i] == 0, np.full([*segmentation.shape[:2]], fill_value=255)),
-                  cmap=ListedColormap([colors[i % len(colors)]]), alpha=alpha, interpolation=None)
+                  cmap=ListedColormap([colors[i % len(colors)]]), alpha=alpha, interpolation=None,
+                  aspect=aspect_ratio)
 
     if title:
         ax.set_title(title)
