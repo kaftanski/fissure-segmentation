@@ -14,6 +14,7 @@ from sklearn.metrics import RocCurveDisplay
 from torch import nn
 from welford import Welford
 
+from constants import IMG_DIR
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.seg_cnn import PatchBasedModule
@@ -324,7 +325,7 @@ def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, 
 
 
 def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample_spacing: float = None, show=False,
-                         device='cuda:0'):
+                         device='cuda:0', only_eval=False):
     new_dir(out_dir)
     new_dir(eval_dir)
     all_roc_aucs = []
@@ -345,8 +346,12 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
             lung_mask = resample_equal_spacing(lung_mask, target_spacing=resample_spacing, use_nearest_neighbor=True)
 
         # fissure enhancement
-        enhanced_img = get_enhanced_fissure_image(img, lung_mask, device=device, show=show)
-        sitk.WriteImage(enhanced_img, os.path.join(out_dir, f'{patid[0]}_fissures_enhanced_{patid[1]}.nii.gz'))
+        if not only_eval:
+            enhanced_img = get_enhanced_fissure_image(img, lung_mask, device=device, show=show)
+            sitk.WriteImage(enhanced_img, os.path.join(out_dir, f'{patid[0]}_fissures_enhanced_{patid[1]}.nii.gz'))
+        else:
+            enhanced_img = ds.get_enhanced_fissures(i)
+            assert enhanced_img is not None, 'No enhanced fissure image found. Run without "only_eval" option first.'
 
         # evaluation
         roc_auc, thresh, dsc, rec, acc = fissure_candidates(enhanced_img, fissures, show=show,
@@ -423,9 +428,15 @@ if __name__ == '__main__':
     # sitk.WriteImage(enhanced_img, 'results/EMPIRE01_fixed_fissures_enhanced_torch.nii.gz')
 
     # compute_dataset_fissure_statistics(ImageDataset('../TotalSegmentator/ThoraxCrop'), save_to="./results/fissure_HU_mu_sigma_TS.csv")
-    run_detached_from_pycharm()
-    ds = TotalSegmentatorDataset()
-    out_dir = new_dir('..', 'TotalSegmentator', 'ThoraxCrop_v2')
-    eval_dir = new_dir(out_dir, 'eval_enhancement')
-    enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:2')
 
+    # run_detached_from_pycharm()
+    # ds = TotalSegmentatorDataset()
+    # out_dir = new_dir('..', 'TotalSegmentator', 'ThoraxCrop_v2')
+    # eval_dir = new_dir(out_dir, 'eval_enhancement')
+    # enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:2')
+
+    # perform evaluation for COPD subset
+    copd_ds = ImageDataset(IMG_DIR, copd=True, do_augmentation=False)
+    out_dir = IMG_DIR
+    eval_dir = new_dir(IMG_DIR, 'eval_enhancement_copd')
+    enhance_full_dataset(copd_ds, out_dir, eval_dir, resample_spacing=1, show=False, only_eval=True)

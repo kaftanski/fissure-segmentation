@@ -253,7 +253,7 @@ class CustomDataset(Dataset, ABC):
 
 class ImageDataset(LungData, CustomDataset):
     def __init__(self, folder, resample_spacing=1.5, patch_size=(128, 128, 128), exclude_rhf=False,
-                 do_augmentation=True, binary=False):
+                 do_augmentation=True, binary=False, copd=False):
         LungData.__init__(self, folder)
         CustomDataset.__init__(self, exclude_rhf, do_augmentation, binary)
 
@@ -265,7 +265,13 @@ class ImageDataset(LungData, CustomDataset):
             for i in sorted(indices)[::-1]:
                 ls.pop(i)
 
-        to_remove = [i for i in range(len(self.fissures)) if self.fissures[i] is None]
+        self.copd = copd
+
+        if self.copd:
+            to_remove = [i for i in range(len(self.fissures)) if self.fissures[i] is None or 'COPD' not in self.ids[i][0]]
+        else:
+            to_remove = [i for i in range(len(self.fissures)) if self.fissures[i] is None]
+
         for name in dir(self):
             attr = getattr(self, name)
             if isinstance(attr, list):
