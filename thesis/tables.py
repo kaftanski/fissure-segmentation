@@ -563,6 +563,65 @@ def copd_comparison_table():
     return joint_table
 
 
+def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
+    combined_table = copd_comparison_table()
+    combined_table = combined_table.drop(columns=['ASSD', 'SDSD', 'HD', 'ASSD_copd', 'SDSD_copd', 'HD_copd', 'missing', 'missing_copd'])
+    combined_table = combined_table.rename(columns={'ASSD_change': 'ASSD', 'SDSD_change': 'SDSD', 'HD_change': 'HD'})
+    combined_table = combined_table.reset_index()  # turn make index into columns
+
+    # fix the spelling
+    combined_table = combined_table.replace(FEATURE_MODES + ['cnn'], FEATURE_MODES_NORMALIZED + ['CNN'])
+    combined_table = combined_table.replace(KP_MODES, KP_MODES_NORMALIZED)
+
+    # use only mean fissure
+    combined_table = combined_table[combined_table.Fissure == 'mean']
+
+    # separate nnu and dgcnn-values out
+    nnu_table = combined_table[combined_table.Keypoints == 'nnUNet']
+    dgcnn_table = combined_table[combined_table.Keypoints != 'nnUNet']
+
+    # fix the index (need ascending integers)
+    combined_table = combined_table.set_index(np.arange(combined_table.shape[0]))
+
+    print(combined_table)
+
+    # plotting
+    cmap = mpl.cm.get_cmap('tab10')
+    if not presentation:
+        feat_modes = FEATURE_MODES_NORMALIZED + ['CNN']
+        colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
+    else:
+        plt.style.use("seaborn-talk")
+        feat_modes = ['Image', 'SSC', 'None']
+        colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[2], 'None': 'gray'}
+        combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
+
+    sns.set_theme()
+
+    print(combined_table)
+
+    for metric in ['ASSD', 'SDSD', 'HD']:
+        # swarm plot in categories
+        bar_plot = sns.catplot(data=combined_table, x='Features', y=metric, col='Keypoints', hue='Features', kind='point', palette=colors,
+                           height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=True, legend='auto')
+
+        # add the nnu-net baseline value
+        if add_nnu_value:
+            nnu_error_value = nnu_table[metric].item()
+            print(nnu_error_value)
+            bar_plot.map(plt.axhline, y=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3])
+
+        bar_plot.set_axis_labels(x_var='', y_var=f'relative {metric}')
+        handles, labels = bar_plot.axes[-1][-1].get_legend_handles_labels()
+        handles = handles + [Line2D([],[],linestyle=''), Line2D([], [], color='k', lw=1.5, label='Mean'),
+                             Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
+        bar_plot.add_legend(title='Features:', handles=handles)
+        bar_plot.set_titles('{col_name} KPs')
+
+        save_fig(bar_plot.fig, 'results/plots', f'copd_relative_{metric}{"_presentation" if presentation else ""}{"_nnu" if add_nnu_value else ""}', pdf=not presentation, bbox_inches='')
+    plt.show()
+
+
 def feat_mode_normalizer(feat):
     return feat.lower().capitalize().replace('Cnn', 'CNN').replace('Nofeat', 'None').replace('Mind_ssc', 'SSC').replace('Mind', 'MIND').replace('Enhancement', 'Hessian')
 
@@ -594,4 +653,5 @@ if __name__ == '__main__':
 
     # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, exclude_rhf=True)
     # model_comparison(exclude_rhf=True)
-    copd_comparison_table()
+    # copd_comparison_table()
+    copd_relative_performance_plot(presentation=True, add_nnu_value=True)
