@@ -228,7 +228,7 @@ if __name__ == '__main__':
 
     device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
 
-    ts = False
+    ts = True
 
     if ts:
         data_dir = IMG_DIR_TS
@@ -240,9 +240,7 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for kp_mode in KP_MODES:
-        # if kp_mode == 'noisy':
-        #     continue
-        if kp_mode != 'cnn':
+        if kp_mode == 'noisy':
             continue
 
         out_dir = new_dir(point_dir, kp_mode)
@@ -252,9 +250,12 @@ if __name__ == '__main__':
         else:
             try:
                 compute_all_feat_modes(ds, out_dir, device)
-            except FileNotFoundError:
-                pass
+            except FileNotFoundError as e:
+                print(e)
 
-            # compute features for different folds of pre-seg cnn kpts
-            for fold in range(5):
-                compute_all_feat_modes(ds, new_dir(out_dir, f"fold{fold}"), device)
+            try:
+                # compute features for different folds of pre-seg cnn kpts
+                for fold in range(5):
+                    compute_all_feat_modes(ds, os.path.join(out_dir, f"fold{fold}"), device)
+            except FileNotFoundError as e:
+                print(e)

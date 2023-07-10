@@ -20,7 +20,8 @@ from utils.detached_run import maybe_run_detached_cli
 from utils.image_ops import load_image_metadata
 from utils.general_utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd, \
     get_device, no_print
-from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis
+from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
+    visualize_o3d_mesh
 import SimpleITK as sitk
 
 
@@ -186,6 +187,9 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
                 reconstruct_obj = ds.unnormalize_sampled_pc(reconstruct_obj.transpose(0, 1).squeeze(), i)
 
             # compute chamfer distance (CAVE: pt3d computes it as mean squared distance and returns d_cham(x,y)+d_cham(y,x))
+            # currently no GPU support
+            reconstruct_obj = reconstruct_obj.cpu()
+            input_coords = input_coords.cpu()
             chamfer_dists[i, cur_obj] = chamfer_distance(reconstruct_obj.verts_padded(), input_coords.unsqueeze(0),
                                                          point_reduction='mean')[0]
 
@@ -227,8 +231,14 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
                 plt.close(fig)
 
         if output_is_mesh:
-            # voxelize meshes to label maps
             case, sequence = ds.ids[i]
+
+            # visualize all objects in one plot
+            title_prefix = f'{case}_{sequence}'
+            visualize_o3d_mesh(meshes_pred_o3d, title=title_prefix + ' surface prediction', show=show,
+                               savepath=os.path.join(plot_dir, f'{title_prefix}_mesh_pred.png'))
+
+            # voxelize meshes to label maps
             label_map_predict = o3d_mesh_to_labelmap(meshes_pred_o3d, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])
             label_image_predict = sitk.GetImageFromArray(label_map_predict.numpy().astype(np.uint8))
             label_image_predict.CopyInformation(image_ds.get_lung_mask(image_ds.get_index(case, sequence)))
@@ -323,9 +333,9 @@ if __name__ == '__main__':
     # assert dgcnn_args.split == pc_ae_args.split
     assert not dgcnn_args.binary
 
-    if dgcnn_args.split is None:
-        dgcnn_args.split = DEFAULT_SPLIT if dgcnn_args.ds == 'data' else DEFAULT_SPLIT_TS
-    split = load_split_file(dgcnn_args.split)
+    # if dgcnn_args.split is None:
+    #     dgcnn_args.split = DEFAULT_SPLIT if dgcnn_args.ds == 'data' else DEFAULT_SPLIT_TS
+    split = load_split_file(os.path.join(dgcnn_args.output, "cross_val_split.np.pkl"))
     new_dir(args.output)
     save_split_file(split, os.path.join(args.output, "cross_val_split.np.pkl"))
     for fold in range(len(split)):

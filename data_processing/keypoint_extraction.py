@@ -251,7 +251,7 @@ def save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, 
 if __name__ == '__main__':
     # run_detached_from_pycharm()
     print(torch.cuda.is_available())
-    ts = False
+    ts = True
 
     if ts:
         data_dir = '../TotalSegmentator/ThoraxCrop_v2'
@@ -265,8 +265,8 @@ if __name__ == '__main__':
     ds = LungData(data_dir)
 
     for mode in KP_MODES:
-        if mode != 'cnn':
-            continue
+        # if mode != 'cnn':
+        #     continue
 
         print('MODE:', mode)
         for i in range(len(ds)):
