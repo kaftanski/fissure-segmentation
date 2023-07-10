@@ -547,8 +547,7 @@ def copd_comparison_table():
 
     for metric in ['ASSD', 'SDSD', 'HD']:
         # remove standard deviation col
-        joint_table = joint_table.drop(columns=f'{metric}_std')
-        joint_table = joint_table.drop(columns=f'{metric}_std_copd')
+        joint_table = joint_table.drop(columns=[f'{metric}_std', f'{metric}_std_copd'])
 
         # insert change factor
         column_index = joint_table.columns.get_loc(f'{metric}')
@@ -560,6 +559,16 @@ def copd_comparison_table():
 
     joint_table = joint_table.round(2)
     print(joint_table.to_latex(multirow=True, multicolumn=True))
+
+    # slimmer version of the table
+    joint_table_slim = joint_table.drop(columns=['ASSD', 'SDSD', 'HD', 'ASSD_copd', 'SDSD_copd', 'HD_copd', 'missing', 'missing_copd'])
+    print()
+    print(joint_table_slim.to_latex(multirow=True, multicolumn=True))
+
+    # version of the table with only raw metrics
+    joint_table_slim = joint_table.drop(columns=['ASSD_change', 'SDSD_change', 'HD_change', 'missing', 'missing_copd'])
+    print()
+    print(joint_table_slim.to_latex(multirow=True, multicolumn=True))
     return joint_table
 
 
@@ -594,8 +603,8 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
         plt.style.use("seaborn-talk")
         feat_modes = ['Image', 'SSC', 'None']
         colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[2], 'None': 'gray'}
-        combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
 
+    combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
     sns.set_theme()
 
     print(combined_table)
@@ -603,7 +612,7 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
     for metric in ['ASSD', 'SDSD', 'HD']:
         # swarm plot in categories
         bar_plot = sns.catplot(data=combined_table, x='Features', y=metric, col='Keypoints', hue='Features', kind='point', palette=colors,
-                           height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=True, legend='auto')
+                               height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=True, legend='auto')
 
         # add the nnu-net baseline value
         if add_nnu_value:
@@ -612,8 +621,10 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
             bar_plot.map(plt.axhline, y=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3])
 
         bar_plot.set_axis_labels(x_var='', y_var=f'relative {metric}')
+        if not presentation:
+            bar_plot.set_xticklabels([])
         handles, labels = bar_plot.axes[-1][-1].get_legend_handles_labels()
-        handles = handles + [Line2D([],[],linestyle=''), Line2D([], [], color='k', lw=1.5, label='Mean'),
+        handles = handles + [Line2D([],[],linestyle=''),# Line2D([], [], color='k', lw=1.5, label='Mean'),
                              Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
         bar_plot.add_legend(title='Features:', handles=handles)
         bar_plot.set_titles('{col_name} KPs')
@@ -653,5 +664,5 @@ if __name__ == '__main__':
 
     # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, exclude_rhf=True)
     # model_comparison(exclude_rhf=True)
-    # copd_comparison_table()
-    copd_relative_performance_plot(presentation=True, add_nnu_value=True)
+    copd_comparison_table()
+    # copd_relative_performance_plot(presentation=False, add_nnu_value=True)
