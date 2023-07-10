@@ -10,11 +10,11 @@ from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter
 from scipy.ndimage.filters import _gaussian_kernel1d
 from skimage.filters.ridges import compute_hessian_eigenvalues
-from sklearn.metrics import RocCurveDisplay
+from sklearn.metrics import RocCurveDisplay, average_precision_score
 from torch import nn
 from welford import Welford
 
-from constants import IMG_DIR
+from constants import IMG_DIR, IMG_DIR_TS
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.seg_cnn import PatchBasedModule
@@ -244,7 +244,7 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
     gt_fissures_binary = torch.from_numpy(gt_fissures_arr != 0)
 
     # receiver operator characteristics curve
-    roc_auc = threshold_curves(enhanced_img_arr, gt_fissures_arr, show=show)
+    roc_auc, avg_prec = threshold_curves(enhanced_img_arr, gt_fissures_arr, show=show)
 
     # evaluate result based on different thresholds
     thresholds = torch.linspace(0, 1, steps=21) if fixed_thresh is None else [fixed_thresh]
@@ -276,12 +276,12 @@ def fissure_candidates(enhanced_img: sitk.Image, gt_fissures: sitk.Image, fixed_
     else:
         plt.close(fig)
 
-    return roc_auc, thresholds.numpy(), torch.stack(dices, dim=0).numpy(), torch.stack(recalls, dim=0).numpy(), torch.stack(accuracies, dim=0).numpy()
+    return roc_auc, avg_prec, thresholds.numpy(), torch.stack(dices, dim=0).numpy(), torch.stack(recalls, dim=0).numpy(), torch.stack(accuracies, dim=0).numpy()
 
 
 def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, show=False):
     label_names = np.unique(labels)[1:]
-    label_names = label_names.tolist() + ['all']
+    label_names = label_names.tolist() + ['all', 'all_but_RHF']
 
     # flatten all arrays
     labels = labels.flatten()
@@ -292,9 +292,12 @@ def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, 
     roc_display = None
     prc_display = None
     for lbl in label_names:
-        if lbl != 'all':
+        if lbl != 'all' and lbl != 'all_but_RHF':
             gt = labels == lbl
             name = f'label {lbl}'
+        elif lbl == 'all_but_RHF':
+            gt = np.logical_and(labels != 0, labels != 3)
+            name = 'all labels but RHF'
         else:
             gt = labels != 0
             name = 'all labels'
@@ -309,7 +312,7 @@ def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, 
         roc_auc[lbl] = roc_display.roc_auc
 
         # get average precision score
-        avg_prec[lbl] = None
+        avg_prec[lbl] = average_precision_score(gt, pred_values, pos_label=1)
 
     if out_dir is not None:
         roc_display.figure_.savefig(os.path.join(out_dir, 'roc.png'), dpi=300)
@@ -321,7 +324,7 @@ def threshold_curves(pred_values: np.ndarray, labels: np.ndarray, out_dir=None, 
         plt.close(roc_display.figure_)
         # plt.close(prc_display.figure_)
 
-    return roc_auc  #, avg_prec
+    return roc_auc, avg_prec
 
 
 def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample_spacing: float = None, show=False,
@@ -332,6 +335,7 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
     all_dsc = []
     all_rec = []
     all_acc = []
+    all_avg_prec = []
     for i in tqdm_redirect(range(len(ds))):
         # load data
         patid = ds.get_id(i)
@@ -354,9 +358,10 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
             assert enhanced_img is not None, 'No enhanced fissure image found. Run without "only_eval" option first.'
 
         # evaluation
-        roc_auc, thresh, dsc, rec, acc = fissure_candidates(enhanced_img, fissures, show=show,
-                                                            img_dir=eval_dir, img_prefix=f'{patid[0]}_{patid[1]}_')
+        roc_auc, avg_prec, thresh, dsc, rec, acc = fissure_candidates(enhanced_img, fissures, show=show,
+                                                                      img_dir=eval_dir, img_prefix=f'{patid[0]}_{patid[1]}_')
         all_roc_aucs.append(roc_auc)
+        all_avg_prec.append(avg_prec)
         all_dsc.append(dsc)
         all_rec.append(rec)
         all_acc.append(acc)
@@ -366,7 +371,10 @@ def enhance_full_dataset(ds: ImageDataset, out_dir: str, eval_dir: str, resample
     all_acc = np.stack(all_acc, axis=0)
     with open(os.path.join(eval_dir, 'results.csv'), 'w') as result_csv_file:
         writer = csv.writer(result_csv_file)
-        writer.writerow(['Mean ROC-AUC'] + [np.array([roc_auc['all'] for roc_auc in all_roc_aucs]).mean()])
+        writer.writerow(['Label'] + list(roc_auc.keys()))
+        writer.writerow(['Mean ROC-AUC'] + [np.array([roc_auc[lbl] for roc_auc in all_roc_aucs]).mean() for lbl in roc_auc.keys()])
+        writer.writerow(['Mean AVG-PREC'] + [np.array([avg_prec[lbl] for avg_prec in all_avg_prec]).mean() for lbl in avg_prec.keys()])
+        writer.writerow([])
         writer.writerow(['Per-Threshold'] + thresh.tolist())
         writer.writerow(['Recall'] + all_rec.mean(0).tolist())
         writer.writerow(['Accuracy'] + all_acc.mean(0).tolist())
@@ -435,8 +443,14 @@ if __name__ == '__main__':
     # eval_dir = new_dir(out_dir, 'eval_enhancement')
     # enhance_full_dataset(ds, out_dir=out_dir, eval_dir=eval_dir, resample_spacing=1, show=False, device='cuda:2')
 
-    # perform evaluation for COPD subset
-    copd_ds = ImageDataset(IMG_DIR, copd=True, do_augmentation=False)
-    out_dir = IMG_DIR
-    eval_dir = new_dir(IMG_DIR, 'eval_enhancement_copd')
+    # # perform evaluation for COPD subset
+    # copd_ds = ImageDataset(IMG_DIR, copd=True, do_augmentation=False)
+    # out_dir = IMG_DIR
+    # eval_dir = new_dir(IMG_DIR, 'eval_enhancement_copd')
+    # enhance_full_dataset(copd_ds, out_dir, eval_dir, resample_spacing=1, show=False, only_eval=True)
+
+    # perform evaluation for TS dataset
+    copd_ds = TotalSegmentatorDataset()
+    out_dir = IMG_DIR_TS
+    eval_dir = new_dir(IMG_DIR_TS, 'eval_enhancement')
     enhance_full_dataset(copd_ds, out_dir, eval_dir, resample_spacing=1, show=False, only_eval=True)
