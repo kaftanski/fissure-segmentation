@@ -4,7 +4,7 @@ from collections import OrderedDict
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, ticker
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import seaborn as sns
@@ -440,6 +440,112 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
     plt.show()
 
 
+def bvm_plot(copd=False):
+    text_width_inch = 4.8041
+
+    exclude_rhf = False
+    model = 'DGCNN_seg'
+
+    metric_renamer = {'ASSD_mean': 'ASSD', 'SDSD_mean': 'SDSD', 'HD_mean': 'HD'}
+
+    if copd:
+        combined_table, nnu, dgcnn_table = copd_change_table()
+    else:
+        tables = get_all_tables(model, cv=False, copd=copd, exclude_rhf=exclude_rhf)
+        combined_table = pd.concat([tables[kp][feat] for kp in tables.keys() for feat in tables[kp].keys()])
+
+        # fix the index (need ascending integers)
+        combined_table = combined_table.set_index(np.arange(combined_table.shape[0]))
+
+        # fix the spelling
+        combined_table = combined_table.replace(FEATURE_MODES + ['cnn'], FEATURE_MODES_NORMALIZED + ['CNN'])
+        combined_table = combined_table.replace(KP_MODES, KP_MODES_NORMALIZED)
+        combined_table = combined_table.rename(columns=metric_renamer)
+
+        # load nnu table
+        nnu = nnunet_table('voxels', cv=True, copd=copd, exclude_rhf=exclude_rhf)
+
+    nnu = nnu.rename(columns=metric_renamer)
+
+    # plotting
+    cmap = mpl.cm.get_cmap('tab10')
+    feat_modes = ['Image', 'SSC', 'None']
+    colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[0], 'None': 'gray'}
+    markers = ['x', '.', '+']
+    combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
+    tick_steps = {'ASSD': 1, 'SDSD': 0.5, 'HD': 2}
+    tick_step_copd = 0.1
+
+    sns.set_theme(context='paper', style='whitegrid', font_scale=0.75, rc={'axes.spines.right': True, 'axes.grid': True}), #'xtick.bottom': True})
+    #plt.rc('font', size=8)  # controls default text sizes
+    print(combined_table)
+
+    for i, metric in enumerate(['ASSD', 'SDSD', 'HD']):
+        add_legend = i == 1 and not copd
+
+        # swarm plot in categories
+        # point_plot = sns.catplot(data=combined_table, x='Keypoints', y=metric, hue='Features',
+        #                          kind='point', palette=colors,
+        #                          height=text_width_inch*0.5, aspect=1/2,
+        #                          legend_out=i==2, legend='auto', markers=markers,
+        #                          errorbar=None, linestyles="none", dodge=False)
+        point_plot = sns.catplot(data=combined_table, y='Keypoints', x=metric, hue='Features',
+                                 kind='point', palette=colors,
+                                 height=text_width_inch*0.25, aspect=2,
+                                 legend_out=add_legend, legend='auto', markers=markers,
+                                 errorbar=None, linestyles="none", dodge=False)
+
+        # point_plot.set_xticklabels(rotation=60)
+
+        # add the nnu-net baseline value
+        nnu_error_value = nnu[metric].mean()
+        # point_plot.refline(y=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')
+        point_plot.refline(x=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')
+
+        # y_label = f'mean {metric} [mm]' if not copd else f'relative {metric}'
+        # point_plot.set_axis_labels(x_var='', y_var=y_label)
+        x_label = f'mean {metric} [mm]' if not copd else f'relative {metric}'
+
+        if not copd:
+            x_tick_step = tick_steps[metric]
+        else:
+            x_tick_step = tick_step_copd
+
+        point_plot.set(
+            xlabel=x_label,
+            ylabel='',
+            #xticks=np.arange(np.round(x_min), np.round(x_max + x_tick_step), x_tick_step)
+        )
+        loc = ticker.MultipleLocator(base=x_tick_step)  # this locator puts ticks at regular intervals
+        point_plot.ax.xaxis.set_major_locator(loc)
+        point_plot.ax.xaxis.set_major_formatter(ticker.FuncFormatter(DecimalIfNecessaryFormatter()))
+
+        # move axis tick labels closer to axis
+        point_plot.ax.tick_params(axis='both', which='major', pad=0)
+
+        # add legend with nnunet
+        if add_legend:
+            add_handles = [Line2D([], [], linestyle='', label=''),
+                           Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
+            point_plot.fig.legend(handles=point_plot.legend.legendHandles + add_handles, title='Features',
+                                  loc='upper left', bbox_to_anchor=(0.77, 0.91))
+            point_plot.legend.set_visible(False)
+
+        save_fig(point_plot.fig, 'results/plots',
+                 f'{model}_{metric}{"_copd" if copd else ""}_bvm{"_no_RHF" if exclude_rhf else ""}_horizontal',
+                 pdf=True)
+
+    plt.show()
+
+
+class DecimalIfNecessaryFormatter:
+    def __init__(self, decimal_places=1):
+        self.decimal_places = decimal_places
+
+    def __call__(self, x, pos):
+        return '{:.{dec}f}'.format(x, dec=self.decimal_places) if int(x) != x else str(int(x))
+
+
 def point_net_seg_table():
     seg_table('PointNet_seg', 'image')
 
@@ -572,9 +678,10 @@ def copd_comparison_table():
     return joint_table
 
 
-def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
+def copd_change_table():
     combined_table = copd_comparison_table()
-    combined_table = combined_table.drop(columns=['ASSD', 'SDSD', 'HD', 'ASSD_copd', 'SDSD_copd', 'HD_copd', 'missing', 'missing_copd'])
+    combined_table = combined_table.drop(
+        columns=['ASSD', 'SDSD', 'HD', 'ASSD_copd', 'SDSD_copd', 'HD_copd', 'missing', 'missing_copd'])
     combined_table = combined_table.rename(columns={'ASSD_change': 'ASSD', 'SDSD_change': 'SDSD', 'HD_change': 'HD'})
     combined_table = combined_table.reset_index()  # turn make index into columns
 
@@ -591,6 +698,11 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
 
     # fix the index (need ascending integers)
     combined_table = combined_table.set_index(np.arange(combined_table.shape[0]))
+    return combined_table, nnu_table, dgcnn_table
+
+
+def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
+    combined_table, nnu_table, dgcnn_table = copd_change_table()
 
     print(combined_table)
 
@@ -624,7 +736,8 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
         if not presentation:
             bar_plot.set_xticklabels([])
         handles, labels = bar_plot.axes[-1][-1].get_legend_handles_labels()
-        handles = handles + [Line2D([],[],linestyle=''),# Line2D([], [], color='k', lw=1.5, label='Mean'),
+        handles = handles + [Line2D([], [], linestyle=''),
+
                              Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
         bar_plot.add_legend(title='Features:', handles=handles)
         bar_plot.set_titles('{col_name} KPs')
@@ -664,5 +777,8 @@ if __name__ == '__main__':
 
     # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, exclude_rhf=True)
     # model_comparison(exclude_rhf=True)
-    copd_comparison_table()
+    # copd_comparison_table()
     # copd_relative_performance_plot(presentation=False, add_nnu_value=True)
+
+    bvm_plot(copd=False)
+    bvm_plot(copd=True)
