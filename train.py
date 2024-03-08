@@ -9,8 +9,8 @@ import open3d as o3d
 import torch
 
 import model_trainer
-from cli.cl_args import get_dgcnn_train_parser, get_point_segmentation_parser
-from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
+from cli.cl_args import get_point_segmentation_parser
+from cli.cli_utils import load_args_for_testing, store_args, load_args
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
 from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
 from data_processing.find_lobes import lobes_to_fissures
@@ -18,24 +18,14 @@ from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh
 from losses.access_losses import get_loss_fn
 from losses.dgssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
-from models.dgcnn import DGCNNSeg
-from models.point_net import PointNetSeg
+from models.access_models import get_point_seg_model_class_from_args
 from thesis.utils import param_and_op_count
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, \
     mask_to_points, \
-    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print, load_points
+    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print
 from visualization import visualize_point_cloud, visualize_o3d_mesh
-
-
-def get_point_seg_model_class(args):
-    if 'model' not in args or args.model == 'DGCNN':
-        return DGCNNSeg
-    elif args.model == 'PointNet':
-        return PointNetSeg
-    else:
-        raise NotImplementedError()
 
 
 def train(model, ds, device, out_dir, args):
@@ -154,7 +144,7 @@ def test(ds: PointDataset, device, out_dir, show, args):
 
     img_ds = LungData(ds.image_folder)
 
-    model_class = get_point_seg_model_class(args)
+    model_class = get_point_seg_model_class_from_args(args)
 
     net = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
     net.to(device)
@@ -321,7 +311,7 @@ def test(ds: PointDataset, device, out_dir, show, args):
 
 def speed_test(ds: PointDataset, device, out_dir):
     args = load_args(os.path.join(out_dir))
-    model_class = get_point_seg_model_class(args)
+    model_class = get_point_seg_model_class_from_args(args)
 
     net = model_class.load(os.path.join(out_dir, 'fold0', 'model.pth'), device=device)
     net.to(device)
@@ -611,6 +601,10 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
 
+    # setup folder
+    if not os.path.isdir(args.output):
+        os.makedirs(args.output)
+
     # run the speed test
     if args.speed:
         speed_test(ds, get_device(args.gpu), args.output)
@@ -618,7 +612,7 @@ if __name__ == '__main__':
 
     # setup model
     in_features = ds[0][0].shape[0]
-    model_class = get_point_seg_model_class(args)
+    model_class = get_point_seg_model_class_from_args(args)
     net = model_class(in_features=in_features, num_classes=ds.num_classes, k=args.k,
                       spatial_transformer=args.transformer, dynamic=not args.static)
 

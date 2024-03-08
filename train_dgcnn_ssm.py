@@ -72,12 +72,12 @@ def test(ds: CorrespondingPointDataset, device, out_dir, show, args):
 
         baseline_error = corresponding_point_distance(reconstruction_baseline, corr_pts_affine_reg).cpu()
         for c in range(ds.num_classes):
-            corr_point_dist[i, c] = error[0, ds.corr_points.label == c+1].mean()
-            corr_point_dist_sd[i, c] = error[0, ds.corr_points.label == c+1].std()
-            corr_point_dist_hd[i, c] = error[0, ds.corr_points.label == c+1].max()
-            corr_point_dist_hd95[i, c] = torch.quantile(error[0, ds.corr_points.label == c+1], q=0.95)
+            corr_point_dist[i, c] = error[0, ds.corr_points.fissures == c + 1].mean()
+            corr_point_dist_sd[i, c] = error[0, ds.corr_points.fissures == c + 1].std()
+            corr_point_dist_hd[i, c] = error[0, ds.corr_points.fissures == c + 1].max()
+            corr_point_dist_hd95[i, c] = torch.quantile(error[0, ds.corr_points.fissures == c + 1], q=0.95)
 
-            ssm_error_baseline[i, c] = baseline_error[0, ds.corr_points.label == c + 1].mean()
+            ssm_error_baseline[i, c] = baseline_error[0, ds.corr_points.fissures == c + 1].mean()
 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')

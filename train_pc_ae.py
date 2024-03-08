@@ -1,133 +1,20 @@
-import glob
 import os
 
-import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
-from pytorch3d.structures import Meshes, join_meshes_as_batch
 
-from augmentations import point_augmentation
 from cli.cl_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import IMG_DIR, IMG_DIR_TS
-from data import CustomDataset
+from data import SampleFromMeshDS
 from metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
 from thesis.utils import param_and_op_count
 from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
-from utils.image_ops import load_image_metadata
-from utils.general_utils import load_meshes, new_dir, kpts_to_grid, ALIGN_CORNERS, kpts_to_world, o3d_to_pt3d_meshes, \
-    pt3d_to_o3d_meshes
+from utils.general_utils import new_dir, pt3d_to_o3d_meshes
 from visualization import point_cloud_on_axis, trimesh_on_axis, color_2d_points_bremm, color_2d_mesh_bremm
-
-
-class SampleFromMeshDS(CustomDataset):
-    def __init__(self, folder, sample_points, fixed_object: int = None, exclude_rhf=False, lobes=False, mesh_as_target=True):
-        super(SampleFromMeshDS, self).__init__(exclude_rhf=exclude_rhf, binary=False, do_augmentation=True)
-
-        self.sample_points = sample_points
-        self.fixed_object = fixed_object
-        self.mesh_as_target = mesh_as_target
-        self.lobes = lobes
-
-        mesh_dirs = sorted(glob.glob(os.path.join(folder, "*_mesh_*")))
-
-        self.ids = []
-        self.meshes = []
-        self.img_sizes = []
-        for mesh_dir in mesh_dirs:
-            case, sequence = os.path.basename(mesh_dir).split("_mesh_")
-            meshes = load_meshes(folder, case, sequence, obj_name='fissure' if not lobes else 'lobe')
-            if not lobes and exclude_rhf:
-                meshes = meshes[:2]
-            self.meshes.append(meshes)
-            self.ids.append((case, sequence))
-
-            size, spacing = load_image_metadata(os.path.join(folder, f"{case}_img_{sequence}.nii.gz"))
-            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
-            self.img_sizes.append(size_world)
-
-        assert all(len(self.meshes[0]) == len(m) for m in self.meshes)
-        self.num_objects = len(self.meshes[0])
-
-    def __len__(self):
-        return len(self.ids) * self.num_objects if self.fixed_object is None else len(self.ids)
-
-    def __getitem__(self, item):
-        meshes = self.meshes[self.continuous_to_pat_index(item)]
-        obj_index = self.continuous_to_obj_index(item)
-        current_mesh = meshes[obj_index]
-
-        # sample point cloud from meshes
-        samples = current_mesh.sample_points_uniformly(number_of_points=self.sample_points)
-        samples = torch.from_numpy(np.asarray(samples.points)).float()
-
-        # normalize to pytorch grid coordinates
-        samples = self.normalize_sampled_pc(samples, item).transpose(0, 1)
-
-        # augmentation
-        if self.do_augmentation:
-            samples, transform = point_augmentation(samples.unsqueeze(0))
-            samples = samples.squeeze(0)
-
-            # add point jitter
-            samples += torch.randn_like(samples) * 0.005
-        else:
-            transform = None
-
-        # get the target: either the PC itself or the GT mesh
-        if self.mesh_as_target:
-            target = self.normalize_mesh(o3d_to_pt3d_meshes([current_mesh]), item)
-            if transform is not None:
-                # augment the mesh
-                mesh_verts, mesh_faces = target.get_mesh_verts_faces(0)
-                target = Meshes([transform.transform_points(mesh_verts)], [mesh_faces])
-        else:
-            target = samples
-
-        return samples, target
-
-    def normalize_sampled_pc(self, samples, index):
-        return kpts_to_grid(samples, self.get_img_size(index)[::-1], align_corners=ALIGN_CORNERS)
-
-    def unnormalize_sampled_pc(self, samples, index):
-        return kpts_to_world(samples, self.get_img_size(index)[::-1], align_corners=ALIGN_CORNERS)
-
-    def normalize_mesh(self, mesh: Meshes, index):
-        return Meshes([self.normalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
-
-    def unnormalize_mesh(self, mesh: Meshes, index):
-        return Meshes([self.unnormalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
-
-    def get_batch_collate_fn(self):
-        if self.mesh_as_target:
-            def mesh_collate_fn(list_of_samples):
-                pcs = torch.stack([pc for pc, _ in list_of_samples], dim=0)
-                meshes = join_meshes_as_batch([mesh for _, mesh in list_of_samples])
-                return pcs, meshes
-
-            return mesh_collate_fn
-
-        else:
-            # no special collation function needed
-            return None
-
-    def continuous_to_pat_index(self, item):
-        return item // self.num_objects if self.fixed_object is None else item
-
-    def continuous_to_obj_index(self, item):
-        return item % self.num_objects if self.fixed_object is None else self.fixed_object
-
-    def get_id(self, item):
-        return self.ids[self.continuous_to_pat_index(item)]
-
-    def get_img_size(self, item):
-        return self.img_sizes[self.continuous_to_pat_index(item)]
-
-    def get_obj_mesh(self, item):
-        return self.meshes[self.continuous_to_pat_index(item)][self.continuous_to_obj_index(item)]
 
 
 def normalize_pc_zstd(pc):

@@ -1,4 +1,5 @@
 import os.path
+import warnings
 from typing import Sequence
 import SimpleITK as sitk
 import matplotlib.cm
@@ -13,7 +14,8 @@ from utils.general_utils import find_test_fold_for_id
 from visualization import visualize_with_overlay
 
 DEFAULT_SLICES = {'s0070': [70, 180]}
-result_folder = 'results/plots/qualitative'
+RESULT_FOLDER = 'results/plots/qualitative'
+ALPHA = 0.6
 
 
 def create_image_figure(img, spacing=None):
@@ -25,7 +27,7 @@ def create_image_figure(img, spacing=None):
 
 
 def slice_image(img_3d, slice_num, slice_dim):
-    index = [slice(None)] * slice_dim + [slice(slice_num, slice_num + 1)]
+    index = tuple([slice(None)] * slice_dim + [slice(slice_num, slice_num + 1)])
     return img_3d[index].squeeze(), index
 
 
@@ -67,7 +69,7 @@ def multi_model_overlay(img, label_maps, slice_num, slice_dim=2, fig_name='keypo
     fig = create_image_figure(img_slice)
 
     colors = matplotlib.cm.get_cmap('tab10').colors
-    visualize_with_overlay(img_slice.squeeze(), combined_label.squeeze(), alpha=0.6, colors=colors, ax=fig.gca())
+    visualize_with_overlay(img_slice.squeeze(), combined_label.squeeze(), alpha=ALPHA, colors=colors, ax=fig.gca())
 
     save_fig(fig, 'results/plots/qualitative', f'{fig_name}_{patid}_slice{slice_num}', pdf=False)
     legend_figure(labels=list(label_maps.keys()), colors=colors,
@@ -110,16 +112,16 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2, slices=D
         # figure
         fig = create_image_figure(img_slice, spacing)
         colors = [c for i, c in enumerate(CLASS_COLORS) if i+1 in np.unique(label_slice)]
-        visualize_with_overlay(img_slice, label_slice, alpha=0.6, ax=fig.gca(), colors=colors, spacing=spacing)
+        visualize_with_overlay(img_slice, label_slice, alpha=ALPHA, ax=fig.gca(), colors=colors, spacing=spacing)
 
-        save_fig(fig, 'results/plots/qualitative', f'{model_name}_{patid}_slice{slice_num}', pdf=False)
+        save_fig(fig, RESULT_FOLDER, f'{model_name}_{patid}_slice{slice_num}', pdf=False)
         legend_figure(labels=[CLASSES[i] for i in sorted(list(CLASSES.keys()))], colors=CLASS_COLORS,
                       outdir='results/plots/qualitative', basename=f'classes_legend')
 
         # plot the slice without labels
         fig = create_image_figure(img_slice, spacing)
         visualize_with_overlay(img_slice, np.zeros_like(label_slice), ax=fig.gca(), spacing=spacing)
-        save_fig(fig, 'results/plots/qualitative', f'{patid}_slice{slice_num}', pdf=False)
+        save_fig(fig, RESULT_FOLDER, f'{patid}_slice{slice_num}', pdf=False)
 
 
 def kp_comparison_figure(patid='s0070', ae=False):
@@ -146,8 +148,12 @@ def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=D
     ds = ImageDataset(ds_path, do_augmentation=False)
     img_index = ds.get_index(patid, sequence)
     if split_file is not None:
-        split = load_split_file(split_file)
-        fold = find_test_fold_for_id(patid, sequence=sequence, split=split)
+        try:
+            split = load_split_file(split_file)
+            fold = find_test_fold_for_id(patid, sequence=sequence, split=split)
+        except FileNotFoundError:
+            warnings.warn('No split file found, using fold 0')
+            fold = 0
     else:
         fold = None
     img = ds.get_image(img_index)
@@ -157,15 +163,23 @@ def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=D
 
 
 def comparative_figures(patid='s0070'):
-    img_windowed, fold = get_image_and_fold(patid, IMG_DIR_TSv1)
+    img_windowed, fold = get_image_and_fold(patid, ds_path=IMG_DIR_TS)
     label_map_nnu = sitk.ReadImage(os.path.join(
-        f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/fold_{fold}/validation_raw_postprocessed',
+        f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/cv_niftis_postprocessed',#fold_{fold}/validation_raw_postprocessed',
         f'{patid}_fix.nii.gz'))
+
+    # quick fix for crop
+    z_crop_range = [7, 225]
+    label_map_nnu = sitk.Extract(label_map_nnu, size=(*label_map_nnu.GetSize()[:2], z_crop_range[1] - z_crop_range[0]),
+                       index=(0, 0, z_crop_range[0]))
+
     multi_class_overlay(img_windowed, label_map_nnu, slice_dim=2, model_name='nnU-Net', patid=patid)
 
     label_map_v2m = sitk.ReadImage(os.path.join(
         f'../voxel2mesh-master/resultsExperiment_003/trial_{fold+1}/best_performance/voxels',
         f'{patid}_fissures_pred_fixed.nii.gz'))
+    label_map_v2m = sitk.Extract(label_map_v2m, size=(*label_map_v2m.GetSize()[:2], z_crop_range[1] - z_crop_range[0]),
+                       index=(0, 0, z_crop_range[0]))
     multi_class_overlay(img_windowed, label_map_v2m, slice_dim=2, model_name='v2m', patid=patid)
 
 
@@ -184,5 +198,6 @@ def copd_figures():
 
 if __name__ == '__main__':
     # kp_comparison_figure(ae=True)
-    # comparative_figures()
-    copd_figures()
+    # kp_comparison_figure(ae=False)
+    comparative_figures()
+    # copd_figures()

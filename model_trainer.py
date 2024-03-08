@@ -15,6 +15,7 @@ import models.modelio
 from data import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
 from losses.dgssm_loss import DGSSMLoss
+from losses.dpsr_loss import DPSRLoss
 from losses.mesh_loss import RegularizedMeshLoss
 
 
@@ -63,7 +64,8 @@ class ModelTrainer:
 
         # loss function
         self.loss_function = loss_function
-        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss, DGSSMLoss))
+        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss, DGSSMLoss, DPSRLoss)) \
+            and not self.device == 'cpu'
 
         # create data loaders
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
@@ -153,11 +155,17 @@ class ModelTrainer:
                 with torch.no_grad():
                     target_weights = self.model.ssm(shape)
                 y = (shape, target_weights, y[1].to(self.device))  # shape, target weights and target affine params
+            elif isinstance(self.loss_function, DPSRLoss):
+                target_labels, target_meshes = y
+                y = (target_labels.to(self.device), target_meshes.to(self.device))
             else:
                 y = y.to(self.device)
 
             # loss computation
-            loss = self.loss_function(output, y)
+            if isinstance(self.loss_function, DPSRLoss):
+                loss = self.loss_function(output, y, current_epoch_fraction=ep/self.epochs)
+            else:
+                loss = self.loss_function(output, y)
 
         if isinstance(loss, tuple):
             loss, components = loss

@@ -4,12 +4,11 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
-from pytorch3d.structures import Meshes
 
 from cli.cl_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing
-from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR
-from data import PointDataset, load_split_file, save_split_file, ImageDataset
+from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS, IMG_DIR
+from data import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
@@ -17,8 +16,7 @@ from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
 from train import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
-from utils.image_ops import load_image_metadata
-from utils.general_utils import new_dir, kpts_to_grid, kpts_to_world, ALIGN_CORNERS, pt3d_to_o3d_meshes, load_meshes, nanstd, \
+from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
     get_device, no_print
 from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
     visualize_o3d_mesh
@@ -85,38 +83,6 @@ class RegularizedSegDGCNN(LoadableModel):
         return self.reconstruct(x, seg)
 
 
-class PointToMeshDS(PointDataset):
-    def __init__(self, sample_points, kp_mode, folder, image_folder, use_coords=True,
-                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True):
-        super(PointToMeshDS, self).__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
-                                            image_folder=image_folder,
-                                            use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
-                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation)
-        self.meshes = []
-        self.img_sizes = []
-        for case, sequence in self.ids:
-            meshes = load_meshes(image_folder, case, sequence, obj_name='fissure' if not lobes else 'lobe')
-            if not lobes and exclude_rhf:
-                meshes = meshes[:2]
-            self.meshes.append(meshes)
-
-            size, spacing = load_image_metadata(os.path.join(image_folder, f"{case}_img_{sequence}.nii.gz"))
-            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
-            self.img_sizes.append(size_world)
-
-    def normalize_sampled_pc(self, samples, index):
-        return kpts_to_grid(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
-
-    def unnormalize_sampled_pc(self, samples, index):
-        return kpts_to_world(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
-
-    def normalize_mesh(self, mesh: Meshes, index):
-        return Meshes([self.normalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
-
-    def unnormalize_mesh(self, mesh: Meshes, index):
-        return Meshes([self.unnormalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
-
-
 def test(ds: PointToMeshDS, device, out_dir, show, args):
     model = RegularizedSegDGCNN.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
@@ -179,12 +145,12 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
 
             # unnormalize point cloud
             input_coords = x[0, :3, lbl==cur_obj+1].transpose(0, 1)
-            input_coords = ds.unnormalize_sampled_pc(input_coords, i)
-            segmented_sampled_coords = ds.unnormalize_sampled_pc(sampled_points_per_obj[cur_obj], i)
+            input_coords = ds.unnormalize_pc(input_coords, i)
+            segmented_sampled_coords = ds.unnormalize_pc(sampled_points_per_obj[cur_obj], i)
             if output_is_mesh:
                 reconstruct_obj = ds.unnormalize_mesh(reconstruct_obj, i)
             else:
-                reconstruct_obj = ds.unnormalize_sampled_pc(reconstruct_obj.transpose(0, 1).squeeze(), i)
+                reconstruct_obj = ds.unnormalize_pc(reconstruct_obj.transpose(0, 1).squeeze(), i)
 
             # compute chamfer distance (CAVE: pt3d computes it as mean squared distance and returns d_cham(x,y)+d_cham(y,x))
             # currently no GPU support
@@ -358,7 +324,7 @@ if __name__ == '__main__':
     ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=dgcnn_args.coords, folder=point_dir,
                        image_folder=img_dir,
                        patch_feat=dgcnn_args.patch, exclude_rhf=dgcnn_args.exclude_rhf, lobes=dgcnn_args.data == 'lobes',
-                       binary=dgcnn_args.binary)
+                       binary=dgcnn_args.binary, do_augmentation=False)
 
     if args.speed:
         speed_test(ds, get_device(args.gpu), args.output)

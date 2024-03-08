@@ -7,7 +7,9 @@ from torch import nn
 from losses.chamfer_loss import ChamferLoss
 from losses.dgssm_loss import DGSSMLoss
 from losses.dice_loss import GDL
+from losses.dpsr_loss import DPSRLoss
 from losses.mesh_loss import RegularizedMeshLoss
+from losses.nnu_loss import NNULoss
 from losses.recall_loss import BatchRecallLoss
 
 
@@ -30,21 +32,12 @@ class Losses(Enum):
     MESH = "mesh"
     """ regularized mesh loss """
 
+    DPSR = "dpsr"
+    """ loss for DPSR models (combining nnU-Net (CE+Dice) and Chamfer loss"""
+
     @classmethod
     def list(cls):
         return list(map(lambda c: c.value, cls))
-
-
-def assemble_nnunet_loss_function(class_weights: torch.Tensor = None):
-    ce_loss = nn.CrossEntropyLoss(class_weights)
-    dice_loss = GDL(apply_nonlin=nn.Softmax(dim=1), batch_dice=True)
-
-    def combined_loss(prediction, target):
-        ce = ce_loss(prediction, target)
-        dice = dice_loss(prediction, target)
-        return ce + dice, {'CE': ce, 'GDL': dice}
-
-    return combined_loss
 
 
 def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: List[float] = None):
@@ -52,7 +45,7 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
         loss = loss.value
 
     if loss == Losses.NNUNET.value:
-        return assemble_nnunet_loss_function(class_weights)
+        return NNULoss(class_weights)
 
     if loss == Losses.CE.value:
         return nn.CrossEntropyLoss(class_weights)
@@ -85,5 +78,16 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
         else:
             # default weights
             return RegularizedMeshLoss()
+
+    if loss == Losses.DPSR.value:
+        if term_weights is not None:
+            assert len(term_weights) == 3
+            return DPSRLoss(class_weights,
+                            w_seg=term_weights[0],
+                            w_chamfer=term_weights[1],
+                            epoch_start_chamfer=term_weights[2])
+
+        # else default weights:
+        return DPSRLoss(class_weights)
 
     raise ValueError(f'No loss function named "{loss}". Please choose one from {Losses.list()} instead.')

@@ -13,6 +13,9 @@ from constants import KP_MODES, FEATURE_MODES
 from thesis.utils import save_fig, legend_figure, textwidth_to_figsize, SLIDE_WIDTH_INCH, SLIDE_HEIGHT_INCH
 
 
+METRIC_RENAMER = {'ASSD_mean': 'ASSD', 'SDSD_mean': 'SDSD', 'HD_mean': 'HD'}
+
+
 def removesuffix(text, suffix):
     """ for compatibility in Python 3.8 """
     if text.endswith(suffix):
@@ -383,9 +386,12 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
     # fix the spelling
     combined_table = combined_table.replace(FEATURE_MODES + ['cnn'], FEATURE_MODES_NORMALIZED + ['CNN'])
     combined_table = combined_table.replace(KP_MODES, KP_MODES_NORMALIZED)
-    combined_table = combined_table.rename(columns={'ASSD_mean': 'ASSD', 'SDSD_mean': 'SDSD', 'HD_mean': 'HD'})
+    combined_table = combined_table.rename(columns=METRIC_RENAMER)
 
     print(combined_table)
+
+    nnu = nnunet_table('voxels', cv=True, copd=copd, exclude_rhf=exclude_rhf)
+    nnu = nnu.rename(columns=METRIC_RENAMER)
 
     # plotting
     cmap = mpl.cm.get_cmap('tab10')
@@ -405,7 +411,7 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
     for metric in ['ASSD', 'SDSD', 'HD']:
         # swarm plot in categories
         swarm_plot = sns.catplot(data=combined_table, x='Features', y=metric, col='Keypoints', hue='Features', kind='swarm', palette=colors,
-                           height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=False, legend='auto')
+                                 height=SLIDE_HEIGHT_INCH * 0.5, aspect=2/3, legend_out=False, legend='auto')
 
         # overlay mean-lines by adding boxplots without their boxes
         m_props = {'color': 'k', 'ls': '-', 'lw': 1.5}
@@ -421,11 +427,10 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
 
         # add the nnu-net baseline value
         if add_nnu_value:
-            nnu = nnunet_table('voxels', cv=True, copd=copd, exclude_rhf=exclude_rhf)
             if use_median_instead_of_mean:
-                nnu_error_value = nnu[f'{metric}_mean'].median()
+                nnu_error_value = nnu[f'{metric}'].median()
             else:
-                nnu_error_value = nnu[f'{metric}_mean'].mean()
+                nnu_error_value = nnu[f'{metric}'].mean()
             print(nnu_error_value)
             swarm_plot.map(plt.axhline, y=nnu_error_value, ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3])
 
@@ -446,8 +451,6 @@ def bvm_plot(copd=False):
     exclude_rhf = False
     model = 'DGCNN_seg'
 
-    metric_renamer = {'ASSD_mean': 'ASSD', 'SDSD_mean': 'SDSD', 'HD_mean': 'HD'}
-
     if copd:
         combined_table, nnu, dgcnn_table = copd_change_table()
     else:
@@ -460,12 +463,12 @@ def bvm_plot(copd=False):
         # fix the spelling
         combined_table = combined_table.replace(FEATURE_MODES + ['cnn'], FEATURE_MODES_NORMALIZED + ['CNN'])
         combined_table = combined_table.replace(KP_MODES, KP_MODES_NORMALIZED)
-        combined_table = combined_table.rename(columns=metric_renamer)
+        combined_table = combined_table.rename(columns=METRIC_RENAMER)
 
         # load nnu table
         nnu = nnunet_table('voxels', cv=True, copd=copd, exclude_rhf=exclude_rhf)
 
-    nnu = nnu.rename(columns=metric_renamer)
+    nnu = nnu.rename(columns=METRIC_RENAMER)
 
     # plotting
     cmap = mpl.cm.get_cmap('tab10')
@@ -491,10 +494,10 @@ def bvm_plot(copd=False):
         #                          errorbar=None, linestyles="none", dodge=False)
         point_plot = sns.catplot(data=combined_table, y='Keypoints', x=metric, hue='Features',
                                  kind='point', palette=colors,
-                                 height=text_width_inch*0.25, aspect=2,
+                                 height=text_width_inch/5, aspect=5/2,
                                  legend_out=add_legend, legend='auto', markers=markers,
                                  errorbar=None, linestyles="none", dodge=False)
-
+        point_plot.ax.grid(True, 'both')
         # point_plot.set_xticklabels(rotation=60)
 
         # add the nnu-net baseline value
@@ -525,10 +528,10 @@ def bvm_plot(copd=False):
 
         # add legend with nnunet
         if add_legend:
-            add_handles = [Line2D([], [], linestyle='', label=''),
+            add_handles = [#Line2D([], [], linestyle='', label=''),
                            Line2D([], [], ls='--', lw=1.5, c=mpl.cm.get_cmap('Dark2').colors[3], label='nnU-Net')]
-            point_plot.fig.legend(handles=point_plot.legend.legendHandles + add_handles, title='Features',
-                                  loc='upper left', bbox_to_anchor=(0.77, 0.91))
+            point_plot.fig.legend(handles=point_plot.legend.legendHandles + add_handles, #title='Features',
+                                  loc='upper left', bbox_to_anchor=(0.77, 0.9))
             point_plot.legend.set_visible(False)
 
         save_fig(point_plot.fig, 'results/plots',
@@ -771,14 +774,15 @@ if __name__ == '__main__':
     # bar_plot_pointnet_vs_dgcnn(presentation=True)
     # seg_table('DGCNN', 'image')
     # model_comparison()
-#    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
-    # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
+    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
     # seg_table("DGCNN_seg", copd=False, exclude_rhf=True)
 
     # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, exclude_rhf=True)
     # model_comparison(exclude_rhf=True)
     # copd_comparison_table()
-    # copd_relative_performance_plot(presentation=False, add_nnu_value=True)
+    copd_relative_performance_plot(presentation=True, add_nnu_value=True)
 
-    bvm_plot(copd=False)
-    bvm_plot(copd=True)
+    # bvm_plot(copd=False)
+    # bvm_plot(copd=True)
+

@@ -1,6 +1,7 @@
 import collections
 import csv
 import glob
+import os
 import os.path
 import pickle
 import warnings
@@ -13,14 +14,15 @@ import SimpleITK as sitk
 import numpy as np
 import open3d as o3d
 import torch
+from pytorch3d.structures import Meshes, join_meshes_as_batch
 from pytorch3d.transforms import so3_log_map, Transform3d
 from torch.utils.data import Dataset
 
-from augmentations import image_augmentation, point_augmentation, compose_transform
+from augmentations import image_augmentation, point_augmentation, compose_transform, transform_meshes
 from constants import POINT_DIR, IMG_DIR
 from shape_model.ssm import load_shape
 from utils.general_utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
-    decompose_similarity_transform
+    decompose_similarity_transform, load_meshes, o3d_to_pt3d_meshes
 from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
     get_resample_factors, load_image_metadata
 
@@ -196,6 +198,13 @@ class CustomDataset(Dataset, ABC):
         return len(self.ids)
 
     @property
+    def num_classes(self):
+        if self.binary:
+            return 2
+        else:
+            return 3 if self.exclude_rhf or self.copd else 4
+
+    @property
     def do_augmentation(self):
         return self._do_augmentation
 
@@ -276,13 +285,6 @@ class ImageDataset(LungData, CustomDataset):
             attr = getattr(self, name)
             if isinstance(attr, list):
                 remove_indices(attr, to_remove)
-
-    @property
-    def num_classes(self):
-        if self.binary:
-            return 2
-        else:
-            return 3 if self.exclude_rhf else 4
 
     def __getitem__(self, item):
         img = self.get_image(item)
@@ -425,13 +427,14 @@ class PointDataset(CustomDataset):
             size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
             self.img_sizes_world.append(size_world)
 
-    @property
-    def num_classes(self):
-        return 2 if self.binary else max(len(torch.unique(lbl)) for lbl in self.labels)
+    # @property
+    # def num_classes(self):
+    #     return 2 if self.binary else max(len(torch.unique(lbl)) for lbl in self.labels)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item, return_aug_transform=False):
         # randomly sample points
         feat = self.features[item]
+        transform = None
         if self.use_coords:
             pts = self.points[item]
             if self._do_augmentation:
@@ -446,10 +449,14 @@ class PointDataset(CustomDataset):
         lbls = self.labels[item]
         sample = torch.randperm(x.shape[1])[:self.sample_points]
 
+        lbls_sampled = lbls[sample]
         if self.binary:
-            return x[:, sample], (lbls[sample] != 0).long()
-        else:
-            return x[:, sample], lbls[sample]
+            lbls_sampled = (lbls[sample] != 0).long()
+
+        if return_aug_transform:
+            return x[:, sample], lbls_sampled, transform
+
+        return x[:, sample], lbls_sampled
 
     def get_class_weights(self):
         frequency = torch.zeros(self.num_classes)
@@ -488,6 +495,7 @@ class PointDataset(CustomDataset):
                 return None, self
         else:
             return super().split_data_set(split)
+
 
 def compute_class_weights(class_frequency):
     class_frequency = class_frequency / class_frequency.sum()
@@ -533,7 +541,7 @@ class CorrespondingPointDataset(PointDataset):
     def do_augmentation(self, value):
         self._do_augmentation_correspondingly = value
 
-    def __getitem__(self, item):
+    def __getitem__(self, item, return_aug_transform=False):
         pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
         target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item, return_transform=True)
 
@@ -675,6 +683,185 @@ class CorrespondingPoints:
         return torch.concat(unregistered, dim=0)
 
 
+class SampleFromMeshDS(CustomDataset):
+    def __init__(self, folder, sample_points, fixed_object: int = None, exclude_rhf=False, lobes=False, mesh_as_target=True):
+        super(SampleFromMeshDS, self).__init__(exclude_rhf=exclude_rhf, binary=False, do_augmentation=True)
+
+        self.sample_points = sample_points
+        self.fixed_object = fixed_object
+        self.mesh_as_target = mesh_as_target
+        self.lobes = lobes
+
+        mesh_dirs = sorted(glob.glob(os.path.join(folder, "*_mesh_*")))
+
+        self.ids = []
+        self.meshes = []
+        self.img_sizes = []
+        for mesh_dir in mesh_dirs:
+            case, sequence = os.path.basename(mesh_dir).split("_mesh_")
+            meshes = load_meshes(folder, case, sequence, obj_name='fissure' if not lobes else 'lobe')
+            if not lobes and exclude_rhf:
+                meshes = meshes[:2]
+            self.meshes.append(meshes)
+            self.ids.append((case, sequence))
+
+            size, spacing = load_image_metadata(os.path.join(folder, f"{case}_img_{sequence}.nii.gz"))
+            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
+            self.img_sizes.append(size_world)
+
+        assert all(len(self.meshes[0]) == len(m) for m in self.meshes)
+        self.num_objects = len(self.meshes[0])
+
+    def __len__(self):
+        return len(self.ids) * self.num_objects if self.fixed_object is None else len(self.ids)
+
+    def __getitem__(self, item):
+        meshes = self.meshes[self.continuous_to_pat_index(item)]
+        obj_index = self.continuous_to_obj_index(item)
+        current_mesh = meshes[obj_index]
+
+        # sample point cloud from meshes
+        samples = current_mesh.sample_points_uniformly(number_of_points=self.sample_points)
+        samples = torch.from_numpy(np.asarray(samples.points)).float()
+
+        # normalize to pytorch grid coordinates
+        samples = self.normalize_sampled_pc(samples, item).transpose(0, 1)
+
+        # augmentation
+        if self.do_augmentation:
+            samples, transform = point_augmentation(samples.unsqueeze(0))
+            samples = samples.squeeze(0)
+
+            # add point jitter
+            samples += torch.randn_like(samples) * 0.005
+        else:
+            transform = None
+
+        # get the target: either the PC itself or the GT mesh
+        if self.mesh_as_target:
+            target = self.normalize_mesh(o3d_to_pt3d_meshes([current_mesh]), item)
+            if transform is not None:
+                # augment the mesh
+                mesh_verts, mesh_faces = target.get_mesh_verts_faces(0)
+                target = Meshes([transform.transform_points(mesh_verts)], [mesh_faces])
+        else:
+            target = samples
+
+        return samples, target
+
+    def normalize_sampled_pc(self, samples, index):
+        return kpts_to_grid(samples, self.get_img_size(index)[::-1], align_corners=ALIGN_CORNERS)
+
+    def unnormalize_sampled_pc(self, samples, index):
+        return kpts_to_world(samples, self.get_img_size(index)[::-1], align_corners=ALIGN_CORNERS)
+
+    def normalize_mesh(self, mesh: Meshes, index):
+        return Meshes([self.normalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
+
+    def unnormalize_mesh(self, mesh: Meshes, index):
+        return Meshes([self.unnormalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
+
+    def get_batch_collate_fn(self):
+        if self.mesh_as_target:
+            def mesh_collate_fn(list_of_samples):
+                pcs = torch.stack([pc for pc, _ in list_of_samples], dim=0)
+                meshes = join_meshes_as_batch([mesh for _, mesh in list_of_samples])
+                return pcs, meshes
+
+            return mesh_collate_fn
+
+        else:
+            # no special collation function needed
+            return None
+
+    def continuous_to_pat_index(self, item):
+        return item // self.num_objects if self.fixed_object is None else item
+
+    def continuous_to_obj_index(self, item):
+        return item % self.num_objects if self.fixed_object is None else self.fixed_object
+
+    def get_id(self, item):
+        return self.ids[self.continuous_to_pat_index(item)]
+
+    def get_img_size(self, item):
+        return self.img_sizes[self.continuous_to_pat_index(item)]
+
+    def get_obj_mesh(self, item):
+        return self.meshes[self.continuous_to_pat_index(item)][self.continuous_to_obj_index(item)]
+
+
+class PointToMeshDS(PointDataset):
+    def __init__(self, sample_points, kp_mode, folder=POINT_DIR, image_folder=IMG_DIR, use_coords=True,
+                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=False, copd=False):
+        super(PointToMeshDS, self).__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
+                                            image_folder=image_folder,
+                                            use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
+                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd)
+        self.meshes = []
+        self.img_sizes = []
+        for case, sequence in self.ids:
+            meshes = load_meshes(image_folder, case, sequence, obj_name='fissure' if not lobes else 'lobe')
+            if not lobes and exclude_rhf:
+                meshes = meshes[:2]
+            self.meshes.append(meshes)
+
+            size, spacing = load_image_metadata(os.path.join(image_folder, f"{case}_img_{sequence}.nii.gz"))
+            size_world = tuple(sz * sp for sz, sp in zip(size, spacing))
+            self.img_sizes.append(size_world)
+
+    def normalize_pc(self, samples, index):
+        return kpts_to_grid(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+    def unnormalize_pc(self, samples, index):
+        return kpts_to_world(samples, self.img_sizes[index][::-1], align_corners=ALIGN_CORNERS)
+
+    def normalize_mesh(self, mesh: Meshes, index):
+        return Meshes([self.normalize_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
+
+    def unnormalize_mesh(self, mesh: Meshes, index):
+        return Meshes([self.unnormalize_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
+
+
+class PointToMeshAndLabelDataset(PointToMeshDS):
+    def __init__(self, sample_points, kp_mode, folder=POINT_DIR, image_folder=IMG_DIR, use_coords=True,
+                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True, copd=False):
+        super().__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
+                         image_folder=image_folder,
+                         use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
+                         lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd)
+
+        # convert open3d meshes to pytorch3d and normalize vertices to grid coordinates
+        self.meshes_pt3d = [self.normalize_mesh(o3d_to_pt3d_meshes(m), index=i) for i, m in enumerate(self.meshes)]
+
+    def __getitem__(self, item, return_aug_transform=False):
+        pts, lbls, transform = super().__getitem__(item, return_aug_transform=True)
+
+        # get the meshes
+        meshes = self.meshes_pt3d[item]
+        if transform is not None:
+            # transform the ground truth meshes to match augmented point cloud
+            meshes = transform_meshes(meshes, transform)
+
+        return pts, (lbls, meshes)
+
+    def get_batch_collate_fn(self):
+        def collate_fn(list_of_samples):
+            pcs = []
+            lbls = []
+            meshes = []
+            for pc, (lbl, mesh) in list_of_samples:
+                pcs.append(pc)
+                lbls.append(lbl)
+                meshes.append(mesh)
+
+            pcs = torch.stack(pcs, dim=0)
+            lbls = torch.stack(lbls, dim=0)
+            meshes = join_meshes_as_batch(meshes)
+            return pcs, (lbls, meshes)
+
+        return collate_fn
+
+
 def load_landmarks(filepath):
     points = []
     with open(filepath, 'r') as csv_file:
@@ -747,6 +934,9 @@ def save_split_file(split, filepath):
 
 
 if __name__ == '__main__':
+    ds = PointToMeshAndLabelDataset(1024, 'cnn', patch_feat='image', exclude_rhf=False)
+    exit()
+
     ds = CorrespondingPointDataset(1024, 'cnn', patch_feat='mind')
     splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
     tr, vl = ds.split_data_set(splitfile[0])

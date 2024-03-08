@@ -100,6 +100,19 @@ def get_point_segmentation_parser():
     return parser
 
 
+def get_dpsr_train_parser():
+    parser = get_point_segmentation_parser()
+    parser.description = 'Train Point Segmentation with differentiable PSR for lung fissure segmentation'
+
+    group = parser.add_argument_group('DPSR parameters')
+    group.add_argument('--res', default=(128, 128, 128), help='resolution of the PSR grid', type=int, nargs=3)
+    group.add_argument('--sigma', default=10, help='degree of gaussian smoothing', type=float)
+
+    parser.set_defaults(loss='dpsr')
+
+    return parser
+
+
 def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
 

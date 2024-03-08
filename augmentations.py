@@ -2,6 +2,7 @@ import SimpleITK as sitk
 import torch
 from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
+from pytorch3d.structures import Meshes
 from pytorch3d.transforms import so3_exp_map, Transform3d
 from torch.nn import functional as F
 
@@ -110,6 +111,16 @@ def transform_points(point_clouds, transforms: Transform3d):
     point_clouds = point_clouds.transpose(1, 2)
     transformed = transforms.transform_points(point_clouds)
     return transformed.transpose(1, 2)
+
+
+def transform_meshes(meshes: Meshes, transforms: Transform3d):
+    verts_transformed = transforms.transform_points(meshes.verts_padded())
+    if meshes.has_verts_normals():
+        normals_transformed = transforms.transform_normals(meshes.verts_normals_padded())
+    else:
+        normals_transformed = None
+    meshes_transformed = Meshes(verts=verts_transformed, faces=meshes.faces_padded(), verts_normals=normals_transformed)
+    return meshes_transformed
 
 
 if __name__ == '__main__':

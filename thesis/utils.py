@@ -12,7 +12,7 @@ TEXT_WIDTH_INCH = 6.22404097223
 SLIDE_WIDTH_INCH = 13.3334646  # default wide screen power point slide (16:9)
 SLIDE_HEIGHT_INCH = 7.5  # default 16:9 slide
 
-plt.style.use('seaborn-paper')
+plt.style.use('seaborn-v0_8-paper')  # TODO: test out newer seaborn styles
 
 
 def param_and_op_count(model, input_shape, out_dir=None):
