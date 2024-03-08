@@ -1,4 +1,5 @@
 import torch
+from scipy.ndimage._filters import _gaussian_kernel1d
 from torch.nn import functional as F
 
 
@@ -47,3 +48,17 @@ def nms(data: torch.Tensor, kernel_size: int):
     pad = (pad2, pad1, pad2, pad1, pad2, pad1)
     maxfeat = F.max_pool3d(F.pad(data, pad, mode='replicate'), kernel_size, stride=1)
     return maxfeat
+
+
+def gaussian_kernel_1d(sigma, order=0, truncate=4.0):
+    sigma = float(sigma)
+    radius = int(truncate * sigma + 0.5)
+    kernel = _gaussian_kernel1d(sigma, order, radius)
+    kernel = torch.from_numpy(kernel).float()
+    return kernel
+
+
+def gaussian_differentiation(img, sigma, order, dim, padding_mode='replicate'):
+    weight = gaussian_kernel_1d(sigma, order)
+    weight = weight.view(-1, 1, 1).to(img.device)
+    return filter_1d(img, weight, dim, padding_mode)

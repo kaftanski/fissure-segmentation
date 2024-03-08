@@ -8,20 +8,18 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter
-from scipy.ndimage.filters import _gaussian_kernel1d
 from skimage.filters.ridges import compute_hessian_eigenvalues
 from sklearn.metrics import RocCurveDisplay, average_precision_score
 from torch import nn
 from welford import Welford
 
-from constants import IMG_DIR, IMG_DIR_TS
+from constants import IMG_DIR_TS
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.seg_cnn import PatchBasedModule
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, apply_mask
-from utils.image_utils import filter_1d
+from utils.image_utils import filter_1d, gaussian_kernel_1d
 from utils.tqdm_utils import tqdm_redirect
 from utils.general_utils import new_dir
 from visualization import plot_slice
@@ -38,19 +36,13 @@ class HessianEnhancementFilter(PatchBasedModule):
         self.show = show
 
         self.register_parameter('kernel_1st_deriv',
-                                nn.Parameter(
-                                    torch.from_numpy(gaussian_kernel_1d(gaussian_derivation_sigma, order=1)).float(),
-                                    requires_grad=False))
+                                nn.Parameter(gaussian_kernel_1d(gaussian_derivation_sigma, order=1), requires_grad=False))
 
         self.register_parameter('kernel_2nd_deriv',
-                                nn.Parameter(
-                                    torch.from_numpy(gaussian_kernel_1d(gaussian_derivation_sigma, order=2)).float(),
-                                    requires_grad=False))
+                                nn.Parameter(gaussian_kernel_1d(gaussian_derivation_sigma, order=2), requires_grad=False))
 
         self.register_parameter('kernel_gaussian_smoothing',
-                                nn.Parameter(
-                                    torch.from_numpy(gaussian_kernel_1d(gaussian_smoothing_sigma)).float(),
-                                    requires_grad=False))
+                                nn.Parameter(gaussian_kernel_1d(gaussian_smoothing_sigma), requires_grad=False))
 
     def forward(self, img, return_intermediate=False):
         # smooth image with gaussian kernel
@@ -107,19 +99,10 @@ class HessianEnhancementFilter(PatchBasedModule):
         return H
 
 
-def gaussian_kernel_1d(sigma, order=0, truncate=4.0):
-    sigma = float(sigma)
-    radius = int(truncate * sigma + 0.5)
-    kernel = _gaussian_kernel1d(sigma, order, radius)
-    return kernel
-
-
 def hessian_matrix(img: torch.Tensor, sigma: float):
-    kernel_1st_deriv = gaussian_kernel_1d(sigma, order=1)
-    kernel_1st_deriv = torch.from_numpy(kernel_1st_deriv).float().to(img.device)
+    kernel_1st_deriv = gaussian_kernel_1d(sigma, order=1).to(img.device)
 
-    kernel_2nd_deriv = gaussian_kernel_1d(sigma, order=2)
-    kernel_2nd_deriv = torch.from_numpy(kernel_2nd_deriv).float().to(img.device)
+    kernel_2nd_deriv = gaussian_kernel_1d(sigma, order=2).to(img.device)
 
     img = img.float()
     H = torch.zeros(*img.squeeze().shape, 3, 3, device=img.device)
