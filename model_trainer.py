@@ -23,6 +23,7 @@ class ModelTrainer:
     def __init__(self, model: models.modelio.LoadableModel, ds: CustomDataset, loss_function, out_dir: str,
                  device: str, args: Namespace):
 
+        self.args = args
         self.model = model
         self.ds = ds
         self.batch_size = args.batch
@@ -30,6 +31,13 @@ class ModelTrainer:
         self.epochs = args.epochs
         self.out_dir = out_dir
         self.show = args.show
+
+        if 'visualize' in args.__dict__:
+            self.visualization_fn = args.visualize
+        else:
+            self.visualization_fn = None
+        self.visualize_every = 1  # visualize every epoch
+
         if 'head_schedule' in args.__dict__:
             self.head_schedule = args.head_schedule
 
@@ -121,7 +129,11 @@ class ModelTrainer:
             self.valid_dl.dataset.do_augmentation = False
             for x_batch, y_batch in self.valid_dl:
                 with torch.no_grad():
-                    self.forward_step(x_batch, y_batch, ep, train=False)
+                    output = self.forward_step(x_batch, y_batch, ep, train=False)
+
+            # visualize prediction
+            if self.visualization_fn is not None and (ep + 1) % self.visualize_every == 0:
+                self.visualization_fn(x_batch, y_batch, output, ep, self.args, self.out_dir)
 
             self.after_epoch(epoch.item())
 
@@ -198,6 +210,8 @@ class ModelTrainer:
         for term in components.keys():
             history[term][ep] += components[term].detach().item() * batch_factor
 
+        return output
+
     def after_epoch(self, epoch):
         ep = epoch - self.initial_epoch
         if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -220,8 +234,6 @@ class ModelTrainer:
         # save checkpoint
         if (epoch + 1) % self.checkpoint_every == 0:
             self.model.save(os.path.join(self.out_dir, 'checkpoints', f'{epoch}.pth'))
-
-        # TODO: add visualization possibility
 
     def finalize(self):
         # stop the timer

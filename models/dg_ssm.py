@@ -6,7 +6,7 @@ from torch import nn
 from augmentations import compose_transform, transform_points
 from models.dgcnn_opensrc import DGCNN
 from models.modelio import LoadableModel, store_config_args
-from models.utils import init_weights
+from utils.model_utils import init_weights
 from shape_model.ssm import SSM, LSSM
 
 

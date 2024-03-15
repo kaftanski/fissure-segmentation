@@ -84,8 +84,8 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
             assert len(term_weights) == 3
             return DPSRLoss(class_weights,
                             w_seg=term_weights[0],
-                            w_chamfer=term_weights[1],
-                            epoch_start_chamfer=term_weights[2])
+                            w_mesh=term_weights[1],
+                            epoch_start_mesh_loss=term_weights[2])
 
         # else default weights:
         return DPSRLoss(class_weights)

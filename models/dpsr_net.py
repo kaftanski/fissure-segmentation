@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 
-from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize
+from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize, PSR2Mesh
 import numpy as np
 import torch.fft
 from pytorch3d.ops import marching_cubes, estimate_pointcloud_normals
@@ -60,7 +60,17 @@ class DPSR(nn.Module):
 
         ras_p = point_rasterize(V, N, self.res)  # [b, n_dim, dim0, dim1, dim2]
 
-        ras_s = torch.fft.rfftn(ras_p, dim=(2, 3, 4))
+        phi = self.spectral_PSR(V, ras_p)
+        return phi
+
+    def spectral_PSR(self, V, normal_field):
+        """
+
+        :param V: vertices of shape (batch, nv, 3)
+        :param normal_field: rasterized point normals of shape (batch, features, res0, res1, res2)
+        :return phi: (batch, res, res, ...) tensor of output indicator function field
+        """
+        ras_s = torch.fft.rfftn(normal_field, dim=(2, 3, 4))
         ras_s = ras_s.permute(*tuple([0] + list(range(2, self.dim + 1)) + [self.dim + 1, 1]))
         N_ = ras_s[..., None] * self.G  # [b, dim0, dim1, dim2/2+1, n_dim, 1]
 
@@ -110,6 +120,8 @@ class DPSRNet(LoadableModel):
                                      spatial_transformer=spatial_transformer, dynamic=dynamic,
                                      image_feat_module=image_feat_module)
         self.dpsr = DPSR(dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift)
+        self.psr_grid_to_mesh = PSR2Mesh.apply
+        self.empty_mesh = None
 
     def forward(self, x):
         """
@@ -128,7 +140,7 @@ class DPSRNet(LoadableModel):
         return seg_logits, meshes
 
     def generate_meshes(self, coords, seg_logits):
-        seg_argmax = seg_logits.argmax(1)  # note: this leads to sparse gradients!
+        seg_argmax = seg_logits.argmax(1)  # Todo: this loses the gradients -> softmax
         meshes = []
         for b in range(coords.shape[0]):
             # TODO: parallelize batch (using padded tensors)
@@ -137,12 +149,16 @@ class DPSRNet(LoadableModel):
 
                 if cur_points.shape[-2] < 3:
                     # no mesh possible
-                    mesh = Meshes(verts=[], faces=[])
-                    meshes.append(mesh)
+                    if self.empty_mesh is None or self.empty_mesh.device != coords.device:
+                        self.empty_mesh = Meshes(
+                            verts=[torch.zeros(0, 3, device=coords.device)],
+                            faces=[torch.zeros(0, 3, dtype=torch.int64, device=coords.device)])
+
+                    meshes.append(self.empty_mesh)
                     continue
 
                 grid = self.compute_psr_grid(cur_points.unsqueeze(0))
-                verts, faces = marching_cubes.marching_cubes(grid, isolevel=0)
+                verts, faces, normals = self.psr_grid_to_mesh(grid)
                 mesh = Meshes(verts=verts, faces=faces)
                 meshes.append(mesh)
 

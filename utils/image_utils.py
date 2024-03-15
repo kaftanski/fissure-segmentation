@@ -58,7 +58,7 @@ def gaussian_kernel_1d(sigma, order=0, truncate=4.0):
     return kernel
 
 
-def gaussian_differentiation(img, sigma, order, dim, padding_mode='replicate'):
-    weight = gaussian_kernel_1d(sigma, order)
+def gaussian_differentiation(img, sigma, order, dim, padding_mode='replicate', truncate=4.0):
+    weight = gaussian_kernel_1d(sigma, order, truncate)
     weight = weight.view(-1, 1, 1).to(img.device)
     return filter_1d(img, weight, dim, padding_mode)

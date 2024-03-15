@@ -14,8 +14,10 @@ The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
 https://github.com/autonomousvision/shape_as_points/blob/main/src/utils.py
+https://github.com/autonomousvision/shape_as_points/blob/main/src/model.py
 
 """
+from typing import Any, Tuple
 
 import torch
 import io, os, logging, urllib
@@ -26,6 +28,7 @@ import math
 import numpy as np
 from collections import OrderedDict
 from plyfile import PlyData
+from pytorch3d.ops import marching_cubes
 from torch import nn
 from torch.nn import functional as F
 from torch.utils import model_zoo
@@ -35,12 +38,69 @@ from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
 from igl import adjacency_matrix, connected_components
 import open3d as o3d
 
-from utils.general_utils import ALIGN_CORNERS
+from models.divroc import DiVRoC
+
+
+class PSR2Mesh(torch.autograd.Function):
+    # TODO: batched version
+    """
+    Autograd function for differentiable PSR. Converts grid to mesh using marching cubes.
+    Marching cubes is not differentiable, but as written in their paper, the gradients of the mesh can be approximated
+    through the surface normals.
+    """
+    @staticmethod
+    def forward(psr_grid):
+        """
+        In the forward pass we receive a Tensor containing the input and return
+        a Tensor containing the output. ctx is a context object that can be used
+        to stash information for backward computation. You can cache arbitrary
+        objects for use in the backward pass using the ctx.save_for_backward method.
+        """
+        # verts, faces, normals = mc_from_psr(psr_grid, pytorchify=True)
+        verts, faces = marching_cubes.marching_cubes(psr_grid, isolevel=0,
+                                                     return_local_coords=True)  # range [-1,1]
+
+        mesh = Meshes(verts, faces)
+        return mesh.verts_padded(), mesh.faces_padded(), mesh.verts_normals_padded()
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        psr_grid = inputs[0]
+        verts, faces, normals = output
+
+        # save tensors
+        ctx.save_for_backward(verts, normals)
+
+        # save non-tensor
+        ctx.res = psr_grid.shape[2]
+
+    @staticmethod
+    def backward(ctx, dL_dVertex, dL_dFace, dL_dNormals):
+        """
+        In the backward pass we receive a Tensor containing the gradient of the loss
+        with respect to the output, and we need to compute the gradient of the loss
+        with respect to the input.
+        """
+        vert_pts, normals = ctx.saved_tensors
+        res = ctx.res
+
+        # vert_pts = (vert_pts + 1) / 2  # back to range [0, 1] for point_rasterize
+        # matrix multiplication between dL/dV and dV/dPSR
+        # dV/dPSR = - normals
+        grad_vert = torch.matmul(dL_dVertex.permute(1, 0, 2), -normals.permute(1, 2, 0))  # (n_pts, b, 3)
+        # grad_grid = point_rasterize(vert_pts, grad_vert.permute(1, 0, 2), [res]*3)  # b x 1 x res x res x res
+
+        # rasterize the gradients
+        vert_pts = vert_pts.unsqueeze(-2).unsqueeze(-2)  # (bs, n_pts, 1, 1, 3)
+        grad_vert = grad_vert.permute(1, 2, 0).unsqueeze(-1).unsqueeze(-1)  # (bs, 3, n_pts, 1, 1)
+        grad_grid = DiVRoC.apply(grad_vert, vert_pts, (vert_pts.shape[0], 1, res, res, res))  # b x 1 x res x res x res
+        grad_grid = grad_grid.squeeze(1)  # b x res x res x res
+
+        return grad_grid
 
 
 ##################################################
 # Below are functions for DPSR
-
 def fftfreqs(res, dtype=torch.float32, exact=True):
     """
     Helper function to return frequency tensors

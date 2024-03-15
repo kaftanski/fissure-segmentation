@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from models.modelio import LoadableModel, store_config_args
-from models.utils import init_weights
+from utils.model_utils import init_weights
 
 
 class MLPBlock(nn.Module):

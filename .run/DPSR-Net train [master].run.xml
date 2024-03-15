@@ -6,6 +6,7 @@
     <envs>
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="CUDA_LAUNCH_BLOCKING" value="1" />
+      <env name="PATH" value="$PATH:/home/users/kaftan/miniconda3/envs/fissure2/bin" />
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
@@ -43,7 +44,7 @@
     </EXTENSION>
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train_dpsr_net.py" />
-    <option name="PARAMETERS" value="--model DGCNN --data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 0 --output results/DPSR_DGCNN_seg_cnn_image --kp_mode cnn --patch image --loss_weights 0.5 0.5 0.1 --epochs 100" />
+    <option name="PARAMETERS" value="--model DGCNN --data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 0 --output results/DPSR_DGCNN_seg_cnn_image --kp_mode cnn --patch image --loss_weights 1. 0. 0. --epochs 1000" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

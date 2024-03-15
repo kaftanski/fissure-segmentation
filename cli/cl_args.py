@@ -106,7 +106,8 @@ def get_dpsr_train_parser():
 
     group = parser.add_argument_group('DPSR parameters')
     group.add_argument('--res', default=(128, 128, 128), help='resolution of the PSR grid', type=int, nargs=3)
-    group.add_argument('--sigma', default=10, help='degree of gaussian smoothing', type=float)
+    group.add_argument('--normals_sigma', default=10, help='degree of gaussian smoothing of normals grid', type=float)
+    group.add_argument('--sigma', default=10, help='degree of gaussian smoothing in DPSR', type=float)
 
     parser.set_defaults(loss='dpsr')
 

@@ -84,6 +84,7 @@ class DGCNN_Cls_Encoder(LoadableModel):
                                    nn.LeakyReLU(negative_slope=0.2))
 
     def forward(self, x):
+        # TODO: use static DGCNN?
         batch_size = x.size(0)
         x = get_graph_feature(x, k=self.k)  # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)  # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)

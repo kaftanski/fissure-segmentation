@@ -177,7 +177,7 @@ def visualize_o3d_mesh(mesh: Union[Sequence[open3d.geometry.TriangleMesh], open3
 
 
 def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
-                      show=True, savepath=None):
+                      show=True, savepath=None, ax=None, alpha=1.):
     """
 
     :param vertices_list: list of vertices, shape (Vx3) tensors
@@ -186,12 +186,15 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
     :param show: switch for calling pyplot show or not
     :param savepath: if not None, the figure will be saved to this path
     """
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        fig = ax.get_figure()
 
     colors = ['r', 'g', 'b', 'y', 'c']
     for i, (vertices, triangles) in enumerate(zip(vertices_list, triangles_list)):
-        trimesh_on_axis(ax, vertices, triangles, colors[i], title)
+        trimesh_on_axis(ax, vertices, triangles, colors[i], title, alpha=alpha)
 
     if savepath is not None:
         fig.tight_layout()

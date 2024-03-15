@@ -13,11 +13,11 @@ class DPSRLoss(nn.Module):
     DEFAULT_W_CHAMFER = 0.5
     DEFAULT_EPOCH_START_CHAMFER = 0.1
 
-    def __init__(self, class_weights, w_seg=DEFAULT_W_SEG, w_chamfer=DEFAULT_W_CHAMFER, epoch_start_chamfer=DEFAULT_EPOCH_START_CHAMFER):
+    def __init__(self, class_weights, w_seg=DEFAULT_W_SEG, w_mesh=DEFAULT_W_CHAMFER, epoch_start_mesh_loss=DEFAULT_EPOCH_START_CHAMFER):
         super().__init__()
         self.w_seg = w_seg
-        self.w_chamfer = w_chamfer
-        self.epoch_start_chamfer = epoch_start_chamfer
+        self.w_mesh = w_mesh
+        self.epoch_start_mesh = epoch_start_mesh_loss
 
         self.seg_loss = NNULoss(class_weights)
         self.chamfer_loss = RegularizedMeshLoss(w_chamfer=1,
@@ -31,9 +31,11 @@ class DPSRLoss(nn.Module):
 
         seg_loss, _ = self.seg_loss(pred_seg, targ_seg)
 
-        if current_epoch_fraction >= self.epoch_start_chamfer and len(pred_meshes) == len(targ_meshes):  # Todo: find way to incentivise this more
+        if (current_epoch_fraction >= self.epoch_start_mesh
+                and len(pred_meshes) == len(targ_meshes)  # Todo: find way to incentivise this more
+                and self.w_mesh > 0):
             cham_loss, _ = self.chamfer_loss(pred_meshes, targ_meshes)
-            loss = self.w_seg * seg_loss + self.w_chamfer * cham_loss
+            loss = self.w_seg * seg_loss + self.w_mesh * cham_loss
         else:
             # only use seg_loss first
             cham_loss = torch.tensor(0)

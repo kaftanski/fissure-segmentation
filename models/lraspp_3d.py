@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 from models.modelio import LoadableModel, store_config_args
 from models.seg_cnn import PatchBasedModule
-from models.utils import init_weights
+from utils.model_utils import init_weights
 
 
 class LRASPP(nn.Module):

@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
-from models.utils import init_weights
+from utils.model_utils import init_weights
 from utils.general_utils import knn
 
 
