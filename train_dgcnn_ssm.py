@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 from augmentations import compose_transform
-from cli.cl_args import get_dgcnn_ssm_train_parser
+from cli.cli_args import get_dgcnn_ssm_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR, IMG_DIR_TS
 from data import CorrespondingPointDataset

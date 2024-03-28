@@ -1,6 +1,6 @@
 import os
 
-from cli.cl_args import get_point_segmentation_parser, get_dpsr_train_parser
+from cli.cli_args import get_point_segmentation_parser, get_dpsr_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS
 from data import PointToMeshAndLabelDataset

@@ -16,7 +16,7 @@ plt.style.use('seaborn-v0_8-paper')  # TODO: test out newer seaborn styles
 
 
 def param_and_op_count(model, input_shape, out_dir=None):
-    input = torch.zeros(input_shape)
+    input = torch.zeros(input_shape, device=next(model.parameters()).device)
     macs, params = profile(model, (input, ))
     if out_dir is not None:
         with open(os.path.join(out_dir, 'op_count.csv'), 'w') as csv_file:

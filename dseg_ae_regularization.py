@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
 
-from cli.cl_args import get_ae_reg_parser
+from cli.cli_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing
 from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS, IMG_DIR
 from data import load_split_file, save_split_file, ImageDataset, PointToMeshDS

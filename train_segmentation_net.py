@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 import torch
 
-from cli.cl_args import get_seg_cnn_train_parser
+from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
 from constants import IMG_DIR_TS, IMG_DIR
 from data import ImageDataset

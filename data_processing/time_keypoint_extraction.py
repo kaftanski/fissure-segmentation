@@ -3,7 +3,7 @@ import os
 
 import torch
 
-from cli.cl_args import get_seg_cnn_train_parser
+from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
 from constants import IMG_DIR_TS
 from data import ImageDataset, LungData

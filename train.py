@@ -9,7 +9,7 @@ import open3d as o3d
 import torch
 
 import model_trainer
-from cli.cl_args import get_point_segmentation_parser
+from cli.cli_args import get_point_segmentation_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
 from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
@@ -529,6 +529,9 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 
 def run(ds, model, test_fn, args):
     assert not (args.train_only and args.test_only)
+    if args.model == 'PointTransformer' and not args.coords:
+        raise NotImplemented('Coords have to be chosen as features if training PointTransformer.')
+
     print(args)
 
     test_fn = get_deterministic_test_fn(test_fn)
@@ -614,7 +617,7 @@ if __name__ == '__main__':
     in_features = ds[0][0].shape[0]
     model_class = get_point_seg_model_class_from_args(args)
     net = model_class(in_features=in_features, num_classes=ds.num_classes, k=args.k,
-                      spatial_transformer=args.transformer, dynamic=not args.static)
+                      spatial_transformer=args.transformer, dynamic=not args.static).to(get_device(args.gpu))
 
     param_and_op_count(net, (1, *ds[0][0].shape), out_dir=args.output)
 

@@ -99,7 +99,7 @@ def o3d_to_pt3d_meshes(o3d_meshes: List[o3d.geometry.TriangleMesh]):
 
 
 def pt3d_to_o3d_meshes(pt3d_meshes: Meshes):
-    return [create_o3d_mesh(m.verts_padded().squeeze().cpu(), m.faces_padded().squeeze().cpu()) for m in pt3d_meshes]
+    return [create_o3d_mesh(m.verts_padded().squeeze().detach().cpu(), m.faces_padded().squeeze().detach().cpu()) for m in pt3d_meshes]
 
 
 def kpts_to_grid(kpts_world, shape, align_corners=None, return_transform=False):

@@ -129,6 +129,9 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
     if isinstance(points, torch.Tensor):
         points = points.cpu()
 
+    if isinstance(labels, torch.Tensor):
+        labels = labels.cpu()
+
     if exclude_background:
         points = points[labels != 0]
         labels = labels[labels != 0]
@@ -207,6 +210,10 @@ def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequen
 
 
 def trimesh_on_axis(ax, vertices, triangles, color='', title='', alpha=1., label='', facecolors=None):
+    if isinstance(vertices, torch.Tensor):
+        vertices = vertices.detach().cpu().numpy()
+        triangles = triangles.cpu().numpy()
+
     if len(vertices) > 0:
         collection = ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=triangles, alpha=alpha)
         if color:
@@ -236,6 +243,35 @@ def trimesh_on_axis(ax, vertices, triangles, color='', title='', alpha=1., label
 
         labels.append(label)
         ax.legend(handles=handles, labels=labels, handler_map=handler_map)
+
+
+def plot_normals(coords, normals, ax=None, title='', show=True, savepath=None):
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        fig = ax.get_figure()
+
+    if isinstance(coords, torch.Tensor):
+        coords = coords.detach().cpu().numpy()
+        normals = normals.detach().cpu().numpy()
+
+    ax.quiver(coords[:, 0], coords[:, 1], coords[:, 2], normals[:, 0], normals[:, 1], normals[:, 2],
+              length=coords.max() * 0.1)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title(title)
+
+    if savepath is not None:
+        fig.tight_layout()
+        fig.savefig(savepath, bbox_inches='tight', dpi=300)
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def plot_slice(img, s, b=0, c=0, dim=0, title='', save_path=None, show=True):

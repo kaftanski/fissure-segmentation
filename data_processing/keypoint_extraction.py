@@ -5,7 +5,7 @@ import SimpleITK as sitk
 import numpy as np
 import torch
 
-from cli.cl_args import get_seg_cnn_train_parser
+from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
 from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
 from data import ImageDataset, load_split_file, LungData

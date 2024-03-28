@@ -137,7 +137,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=
         return regularized_fissures, fissure_meshes
 
 
-def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spacing: Tuple[float], n_samples=10**7) -> torch.Tensor:
+def o3d_mesh_to_labelmap(o3d_meshes: List[o3d.geometry.TriangleMesh], shape, spacing: Tuple[float, float, float], n_samples=10**7) -> torch.Tensor:
     """
 
     :param o3d_meshes: list of open3d TriangleMesh to convert into one labelmap

@@ -7,6 +7,7 @@ from torch import nn
 from torch.nn import init
 
 from models.modelio import LoadableModel, store_config_args
+from models.point_seg_net import PointSegmentationModelBase
 from utils.model_utils import init_weights
 from utils.general_utils import knn
 
@@ -57,12 +58,12 @@ def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tenso
     return torch.cat([features.unsqueeze(-1).repeat(1, 1, 1, k), edge_features], dim=1)
 
 
-class DGCNNBase(LoadableModel, ABC):
-    @store_config_args
+class DGCNNBase(PointSegmentationModelBase):
     def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
-        super(DGCNNBase, self).__init__()
+        super(DGCNNBase, self).__init__(
+            in_features, num_classes, k=k, spatial_transformer=spatial_transformer,
+            dynamic=dynamic, image_feat_module=image_feat_module)
         self.k = k
-        self.num_classes = num_classes
         self.dynamic = dynamic
         self.knn_graph = None
 
@@ -103,10 +104,6 @@ class DGCNNBase(LoadableModel, ABC):
             x = self.spatial_transformer(x)
 
         return x
-
-    @abstractmethod
-    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
-        pass
 
     def init_weights(self):
         self.apply(init_weights)
@@ -163,35 +160,6 @@ class DGCNNSeg(DGCNNBase):
         x = self.segmentation(x)
 
         return x
-
-    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs_min=50):
-        output_activation = nn.Softmax(dim=1)
-
-        n_leftover_runs = n_runs_min // 5
-        n_initial_runs = n_runs_min - n_leftover_runs
-        softmax_accumulation = torch.zeros(pc.shape[0], self.num_classes, *pc.shape[2:], device=pc.device)
-        for r in range(n_initial_runs):
-            perm = torch.randperm(pc.shape[-1], device=pc.device)[:sample_points]
-            softmax_accumulation[..., perm] += output_activation(self(pc[..., perm]))
-
-        # look if there are points that have been left out
-        left_out_pts = torch.nonzero(softmax_accumulation.sum(1) == 0)[..., 1]
-        print(f'After {n_initial_runs} runs, {left_out_pts.shape[0]} points have not been seen yet.')
-        if left_out_pts.shape[0] > 0:
-            other_pts = torch.nonzero(softmax_accumulation.sum(1))[..., 1]
-            point_mix = sample_points // 2
-            fill_out_num = sample_points - point_mix
-            perm = torch.randperm(n_leftover_runs*point_mix, device=pc.device) % len(left_out_pts)
-            for r in range(n_leftover_runs):
-                lo_pts = left_out_pts[perm[r*point_mix:(r+1)*point_mix]]
-                other = torch.randperm(len(other_pts), device=pc.device)[:fill_out_num]
-                pts = torch.cat((lo_pts, other), dim=0)
-                softmax_accumulation[..., pts] += output_activation(self(pc[..., pts]))
-
-            if (softmax_accumulation.sum(1) == 0).sum() != 0:
-                warnings.warn('NOT ALL POINTS HAVE BEEN SEEN')
-
-        return output_activation(softmax_accumulation)
 
 
 class DGCNNReg(DGCNNBase):

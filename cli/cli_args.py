@@ -95,7 +95,7 @@ def get_dgcnn_train_parser():
 def get_point_segmentation_parser():
     parser = get_dgcnn_train_parser()
     group = parser.add_argument_group('Model Choice')
-    group.add_argument('--model', choices=['PointNet', 'DGCNN'], default='DGCNN',
+    group.add_argument('--model', choices=['PointNet', 'DGCNN', 'PointTransformer'], default='DGCNN',
                        help='Choose the segmentation model class.')
     return parser
 

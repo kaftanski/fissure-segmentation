@@ -4,7 +4,7 @@ import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
 
-from cli.cl_args import get_pc_ae_train_parser
+from cli.cli_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import IMG_DIR, IMG_DIR_TS
 from data import SampleFromMeshDS
