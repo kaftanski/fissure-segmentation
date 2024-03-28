@@ -1,3 +1,8 @@
+"""
+Functions for PointTransformer from https://github.com/POSTECH-CVLab/point-transformer
+by Hengshuang Zhao et al.
+"""
+
 import os
 from typing import Tuple
 

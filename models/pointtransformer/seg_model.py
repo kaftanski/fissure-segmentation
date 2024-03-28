@@ -1,3 +1,7 @@
+"""
+PointTransformer model from https://github.com/POSTECH-CVLab/point-transformer
+by Hengshuang Zhao et al.
+"""
 import os
 import warnings
 
