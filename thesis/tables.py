@@ -243,7 +243,7 @@ def bar_plot(model, presentation=False):
             group_width = 0.75
         else:
             use_ssc = True
-            plt.style.use("seaborn-talk")
+            plt.style.use("seaborn-v0_8-talk")
             feat_modes = ['image', 'nofeat']
             colors = {'image': cmap.colors[2], 'nofeat': 'gray'}
             if use_ssc:
@@ -301,7 +301,7 @@ def bar_plot_pointnet_vs_dgcnn(presentation=False):
         if not presentation:
             group_width = 0.75
         else:
-            plt.style.use("seaborn-talk")
+            plt.style.use("seaborn-v0_8-talk")
             group_width = 0.8
 
         models = ['DGCNN', 'PointNet']
@@ -399,7 +399,7 @@ def cross_val_swarm_plot(model, use_median_instead_of_mean=False, presentation=T
         feat_modes = FEATURE_MODES_NORMALIZED + ['CNN']
         colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
     else:
-        plt.style.use("seaborn-talk")
+        plt.style.use("seaborn-v0_8-talk")
         feat_modes = ['Image', 'SSC', 'None']
         colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[2], 'None': 'gray'}
         combined_table = combined_table.drop(combined_table[~combined_table.Features.isin(feat_modes)].index)
@@ -555,6 +555,10 @@ def point_net_seg_table():
 
 def dgcnn_seg_table():
     seg_table('DGCNN_seg', None)
+
+
+def pointtransformer_seg_table():
+    seg_table('PointTransformer', None)
 
 
 def nnunet_table(mode='surface', cv=False, copd=False, exclude_rhf=False):
@@ -715,7 +719,7 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
         feat_modes = FEATURE_MODES_NORMALIZED + ['CNN']
         colors = {feat: cmap(i / 10) for i, feat in enumerate(feat_modes)}
     else:
-        plt.style.use("seaborn-talk")
+        plt.style.use("seaborn-v0_8-talk")
         feat_modes = ['Image', 'SSC', 'None']
         colors = {'SSC': cmap.colors[1], 'Image': cmap.colors[2], 'None': 'gray'}
 
@@ -769,19 +773,22 @@ if __name__ == '__main__':
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
+    pointtransformer_seg_table()
+    bar_plot('PointTransformer', presentation=False)
+    cross_val_swarm_plot("PointTransformer", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
     # bar_plot('DGCNN_seg', presentation=True)
     # bar_plot('DSEGAE_reg_aug_1024', presentation=True)
     # bar_plot_pointnet_vs_dgcnn(presentation=True)
     # seg_table('DGCNN', 'image')
     # model_comparison()
-    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
-    cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
+    # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+    # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
     # seg_table("DGCNN_seg", copd=False, exclude_rhf=True)
 
     # cross_val_swarm_plot("DGCNN_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, exclude_rhf=True)
     # model_comparison(exclude_rhf=True)
     # copd_comparison_table()
-    copd_relative_performance_plot(presentation=True, add_nnu_value=True)
+    # copd_relative_performance_plot(presentation=True, add_nnu_value=True)
 
     # bvm_plot(copd=False)
     # bvm_plot(copd=True)

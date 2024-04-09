@@ -1,7 +1,11 @@
 #!/bin/bash
 
 run () {
-  cmd="python3.10 train.py --data fissures --ds ts --pts 2048 --coords --batch 32 --gpu "$gpu" --output results/PointTransformer_"$kp""_$feat" --kp_mode "$kp" --patch $feat --model PointTransformer"
+  if [[ "$feat" == "nofeat" ]]; then
+    cmd="python3.10 train.py --data fissures --ds ts --pts 2048 --coords --batch 32 --gpu "$gpu" --output results/PointTransformer_"$kp""_$feat" --kp_mode "$kp" --model PointTransformer"
+  else
+    cmd="python3.10 train.py --data fissures --ds ts --pts 2048 --coords --batch 32 --gpu "$gpu" --output results/PointTransformer_"$kp""_$feat" --kp_mode "$kp" --patch $feat --model PointTransformer"
+  fi
   echo "#######################################################################################################################################################################"
   echo $cmd
   echo "#######################################################################################################################################################################"
