@@ -21,7 +21,7 @@ from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, ALIGN_CORN
 import SimpleITK as sitk
 
 
-OUT_DIR = new_dir('results', 'preproc_timing')
+OUT_DIR = new_dir('results', 'preproc_timing_node2')
 
 
 def time_cnn_kp(cnn_dir, data_dir, device):
@@ -51,8 +51,8 @@ def time_cnn_kp(cnn_dir, data_dir, device):
 
         with no_print():
             with torch.no_grad():
-                torch.cuda.synchronize()
-                starter.record()
+                torch.cuda.synchronize(device)
+                starter.record(torch.cuda.current_stream(device))
                 softmax_pred = model.predict_all_patches(input_img)
 
             fissure_points = softmax_pred.argmax(1).squeeze() != 0
@@ -66,8 +66,8 @@ def time_cnn_kp(cnn_dir, data_dir, device):
             # limit to subset
             kp, _ = limit_keypoints(kp)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times.append(curr_time)
 
@@ -75,13 +75,13 @@ def time_cnn_kp(cnn_dir, data_dir, device):
                                    shape=torch.tensor(fissure_points.shape) * ds.resample_spacing, align_corners=ALIGN_CORNERS)
 
             # compute feature time
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
             features = sample_patches_at_kpts(softmax_pred[:, 1:].sum(1, keepdim=True), kp_grid, 5).squeeze().flatten(
                 start_dim=1).transpose(0, 1)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_feature_times.append(curr_time)
 
@@ -105,15 +105,15 @@ def time_foerstner_kp(data_dir, device):
         mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool)).unsqueeze(0).unsqueeze(0).to(device)
 
         with no_print():
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
             kp = foerstner.foerstner_kpts(img_tensor, mask=mask_tensor, sigma=0.5, thresh=1e-8, d=5)
 
             # limit to MAX_KPTS
             kp, _ = limit_keypoints(kp)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times.append(curr_time)
 
@@ -152,8 +152,8 @@ def time_enhancement_kp(data_dir, device):
 
         # start time
         with no_print():
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
             # fissure enhancement filter
             fissures_enhanced = hessian_filter.predict_all_patches(img_tensor, min_overlap=0.25, patch_size=(64, 64, 64))
 
@@ -167,8 +167,8 @@ def time_enhancement_kp(data_dir, device):
             kp = top_idx[top_vals > 0.2]
 
         # stop time
-        ender.record()
-        torch.cuda.synchronize()
+        ender.record(torch.cuda.current_stream(device))
+        torch.cuda.synchronize(device)
         curr_time = starter.elapsed_time(ender) / 1000
         all_inference_times.append(curr_time)
 
@@ -182,7 +182,7 @@ def time_mind_feat(data_dir, device):
     ds = LungData(folder=data_dir)
     mind_sigma = 0.8
     delta = 1
-    spacing = 1.5
+    spacing = 1
 
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
@@ -197,25 +197,25 @@ def time_mind_feat(data_dir, device):
         with no_print():
             # MIND
             torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
 
             mind(img_tensor.view(1, 1, *img_tensor.shape), sigma=mind_sigma, dilation=delta, ssc=False)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times_mind.append(curr_time)
 
             # MIND-SSC
             torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
 
             mind(img_tensor.view(1, 1, *img_tensor.shape), sigma=mind_sigma, dilation=delta, ssc=True)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times_ssc.append(curr_time)
 
@@ -243,5 +243,5 @@ if __name__ == '__main__':
     device = 'cuda:3'
     time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, device)
     time_foerstner_kp(IMG_DIR_TS, device)
-    # time_enhancement_kp(IMG_DIR_TS, device)
+    time_enhancement_kp(IMG_DIR_TS, device)
     time_mind_feat(IMG_DIR_TS, device)

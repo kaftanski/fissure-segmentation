@@ -43,6 +43,7 @@ def load_args_for_testing(from_dir, current_args: Namespace = None):
         args_from_file['gpu'] = current_args.gpu
         args_from_file['fold'] = current_args.fold
         args_from_file['copd'] = current_args.copd
+        args_from_file['speed'] = current_args.speed
 
         # add keys that may have been added since the training run
         for key in current_args.__dict__.keys():

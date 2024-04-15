@@ -344,13 +344,13 @@ def speed_test(ds: PointDataset, device, out_dir):
         with no_print():
             # measure inference time
             with torch.no_grad():
-                torch.cuda.synchronize()
-                starter.record()
+                torch.cuda.synchronize(device)  # don't forget to synchronize the correct device (cuda:0 if not specified)
+                starter.record(torch.cuda.current_stream(device))  # choose the stream on correct device
                 out = net.predict_full_pointcloud(inputs, ds.sample_points, n_runs_min=50)
 
             labels_pred = out.argmax(1)
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times.append(curr_time)
 
@@ -400,7 +400,8 @@ def write_speed_results(out_dir, all_inference_times, all_post_proc_times=None, 
     if points_per_fissure is not None:
         points_per_fissure = torch.stack(points_per_fissure).float()
 
-    with open(os.path.join(out_dir, 'inference_time.csv'), 'w') as time_file:
+    out_file = os.path.join(out_dir, 'inference_time_node2.csv')
+    with open(out_file, 'w') as time_file:
         writer = csv.writer(time_file)
         writer.writerow(['Inference', 'Inference_std', 'Post-Processing', 'Post-Processing_std', 'Total', 'Total_std']
                         + (['Points_per_Fissure', 'Points_per_Fissure_std'] if points_per_fissure is not None else []))
@@ -529,7 +530,7 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 
 def run(ds, model, test_fn, args):
     assert not (args.train_only and args.test_only)
-    if args.model == 'PointTransformer' and not args.coords:
+    if 'model' in args.__dict__ and args.model == 'PointTransformer' and not args.coords:
         raise NotImplemented('Coords have to be chosen as features if training PointTransformer.')
 
     print(args)
