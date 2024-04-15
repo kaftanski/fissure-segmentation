@@ -22,6 +22,14 @@ class DiVRoC(Function):
     """
     @staticmethod
     def forward(ctx, feature_values, coords, shape):
+        """
+
+        :param ctx: context for backward pass
+        :param feature_values: values to be rasterized (bs, feat, n_pts, 1, 1)
+        :param coords: coordinates to rasterize to (bs, n_pts, 1, 1, 3)
+        :param shape: grid shape (bs, feat, grid_sz, grid_sz, grid_sz)
+        :return:
+        """
         device = feature_values.device
         dtype = feature_values.dtype
 
