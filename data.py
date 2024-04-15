@@ -692,7 +692,7 @@ class SampleFromMeshDS(CustomDataset):
         self.mesh_as_target = mesh_as_target
         self.lobes = lobes
 
-        mesh_dirs = sorted(glob.glob(os.path.join(folder, "*_mesh_*")))
+        mesh_dirs = sorted(glob(os.path.join(folder, "*_mesh_*")))
 
         self.ids = []
         self.meshes = []
