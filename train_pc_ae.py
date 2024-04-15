@@ -165,7 +165,10 @@ if __name__ == '__main__':
         raise ValueError('Cannot compute mesh loss for non-mesh reconstructions of the AE.')
 
     model = DGCNNFoldingNet(k=args.k, n_embedding=args.latent, shape_type=args.shape, decode_mesh=args.mesh,
-                            deform=args.deform)
+                            deform=args.deform, static=args.static)
+
+    # create output directory
+    new_dir(args.output)
 
     param_and_op_count(model, (ds.num_objects, *ds[0][0].shape), out_dir=args.output)
 

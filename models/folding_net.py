@@ -31,7 +31,7 @@ from pytorch3d.structures import Meshes
 from torch import nn
 
 from models.dgcnn import SharedFullyConnected
-from models.dgcnn_opensrc import get_graph_feature
+from models.dgcnn_opensrc import get_graph_feature, knn
 from models.modelio import LoadableModel, store_config_args
 from shapes.shape_constructor import get_sphere, get_gaussian, get_plane, get_plane_mesh
 
@@ -40,9 +40,9 @@ SHAPE_TYPES = ['sphere', 'gaussian', 'plane']
 
 class DGCNNFoldingNet(LoadableModel):
     @store_config_args
-    def __init__(self, k, n_embedding, shape_type, decode_mesh=True, deform=False):
+    def __init__(self, k, n_embedding, shape_type, decode_mesh=True, deform=False, static=False):
         super(DGCNNFoldingNet, self).__init__()
-        self.encoder = DGCNN_Cls_Encoder(k, n_embedding)
+        self.encoder = DGCNN_Cls_Encoder(k, n_embedding, static=static)
         if deform:
             self.decoder = DeformingDecoder(n_embedding, shape_type, decode_mesh)
         else:
@@ -52,14 +52,13 @@ class DGCNNFoldingNet(LoadableModel):
         return self.decoder(self.encoder(x))
 
 
+# TODO: try ball-query encoder
 class DGCNN_Cls_Encoder(LoadableModel):
     @store_config_args
-    def __init__(self, k, n_embedding):
+    def __init__(self, k, n_embedding, static=False):
         super(DGCNN_Cls_Encoder, self).__init__()
-        if k == None:
-            self.k = 20
-        else:
-            self.k = k
+        self.static = static
+        self.k = k
 
         self.bn1 = nn.BatchNorm2d(64)
         self.bn2 = nn.BatchNorm2d(64)
@@ -84,21 +83,24 @@ class DGCNN_Cls_Encoder(LoadableModel):
                                    nn.LeakyReLU(negative_slope=0.2))
 
     def forward(self, x):
-        # TODO: use static DGCNN?
-        batch_size = x.size(0)
-        x = get_graph_feature(x, k=self.k)  # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
+        if self.static:
+            knn_graph = knn(x[:, :3], self.k)
+        else:
+            knn_graph = None
+
+        x = get_graph_feature(x, k=self.k, idx=knn_graph)  # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)  # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
         x1 = x.max(dim=-1, keepdim=False)[0]  # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x1, k=self.k)  # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x1, k=self.k, idx=knn_graph)  # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv2(x)  # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x2 = x.max(dim=-1, keepdim=False)[0]  # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x2, k=self.k)  # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x2, k=self.k, idx=knn_graph)  # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)  # (batch_size, 64*2, num_points, k) -> (batch_size, 128, num_points, k)
         x3 = x.max(dim=-1, keepdim=False)[0]  # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
 
-        x = get_graph_feature(x3, k=self.k)  # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
+        x = get_graph_feature(x3, k=self.k, idx=knn_graph)  # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
         x = self.conv4(x)  # (batch_size, 128*2, num_points, k) -> (batch_size, 256, num_points, k)
         x4 = x.max(dim=-1, keepdim=False)[0]  # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
 
