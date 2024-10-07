@@ -6,6 +6,7 @@ from torch.nn import functional as F
 
 from models.modelio import LoadableModel, store_config_args
 from models.seg_cnn import PatchBasedModule
+from thesis.utils import param_and_op_count
 from utils.model_utils import init_weights
 
 
@@ -154,3 +155,14 @@ class LRASPP_MobileNetv3_large_3d(LoadableModel):
 
 if __name__ == '__main__':
     model = LRASPP_MobileNetv3_large_3d()
+
+    class PatchWrapper(nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x):
+            return self.model.predict_all_patches(x)
+
+
+    param_and_op_count(PatchWrapper(model),)

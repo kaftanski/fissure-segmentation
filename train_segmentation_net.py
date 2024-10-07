@@ -4,6 +4,7 @@ import SimpleITK as sitk
 import matplotlib.pyplot as plt
 import open3d as o3d
 import torch
+from torch import nn
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
@@ -214,6 +215,18 @@ if __name__ == '__main__':
     model = model_class(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
     param_and_op_count(model, (1, 1, *ds[0][0].shape), out_dir=args.output)
+
+    # compute flops for patch-based prediction
+    class PatchWrapper(nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x):
+            return self.model.predict_all_patches(x)
+
+    mean_size = torch.tensor([ds.get_image(i).GetSize() for i in range(len(ds))]).float().mean(0)
+    param_and_op_count(PatchWrapper(model), (1, 1, *mean_size), out_dir=args.output, fname='op_count_patch.csv')
 
     # save setup
     if not args.test_only:
