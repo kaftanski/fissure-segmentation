@@ -39,7 +39,8 @@ def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], 
     return label_tensor
 
 
-def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None, depth=6, width=0, scale=1.1) -> o3d.geometry.TriangleMesh:
+def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk.Image = None,
+                               depth=6, width=0, scale=1.1, mask_dilate_radius=1) -> o3d.geometry.TriangleMesh:
     """
 
     :param points: (Nx3)
@@ -48,6 +49,7 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     :param depth: octree depth, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :param width: width, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
     :param scale: scale, parameter for o3d.geometry.TriangleMesh.create_from_point_cloud_poisson
+    :param mask_dilate_radius: if mask is given, binary dilate it by this radius
     :return:
     """
     if np.prod(points.shape) == 0 or points.shape[0] < 4:
@@ -73,7 +75,8 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
 
     # masking
     if mask is not None:
-        mask = sitk.BinaryDilate(mask, kernelRadius=(1, 1, 1))
+        if mask_dilate_radius > 0:
+            mask = sitk.BinaryDilate(mask, kernelRadius=(mask_dilate_radius,)*3)
         mask_tensor = torch.from_numpy(sitk.GetArrayFromImage(mask).astype(bool))
         spacing = torch.tensor(mask.GetSpacing())
         mask_out_verts_from_mesh(poisson_mesh, mask_tensor, spacing)
@@ -81,7 +84,7 @@ def pointcloud_surface_fitting(points: ArrayLike, crop_to_bbox=False, mask: sitk
     return poisson_mesh
 
 
-def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=False):
+def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=False, mask_dilate_radius=1):
     print('Performing surface fitting via Poisson Reconstruction')
     # transforming labelmap to unit spacing
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
@@ -114,7 +117,8 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=
         # compute the mesh
         print('\tPerforming Poisson reconstruction ...')
         start = time.time()
-        poisson_mesh = pointcloud_surface_fitting(fissure_points, crop_to_bbox=True, mask=mask)
+        poisson_mesh = pointcloud_surface_fitting(fissure_points, crop_to_bbox=True, mask=mask,
+                                                  mask_dilate_radius=mask_dilate_radius)
 
         # post-process: keep only the largest component (that is in the correct body half)
         right = f > 1  # right fissure(s) are label 2 and 3
