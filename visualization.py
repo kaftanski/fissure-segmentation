@@ -113,7 +113,8 @@ def visualize_with_overlay(image: ArrayLike, segmentation: ArrayLike, title: str
         ax.set_title(title)
 
 
-def visualize_point_cloud(points, labels, title='', exclude_background=True, show=True, savepath=None):
+def visualize_point_cloud(points, labels=None, title='', exclude_background=True, show=True, savepath=None,
+                          colors=('r', 'g', 'b', 'y'), alpha=1., show_ax=True):
     """
 
     :param points: point cloud with N points, shape: (Nx3)
@@ -122,6 +123,8 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
     :param exclude_background: if true, points with label 0 will not be plotted
     :param show: switch for calling pyplot show or not
     :param savepath: if not None, the figure will be saved to this path
+    :param colors: list of colors for each label
+    :param alpha: transparency of the points
     """
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -132,16 +135,22 @@ def visualize_point_cloud(points, labels, title='', exclude_background=True, sho
     if isinstance(labels, torch.Tensor):
         labels = labels.cpu()
 
+    if labels is None:
+        labels = torch.ones(points.shape[0])
+
     if exclude_background:
         points = points[labels != 0]
         labels = labels[labels != 0]
 
-    colors = ['r', 'g', 'b', 'y']
+    # colors = ['r', 'g', 'b', 'y']
     cmap = ListedColormap(colors[:len(labels.unique())])
 
-    point_cloud_on_axis(ax, points, labels.cpu(), cmap, title=title)
+    point_cloud_on_axis(ax, points, labels.cpu(), cmap, title=title, alpha=alpha)
     # ax.view_init(elev=100., azim=-60.)
-    
+
+    if not show_ax:
+        ax.axis('off')
+
     if savepath is not None:
         fig.tight_layout()
         fig.savefig(savepath, bbox_inches='tight', dpi=300)
@@ -170,13 +179,13 @@ def point_cloud_on_axis(ax, points, c, cmap=None, marker='.', title='', label=''
 
 
 def visualize_o3d_mesh(mesh: Union[Sequence[open3d.geometry.TriangleMesh], open3d.geometry.TriangleMesh],
-                       title: str = '', show=True, savepath=None):
+                       title: str = '', show=True, savepath=None, alpha=1.):
     if not isinstance(mesh, Sequence):
         mesh = [mesh]
 
     visualize_trimesh(vertices_list=[np.asarray(m.vertices) for m in mesh],
                       triangles_list=[np.asarray(m.triangles) for m in mesh],
-                      title=title, show=show, savepath=savepath)
+                      title=title, show=show, savepath=savepath, alpha=alpha)
 
 
 def visualize_trimesh(vertices_list: Sequence[ArrayLike], triangles_list: Sequence[ArrayLike], title: str = '',
