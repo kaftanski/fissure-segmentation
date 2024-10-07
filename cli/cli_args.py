@@ -177,6 +177,9 @@ def get_ae_reg_parser():
                        help='Directory of the cross-validation of the segmentation DGCNN.')
     group.add_argument("--ae_dir", type=str, required=True,
                        help='Directory of the cross-validation of the PC-AE.')
+    group.add_argument("--sampling", choices=['farthest', 'accumulate'], default='farthest', type=str,
+                       help='Sampling strategy for the AE. Farthest performs one pass with points from farthest point '
+                            'sampling, accumulate samples points randomly in multiple (10) passes.')
 
     parser.set_defaults(test_only=True)
     return parser

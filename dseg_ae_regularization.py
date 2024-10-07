@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
 
 from cli.cli_args import get_ae_reg_parser
-from cli.cli_utils import load_args_for_testing
+from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS, IMG_DIR
 from data import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
@@ -60,19 +60,25 @@ class RegularizedSegDGCNN(LoadableModel):
         for obj in range(1, self.seg_model.num_classes):
             # get coordinates from the current object point cloud
             pts_per_obj = x[:, :3].transpose(1, 2)[(seg == obj)].view(x.shape[0], -1, 3)
-            points.append(pts_per_obj)
+            # points.append(pts_per_obj)
+
+            # skip if less than k points are present
+            if pts_per_obj.shape[1] < self.ae.encoder.k:
+                meshes.append(None)
+                continue
 
             # sample right amount of points from segmentation
             if self.sample_mode == 'farthest':
                 sampled = farthest_point_sampling(pts_per_obj, self.n_points_ae)[0].transpose(1, 2)
-            else:
-                raise NotImplementedError()
-
-            if sampled.shape[-1] < self.ae.encoder.k:  # not enough points
-                meshes.append(None)
-            else:
                 mesh = self.ae(sampled)
-                meshes.append(mesh)
+                points.append(sampled.transpose(1, 2))
+            elif self.sample_mode == 'accumulate':
+                mesh = self.ae.predict_full_pointcloud(pts_per_obj, self.n_points_ae, n_runs=10)
+                points.append(pts_per_obj)
+            else:
+                raise NotImplementedError(f'Sampling mode {self.sample_mode} not implemented.')
+
+            meshes.append(mesh)
 
         return meshes, points
 
@@ -113,6 +119,9 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
         color_values = color_2d_points_bremm(folding_points[:, :2])
         point_cloud_on_axis(ax1, folding_points, c=color_values, title="folding points")
     fig.savefig(os.path.join(plot_dir, 'folding_points.png'), dpi=300, bbox_inches='tight')
+    # again without axes
+    ax1.axis('off')
+    fig.savefig(os.path.join(plot_dir, 'folding_points_no_ax.png'), dpi=300, bbox_inches='tight')
     if show:
         plt.show()
     else:
@@ -178,6 +187,25 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
                 # point_cloud_on_axis(ax1, input_coords.cpu(), 'b', label='input', alpha=0.3)
                 point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'k', label='segmented points', alpha=0.3)
                 trimesh_on_axis(ax1, reconstruct_obj.verts_padded().cpu().squeeze(), faces, facecolors=color_values, alpha=0.7, label='reconstruction')
+
+                # # again only mesh with no axis
+                # fig = plt.figure()
+                # ax1 = fig.add_subplot(111, projection='3d')
+                # trimesh_on_axis(ax1, reconstruct_obj.verts_padded().cpu().squeeze(), faces, facecolors=color_values,
+                #                 alpha=0.7, )
+                # ax1.axis("off")
+                # fig.savefig(os.path.join(plot_dir,
+                #                          f'{"_".join(ds.ids[i])}_{"fissure" if not ds.lobes else "lobe"}{cur_obj + 1}_reconstruction_no_ax.png'),
+                #             dpi=300, bbox_inches='tight')
+
+                # # only points
+                # fig = plt.figure()
+                # ax1 = fig.add_subplot(111, projection='3d')
+                # ax1.axis('off')
+                # point_cloud_on_axis(ax1, segmented_sampled_coords.cpu(), 'k', alpha=0.3)
+                # fig.savefig(os.path.join(plot_dir, f'{"_".join(ds.ids[i])}_{"fissure" if not ds.lobes else "lobe"}{cur_obj + 1}_reconstruction_pts.png'),
+                #             dpi=300, bbox_inches='tight')
+
             else:
                 if isinstance(model.ae.decoder, FoldingDecoder):
                     points = reconstruct_obj.verts_padded().cpu().squeeze()
@@ -255,23 +283,23 @@ def speed_test(ds: PointToMeshDS, device, out_dir):
         x = x.unsqueeze(0).to(device)
 
         with torch.no_grad(), no_print():
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
 
             seg = model.segment(x)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_inference_times.append(curr_time)
 
-            torch.cuda.synchronize()
-            starter.record()
+            torch.cuda.synchronize(device)
+            starter.record(torch.cuda.current_stream(device))
 
             reconstruct_meshes, sampled_points_per_obj = model.reconstruct(x, seg)
 
-            ender.record()
-            torch.cuda.synchronize()
+            ender.record(torch.cuda.current_stream(device))
+            torch.cuda.synchronize(device)
             curr_time = starter.elapsed_time(ender) / 1000
             all_post_proc_times.append(curr_time)
 
@@ -307,7 +335,8 @@ if __name__ == '__main__':
     for fold in range(len(split)):
         model = RegularizedSegDGCNN(os.path.join(dgcnn_args.output, f'fold{fold}', 'model.pth'),
                                     os.path.join(pc_ae_args.output, f'fold{fold}', 'model.pth'),
-                                    n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts)
+                                    n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts,
+                                    sample_mode=args.sampling)
         fold_dir = new_dir(args.output, f"fold{fold}")
         model.save(os.path.join(fold_dir, 'model.pth'))
 
@@ -328,5 +357,8 @@ if __name__ == '__main__':
 
     if args.speed:
         speed_test(ds, get_device(args.gpu), args.output)
+        exit()
+
+    store_args(args=args, out_dir=args.output)
 
     run(ds, model, test, args)
