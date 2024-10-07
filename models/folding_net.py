@@ -24,6 +24,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+import warnings
 from abc import ABC
 
 import torch
@@ -40,16 +41,36 @@ SHAPE_TYPES = ['sphere', 'gaussian', 'plane']
 
 class DGCNNFoldingNet(LoadableModel):
     @store_config_args
-    def __init__(self, k, n_embedding, shape_type, decode_mesh=True, deform=False, static=False):
+    def __init__(self, k, n_embedding, shape_type, n_input_points=1024, decode_mesh=True, deform=False, static=False):
         super(DGCNNFoldingNet, self).__init__()
         self.encoder = DGCNN_Cls_Encoder(k, n_embedding, static=static)
+        self.n_input_points = n_input_points
+
+        # number of output points is the closest square number to the number of input points
+        m = torch.sqrt(torch.tensor(n_input_points)).round().int().item() ** 2
         if deform:
-            self.decoder = DeformingDecoder(n_embedding, shape_type, decode_mesh)
+            self.decoder = DeformingDecoder(n_embedding, shape_type, m, decode_mesh)
         else:
-            self.decoder = FoldingDecoder(n_embedding, shape_type, decode_mesh)
+            self.decoder = FoldingDecoder(n_embedding, shape_type, m, decode_mesh)
 
     def forward(self, x):
         return self.decoder(self.encoder(x))
+
+    def predict_full_pointcloud(self, pc, sample_points=1024, n_runs=50):
+        vert_accumulation = torch.zeros(pc.shape[0], self.decoder.m, 3, device=pc.device)
+        for r in range(n_runs):
+            perm = torch.randperm(pc.shape[1], device=pc.device)[:sample_points]
+            pred_decoded = self(pc[:, perm].transpose(1, 2))
+            if self.decoder.decode_mesh:
+                pred_decoded = pred_decoded.verts_padded()
+            vert_accumulation += pred_decoded
+
+        vert_accumulation /= n_runs
+
+        if self.decoder.decode_mesh:
+            return Meshes(verts=vert_accumulation, faces=self.decoder.faces)
+        else:
+            return vert_accumulation
 
 
 # TODO: try ball-query encoder
@@ -115,9 +136,9 @@ class DGCNN_Cls_Encoder(LoadableModel):
 
 class Decoder(LoadableModel, ABC):
     @store_config_args
-    def __init__(self, shape_type, decode_mesh=True):
+    def __init__(self, shape_type, m=1024, decode_mesh=True):
         super(Decoder, self).__init__()
-        self.m = 1024  # 32 * 32
+        self.m = m  # closest square number to number of encoder input points
         self.shape_type = shape_type
         self.folding_points = None
         self.faces = None
@@ -157,8 +178,8 @@ class Decoder(LoadableModel, ABC):
 
 class FoldingDecoder(Decoder):
     @store_config_args
-    def __init__(self, n_embedding, shape_type, decode_mesh=True):
-        super(FoldingDecoder, self).__init__(shape_type, decode_mesh)
+    def __init__(self, n_embedding, shape_type, m=1024, decode_mesh=True):
+        super(FoldingDecoder, self).__init__(shape_type, m, decode_mesh)
 
         if self.shape_type == 'plane':
             self.folding1 = nn.Sequential(
@@ -202,8 +223,8 @@ class FoldingDecoder(Decoder):
 
 class DeformingDecoder(Decoder):
     @store_config_args
-    def __init__(self, n_embedding, shape_type, decode_mesh=True):
-        super(DeformingDecoder, self).__init__(shape_type, decode_mesh)
+    def __init__(self, n_embedding, shape_type, m=1024, decode_mesh=True):
+        super(DeformingDecoder, self).__init__(shape_type, m, decode_mesh)
 
         self.deforming1 = nn.Sequential(
             SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
