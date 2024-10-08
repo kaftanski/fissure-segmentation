@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 
-from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize, PSR2Mesh
+from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize, DifferentiableMarchingCubes
 import numpy as np
 import torch.fft
 from pytorch3d.ops import marching_cubes, estimate_pointcloud_normals
@@ -58,7 +58,7 @@ class DPSR(nn.Module):
         # convert to range (0, 1)
         V = (V + 1) / 2
 
-        ras_p = point_rasterize(V, N, self.res)  # [b, n_dim, dim0, dim1, dim2]
+        ras_p = point_rasterize(V, N, self.res)  # [b, n_dim, dim0, dim1, dim2]  # TODO: use DiVRoC
 
         phi = self.spectral_PSR(V, ras_p)
         return phi
@@ -120,7 +120,7 @@ class DPSRNet(LoadableModel):
                                      spatial_transformer=spatial_transformer, dynamic=dynamic,
                                      image_feat_module=image_feat_module)
         self.dpsr = DPSR(dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift)
-        self.psr_grid_to_mesh = PSR2Mesh.apply
+        self.psr_grid_to_mesh = DifferentiableMarchingCubes.apply
         self.empty_mesh = None
 
     def forward(self, x):

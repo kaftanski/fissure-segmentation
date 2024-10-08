@@ -6,7 +6,7 @@ from torch import nn
 from models.access_models import get_point_seg_model_class
 from models.divroc import DiVRoC
 from models.dpsr_net import DPSR
-from models.dpsr_utils import PSR2Mesh, point_rasterize
+from models.dpsr_utils import DifferentiableMarchingCubes, point_rasterize
 from models.modelio import LoadableModel, store_config_args
 from utils.image_utils import smooth, gaussian_differentiation
 
@@ -27,8 +27,8 @@ class DPSRNet2(LoadableModel):
         self.seg_net = seg_net_class(k=k, in_features=in_features, num_classes=num_classes,
                                      spatial_transformer=spatial_transformer, dynamic=dynamic,
                                      image_feat_module=image_feat_module)
-        self.seg2mesh = Logits2Mesh(normals_smoothing_sigma, dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift,
-                                    exclude_background=True)
+        self.seg2mesh = SoftMesh(normals_smoothing_sigma, dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift,
+                                 exclude_background=True)
 
     def forward(self, x):
         """
@@ -54,7 +54,7 @@ class DPSRNet2(LoadableModel):
         return seg_logits, meshes
 
 
-class Logits2Mesh(nn.Module):
+class SoftMesh(nn.Module):
     def __init__(self, smoothing_sigma=10, dpsr_res=(128, 128, 128), dpsr_sigma=10, dpsr_scale=True, dpsr_shift=True,
                  exclude_background=True):
         super().__init__()
@@ -62,7 +62,7 @@ class Logits2Mesh(nn.Module):
         self.smoothing_sigma = smoothing_sigma
         self.res = dpsr_res
         self.dpsr = DPSR(dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift)
-        self.psr_grid_to_mesh = PSR2Mesh.apply
+        self.psr_grid_to_mesh = DifferentiableMarchingCubes.apply
         self.exclude_background = exclude_background
         self.divroc = DiVRoC.apply  # efficient differentiable voxel rasterization of point clouds
 

@@ -41,7 +41,7 @@ import open3d as o3d
 from models.divroc import DiVRoC
 
 
-class PSR2Mesh(torch.autograd.Function):
+class DifferentiableMarchingCubes(torch.autograd.Function):
     # TODO: batched version
     """
     Autograd function for differentiable PSR. Converts grid to mesh using marching cubes.
