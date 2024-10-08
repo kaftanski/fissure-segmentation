@@ -176,5 +176,8 @@ crashlytics.properties
 crashlytics-build.properties
 fabric.properties
 
+# Mac
+.DS_Store
+
 # own folders
-./results
+results
