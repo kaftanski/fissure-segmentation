@@ -1,10 +1,7 @@
 import argparse
-import json
 
 from constants import KP_MODES, FEATURE_MODES
 from losses.access_losses import Losses
-from models.folding_net import SHAPE_TYPES
-from shape_model.generate_corresponding_points import CORRESPONDENCE_MODES
 
 
 def add_training_parameters(parser):
@@ -124,38 +121,12 @@ def get_seg_cnn_train_parser():
     return parser
 
 
-def get_dgcnn_ssm_train_parser():
-    parser = get_dgcnn_train_parser()
-    parser.description = 'Train DGCNN-Shape-Model Regression for lung fissure segmentation'
-
-    group = parser.add_argument_group('SSM parameters')
-    group.add_argument('--alpha', default=3., type=float,
-                       help='Multiplier for plausible shape range (+-alpha*std.dev.)')
-    group.add_argument('--target_variance', default=0.95, type=float,
-                       help='Fraction of the dataset variance to be explained by the model')
-    group.add_argument('--lssm', const=True, default=False,
-                       help='use Localized SSM (Wilms et al., MedIA 2017) instead of standard SSM', nargs='?')
-    group.add_argument('--predict_affine', const=True, default=False, nargs='?',
-                       help='predict the affine transformation of the corresponding points')
-    group.add_argument('--corr_mode', default='simple', choices=CORRESPONDENCE_MODES, type=str,
-                       help='mode of the point correspondence generation')
-    group.add_argument('--head_schedule', default={'main': 150, 'translation': 0, 'rotation': 100, 'scaling': 50},
-                       type=json.loads, help='json string containing the epoch when the particular head is supposed to be actived during training.')
-    group.add_argument('--only_affine', const=True, default=False, nargs='?',
-                       help='only train the affine heads.')
-
-    parser.set_defaults(loss='ssm')
-    return parser
-
-
 def get_pc_ae_train_parser():
     parser = get_dgcnn_train_parser()
     parser.description = 'Train DGCNN+FoldingNet Encoder+Decoder'
 
     group = parser.add_argument_group('FoldingNet parameters')
     group.add_argument("--latent", help="Dimensionality of latent shape code (z).", default=512, type=int)
-    group.add_argument("--shape", help="Shape type to be folded by the FoldingNet decoder.", choices=SHAPE_TYPES,
-                       default='plane')
     group.add_argument("--mesh", default=False, const=True,
                        help="Make the decoder fold a mesh instead of a point cloud.", nargs='?')
     group.add_argument("--deform", default=False, const=True,

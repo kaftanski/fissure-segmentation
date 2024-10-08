@@ -1,12 +1,12 @@
 import os.path
 import warnings
-from typing import Sequence
+
 import SimpleITK as sitk
 import matplotlib.cm
 import numpy as np
 from matplotlib import pyplot as plt
 
-from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS, IMG_DIR_TSv1, CLASS_COLORS, CLASSES, IMG_DIR
+from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS, CLASS_COLORS, CLASSES, IMG_DIR
 from data import load_split_file, ImageDataset
 from preprocess_totalsegmentator_dataset import find_non_zero_ranges
 from thesis.utils import legend_figure, save_fig, textwidth_to_figsize

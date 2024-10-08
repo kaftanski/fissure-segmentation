@@ -12,11 +12,10 @@ import model_trainer
 from cli.cli_args import get_point_segmentation_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
-from data import PointDataset, load_split_file, save_split_file, LungData, CorrespondingPointDataset
+from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
-from losses.dgssm_loss import corresponding_point_distance
 from metrics import assd, label_mesh_assd, batch_dice
 from models.access_models import get_point_seg_model_class_from_args
 from thesis.utils import param_and_op_count
@@ -24,7 +23,7 @@ from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, \
     mask_to_points, \
-    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print
+    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print, corresponding_point_distance
 from visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
@@ -36,34 +35,9 @@ def train(model, ds, device, out_dir, args):
 
     criterion = get_loss_fn(args.loss, class_weights, args.loss_weights)
 
-    if isinstance(ds, CorrespondingPointDataset):
-        train_shapes = ds.get_normalized_corr_datamatrix_with_affine_reg().to(device)
-        model.fit_ssm(train_shapes)
-
-        ev_before = model.ssm.eigenvectors.data.clone()
-        ms_before = model.ssm.mean_shape.data.clone()
-
-        # compute the train reconstruction error
-        with torch.no_grad():
-            reconstructions = model.ssm.decode(model.ssm(train_shapes))
-            error = corresponding_point_distance(reconstructions, train_shapes)
-            print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
-
     # run training
     trainer = model_trainer.ModelTrainer(model, ds, criterion, out_dir, device, args)
     trainer.run(initial_epoch=0)
-
-    if isinstance(ds, CorrespondingPointDataset):
-        # assert that the SSM has not been changed
-        assert torch.all(model.ssm.eigenvectors.data == ev_before), \
-            'SSM parameters have changed. This should not have happened'
-        assert torch.all(model.ssm.mean_shape.data == ms_before), \
-            'SSM parameters have changed. This should not have happened'
-
-        with torch.no_grad():
-            reconstructions = model.ssm.decode(model.ssm(train_shapes))
-            error = corresponding_point_distance(reconstructions, train_shapes)
-            print('SSM train reconstruction error:', error.mean().item(), '+-', error.std().item())
 
 
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],

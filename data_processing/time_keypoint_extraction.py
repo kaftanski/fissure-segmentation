@@ -1,30 +1,27 @@
 import csv
 import os
 
+import SimpleITK as sitk
 import torch
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
-from constants import IMG_DIR_TS
+from constants import IMG_DIR_TS, KEYPOINT_CNN_DIR, ALIGN_CORNERS
 from data import ImageDataset, LungData
 from data_processing import foerstner
-from data_processing.fissure_enhancement import get_enhanced_fissure_image, load_fissure_stats, FISSURE_STATS_FILE, \
-    hessian_based_enhancement_torch, HessianEnhancementFilter
+from data_processing.fissure_enhancement import load_fissure_stats, FISSURE_STATS_FILE, \
+    HessianEnhancementFilter
 from data_processing.keypoint_extraction import MAX_KPTS, limit_keypoints
 from data_processing.point_features import mind
-from train_segmentation_net import get_model_class
-from utils.detached_run import run_detached_from_pycharm
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor
-from utils.image_utils import smooth
-from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, no_print, new_dir, topk_alldims, \
-    load_points
-import SimpleITK as sitk
-
+from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
+from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, no_print, new_dir, topk_alldims
+from utils.sitk_image_ops import resample_equal_spacing, sitk_image_to_tensor
+from utils.pytorch_image_filters import smooth
 
 OUT_DIR = new_dir('results', 'preproc_timing_node2')
 
 
-def time_cnn_kp(cnn_dir, data_dir, device):
+def time_cnn_kp(cnn_dir=KEYPOINT_CNN_DIR, data_dir=IMG_DIR_TS, device='cuda:0'):
     default_parser = get_seg_cnn_train_parser()
     args, _ = default_parser.parse_known_args()
     args = load_args_for_testing(cnn_dir, args)
@@ -32,9 +29,7 @@ def time_cnn_kp(cnn_dir, data_dir, device):
     ds = ImageDataset(folder=data_dir, do_augmentation=False, patch_size=(args.patch_size,) * 3,
                       resample_spacing=args.spacing)
 
-    model_class = get_model_class(args)
-
-    model = model_class.load(os.path.join(cnn_dir, f'fold0', 'model.pth'), device=device)
+    model = LRASPP_MobileNetv3_large_3d.load(os.path.join(cnn_dir, f'fold0', 'model.pth'), device=device)
     model.eval()
     model.to(device)
 
@@ -239,9 +234,8 @@ def write_times(out_filename, inference_times, num_points=None):
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
-    device = 'cuda:3'
-    time_cnn_kp('results/lraspp_recall_loss', IMG_DIR_TS, device)
+    device = 'cuda:0'
+    time_cnn_kp(KEYPOINT_CNN_DIR, IMG_DIR_TS, device)
     time_foerstner_kp(IMG_DIR_TS, device)
     time_enhancement_kp(IMG_DIR_TS, device)
     time_mind_feat(IMG_DIR_TS, device)

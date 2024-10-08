@@ -7,13 +7,13 @@ import torch
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
-from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
+from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS, ALIGN_CORNERS
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
-from utils.detached_run import run_detached_from_pycharm
-from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
-from utils.general_utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims, find_test_fold_for_id, new_dir
+from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, topk_alldims, \
+    find_test_fold_for_id, new_dir
+from utils.sitk_image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
 
 MAX_KPTS = 20000  # point clouds shouldn't be bigger for memory concerns
 
@@ -243,16 +243,10 @@ def save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, 
 if __name__ == '__main__':
     # run_detached_from_pycharm()
     print(torch.cuda.is_available())
-    ts = True
 
-    if ts:
-        data_dir = '../TotalSegmentator/ThoraxCrop_v2'
-        point_dir = POINT_DIR_TS
-        cnn_dir = 'results/lraspp_recall_loss'
-    else:
-        data_dir = '../data'
-        point_dir = POINT_DIR
-        cnn_dir = 'results/lraspp_recall_loss'
+    data_dir = IMG_DIR_TS
+    point_dir = POINT_DIR_TS
+    cnn_dir = KEYPOINT_CNN_DIR
 
     ds = LungData(data_dir)
 

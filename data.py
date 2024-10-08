@@ -15,15 +15,12 @@ import numpy as np
 import open3d as o3d
 import torch
 from pytorch3d.structures import Meshes, join_meshes_as_batch
-from pytorch3d.transforms import so3_log_map, Transform3d
 from torch.utils.data import Dataset
 
-from augmentations import image_augmentation, point_augmentation, compose_transform, transform_meshes
-from constants import POINT_DIR, IMG_DIR
-from shape_model.ssm import load_shape
-from utils.general_utils import load_points, ALIGN_CORNERS, kpts_to_grid, kpts_to_world, inverse_affine_transform, \
-    decompose_similarity_transform, load_meshes, o3d_to_pt3d_meshes
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
+from augmentations import image_augmentation, point_augmentation, transform_meshes
+from constants import POINT_DIR, IMG_DIR, ALIGN_CORNERS
+from utils.general_utils import load_points, kpts_to_grid, kpts_to_world, load_meshes, o3d_to_pt3d_meshes
+from utils.sitk_image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \
     get_resample_factors, load_image_metadata
 
 IMG_MIN = -1000
@@ -55,6 +52,16 @@ def _load_files_from_file_list(item, the_list):
         result = result[0]
 
     return result
+
+
+def load_landmarks(filepath):
+    points = []
+    with open(filepath, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for line in reader:
+            points.append([eval(coord) for coord in line])
+
+    return torch.tensor(points)
 
 
 class LungData(Dataset):
@@ -306,7 +313,6 @@ class ImageDataset(LungData, CustomDataset):
         # dilate fissures (so they don't vanish when downsampling)
         factors = get_resample_factors(label.GetSpacing(), target_spacing=self.resample_spacing)
         radius = [max(0, round(1/f - 1)) for f in factors]
-        # print(radius)  # TODO: find a better way to preserve labels! (maybe through gt meshes)
         label = multiple_objects_morphology(label, radius=radius, mode='dilate')
 
         # resampling to unit spacing
@@ -508,181 +514,6 @@ def compute_class_weights(class_frequency):
     return class_weights
 
 
-class CorrespondingPointDataset(PointDataset):
-    def __init__(self, sample_points, kp_mode, point_folder=POINT_DIR,
-                 use_coords=True, patch_feat=None, corr_folder="./results/corresponding_points",
-                 image_folder=IMG_DIR, do_augmentation=True, undo_affine_reg=False):
-        super(CorrespondingPointDataset, self).__init__(sample_points, kp_mode, point_folder, image_folder, use_coords,
-                                                        patch_feat, exclude_rhf=True, do_augmentation=False)
-        self.corr_points = CorrespondingPoints(corr_folder)
-        self._do_augmentation_correspondingly = do_augmentation
-
-        # # load meshes for supervision
-        # self.meshes = []
-        # for case, sequence in self.ids:
-        #     meshes = load_meshes(image_folder, case, sequence, obj_name='fissure')
-        #     self.meshes.append(meshes)
-
-        # remove non-matched data points
-        self._remove_non_matched_from_corr_points()
-
-        # # affine transform the ground truth meshes to fit the corresponding points
-        # for meshes, transforms in zip(self.meshes, self.corr_points.transforms):
-        #     for m, t in zip(meshes, transforms):
-        #         # rotate around [0,0,0] (o3d uses the PC's center of mass by default)
-        #         m.rotate(t[..., :3], center=np.zeros([3, 1]))
-        #         m.translate(t[..., -1])
-
-    @property
-    def do_augmentation(self):
-        return self._do_augmentation_correspondingly
-
-    @do_augmentation.setter
-    def do_augmentation(self, value):
-        self._do_augmentation_correspondingly = value
-
-    def __getitem__(self, item, return_aug_transform=False):
-        pts, lbl = super(CorrespondingPointDataset, self).__getitem__(item)
-        target_corr_pts, norm_transform = self.normalize_pc(self.corr_points[item], item, return_transform=True)
-
-        # we want the network to predict the inverse rigid transformation (back into moving space)
-        inverse_prereg_transform = compose_transform(
-            so3_log_map(self.corr_points.transforms[item]['rotation'].T.unsqueeze(0)),
-            self.corr_points.transforms[item]['translation'].unsqueeze(0),
-            torch.tensor([[self.corr_points.transforms[item]['scale']]])).inverse()
-
-        # prereg transform is in unnormalized form, therefore apply inverse normalization first
-        # then back into normalized space
-        target_transform = norm_transform.inverse().compose(inverse_prereg_transform).compose(norm_transform)
-
-        # augmentations
-        if self._do_augmentation_correspondingly:
-            # augment the input points
-            pts_augment, aug_transform = point_augmentation(pts[:3].unsqueeze(0))
-            pts[:3] = pts_augment.squeeze(0)
-
-            # augmentations need to be predicted as well (happen in moving space, therefore after inverse prereg)
-            # the transformation therefore bridges the spaces:
-            # F -> prereg^-1 -> M -> aug -> M_aug
-            target_transform = target_transform.compose(aug_transform)
-
-        # decompose the transformation matrix (shear should stay 0 except for some quantization error)
-        target_translation, target_rotation, target_scale = decompose_similarity_transform(
-            target_transform.get_matrix().squeeze().T)  # other scheme of notating homogeneous coordinates -> transpose
-        # target_translation, target_rotation, target_scale = compose_rigid_transforms(
-        #     norm_transform.inverse(), inverse_prereg_transform, norm_transform, aug_transform)
-        target_rotation = target_rotation.T.unsqueeze(0)
-        target_scale = target_scale.unsqueeze(0)
-        target_translation = target_translation.unsqueeze(0)
-        recomposed = Transform3d()\
-            .rotate(target_rotation) \
-            .scale(target_scale) \
-            .translate(target_translation)
-        assert torch.allclose(recomposed.get_matrix(), target_transform.get_matrix(), atol=1e-7)
-
-        target_transform_params = torch.cat([so3_log_map(target_rotation), target_translation, target_scale], dim=1).squeeze()
-
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111, projection='3d')
-        # point_cloud_on_axis(ax, pts[:3].T[lbl > 0], c='b', label='input')
-        # point_cloud_on_axis(ax, target_transform.transform_points(target_corr_pts), c='r', label='target', alpha=0.5)
-        # plt.show()
-
-        return pts, (target_corr_pts, target_transform_params)  # (self.corr_points[item], o3d_to_pt3d_meshes([concat_meshes]))
-
-    def split_data_set(self, split: OrderedDict[str, np.ndarray], fold_nr=None):
-        train_ds, val_ds = super(CorrespondingPointDataset, self).split_data_set(split)
-        train_ds._remove_non_matched_from_corr_points()
-        val_ds._remove_non_matched_from_corr_points()
-        return train_ds, val_ds
-
-    @property
-    def num_classes(self):
-        return self.corr_points.num_objects
-
-    def _remove_non_matched_from_corr_points(self):
-        for i in range(len(self.ids) - 1, -1, -1):
-            if self.ids[i] not in self.corr_points.ids:
-                self._pop_item(i)
-
-        for i in range(len(self.corr_points) - 1, -1, -1):
-            if self.corr_points.ids[i] not in self.ids:
-                self.corr_points.points.pop(i)
-                self.corr_points.transforms.pop(i)
-                self.corr_points.ids.pop(i)
-
-    def normalize_pc(self, pc, index, return_transform=False):
-        return kpts_to_grid(pc, self.img_sizes_world[index][::-1], align_corners=ALIGN_CORNERS, return_transform=return_transform)
-
-    def unnormalize_pc(self, pc, index):
-        return kpts_to_world(pc, self.img_sizes_world[index][::-1], align_corners=ALIGN_CORNERS)
-
-    def unnormalize_mean_pc(self, pc):
-        mean_size = torch.stack([torch.tensor(self.img_sizes_world[i][::-1]) for i in range(len(self))], dim=0).mean(0)
-        return kpts_to_world(pc, mean_size, align_corners=ALIGN_CORNERS)
-
-    def get_normalized_corr_datamatrix_with_affine_reg(self):
-        return torch.stack([self.normalize_pc(pts, i) for i, pts in enumerate(self.corr_points.points)], dim=0)
-
-    # def get_batch_collate_fn(self):
-    #     def collate_fn(list_of_samples):
-    #         pcs = []
-    #         corr_pts = []
-    #         meshes = []
-    #         for pc, (corr, mesh) in list_of_samples:
-    #             pcs.append(pc)
-    #             corr_pts.append(corr)
-    #             meshes.append(mesh)
-    #
-    #         return torch.stack(pcs, dim=0), (torch.stack(corr_pts), join_meshes_as_batch(meshes))
-    #
-    #     return collate_fn
-
-
-class CorrespondingPoints:
-    def __init__(self, folder="./results/corresponding_points"):
-        self.folder = folder
-        self.points = []
-        self.transforms = []
-        self.ids = []
-        files = sorted(glob(os.path.join(self.folder, '*_corr_pts.npz')))
-        for f in files:
-            s, t = load_shape(f)
-            self.points.append(s)
-            self.transforms.append(t)
-            tail = f.split(os.sep)[-1]
-            case, sequence = tail.split('_')[:2]
-            self.ids.append((case, sequence))
-
-        # points are corresponding, one label is applicable to all
-        self.label = load_shape(files[0], return_labels=True)[-1]
-        self.num_objects = len(np.unique(self.label))
-
-    def __getitem__(self, item):
-        return self.points[item]
-
-    def __len__(self):
-        return len(self.points)
-
-    def get_shape_datamatrix_with_affine_reg(self):
-        return torch.stack(self.points, dim=0)
-
-    def get_points_without_affine_reg(self, index):
-        points_registered = self.points[index]
-        return self.inverse_affine_transform(points_registered, index)
-
-    def inverse_affine_transform(self, pts_affine, index):
-        unregistered = []
-        trf = self.transforms[index]
-        rot = trf['rotation'].to(pts_affine.device)
-        trans = trf['translation'].to(pts_affine.device)
-        for i, lbl in enumerate(self.label.unique()):
-            unregistered.append(inverse_affine_transform(pts_affine[self.label == lbl], scaling=trf['scale'],
-                                                         rotation_mat=rot, affine_translation=trans))
-
-        return torch.concat(unregistered, dim=0)
-
-
 class SampleFromMeshDS(CustomDataset):
     def __init__(self, folder, sample_points, fixed_object: int = None, exclude_rhf=False, lobes=False, mesh_as_target=True):
         super(SampleFromMeshDS, self).__init__(exclude_rhf=exclude_rhf, binary=False, do_augmentation=True)
@@ -862,29 +693,6 @@ class PointToMeshAndLabelDataset(PointToMeshDS):
         return collate_fn
 
 
-def load_landmarks(filepath):
-    points = []
-    with open(filepath, 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        for line in reader:
-            points.append([eval(coord) for coord in line])
-
-    return torch.tensor(points)
-
-
-def image2tensor(img: sitk.Image, dtype=None) -> torch.Tensor:
-    array = sitk.GetArrayFromImage(img)
-    if dtype == torch.bool:
-        array = array.astype(bool)
-    if array.dtype == np.uint16:
-        array = array.astype(int)
-    tensor = torch.from_numpy(array)
-    if dtype is not None:
-        tensor = tensor.to(dtype)
-
-    return tensor
-
-
 def create_split(k: int, dataset: LungData, filepath: str, seed=42):
     # get the names of images that have fissures segmented
     names = np.asarray([img.split(os.sep)[-1].split('.')[0] for i, img in enumerate(dataset.images) if dataset.fissures[i] is not None])
@@ -931,17 +739,3 @@ def load_split_file(filepath):
 def save_split_file(split, filepath):
     with open(filepath, 'wb') as file:
         pickle.dump(split, file)
-
-
-if __name__ == '__main__':
-    ds = PointToMeshAndLabelDataset(1024, 'cnn', patch_feat='image', exclude_rhf=False)
-    exit()
-
-    ds = CorrespondingPointDataset(1024, 'cnn', patch_feat='mind')
-    splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
-    tr, vl = ds.split_data_set(splitfile[0])
-    pass
-    # ds = ImageDataset('../data')
-    # splitfile = load_split_file('../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl')
-    # for fold in splitfile:
-    #     train, test = ds.split_data_set(fold)

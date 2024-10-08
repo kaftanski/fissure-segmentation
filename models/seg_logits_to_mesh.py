@@ -1,14 +1,13 @@
 import torch
-from pytorch3d.ops import estimate_pointcloud_normals
-from pytorch3d.structures import Meshes, join_meshes_as_batch
+from pytorch3d.structures import Meshes
 from torch import nn
 
 from models.access_models import get_point_seg_model_class
 from models.divroc import DiVRoC
 from models.dpsr_net import DPSR
-from models.dpsr_utils import DifferentiableMarchingCubes, point_rasterize
+from models.dpsr_utils import DifferentiableMarchingCubes
 from models.modelio import LoadableModel, store_config_args
-from utils.image_utils import smooth, gaussian_differentiation
+from utils.pytorch_image_filters import gaussian_differentiation
 
 
 class DPSRNet2(LoadableModel):

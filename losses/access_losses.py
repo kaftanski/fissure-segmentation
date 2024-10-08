@@ -5,8 +5,6 @@ import torch
 from torch import nn
 
 from losses.chamfer_loss import ChamferLoss
-from losses.dgssm_loss import DGSSMLoss
-from losses.dice_loss import GDL
 from losses.dpsr_loss import DPSRLoss
 from losses.mesh_loss import RegularizedMeshLoss
 from losses.nnu_loss import NNULoss
@@ -22,9 +20,6 @@ class Losses(Enum):
 
     RECALL = "recall"
     """cross entropy loss weighted with batch-specific false-positive rate, promotes recall"""
-
-    SSM = "ssm"
-    """ ssm loss (chamfer distance for now) """
 
     CHAMFER = "chamfer"
     """ chamfer distance between predicted and target point cloud"""
@@ -52,17 +47,6 @@ def get_loss_fn(loss: Losses, class_weights: torch.Tensor = None, term_weights: 
 
     if loss == Losses.RECALL.value:
         return BatchRecallLoss()
-
-    if loss == Losses.SSM.value:
-        if term_weights is not None:
-            assert len(term_weights) == 3
-            return DGSSMLoss(
-                w_point=term_weights[0],
-                w_coefficients=term_weights[1],
-                w_affine=term_weights[2])
-        else:
-            # default weights
-            return DGSSMLoss()
 
     if loss == Losses.CHAMFER.value:
         return ChamferLoss()

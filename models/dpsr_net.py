@@ -16,17 +16,17 @@ copies or substantial portions of the Software.
 https://github.com/autonomousvision/shape_as_points/blob/main/src/dpsr.py
 
 """
+import numpy as np
 import torch
+import torch.fft
 import torch.nn as nn
+from pytorch3d.ops import estimate_pointcloud_normals
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 
-from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize, DifferentiableMarchingCubes
-import numpy as np
-import torch.fft
-from pytorch3d.ops import marching_cubes, estimate_pointcloud_normals
-
+from models.access_models import get_point_seg_model_class
+from models.dpsr_utils import spec_gaussian_filter, fftfreqs, img, grid_interp, point_rasterize, \
+    DifferentiableMarchingCubes
 from models.modelio import LoadableModel, store_config_args
-from models.access_models import get_point_seg_model_class, get_point_seg_model_class_from_args
 
 
 class DPSR(nn.Module):

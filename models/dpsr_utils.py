@@ -17,26 +17,28 @@ https://github.com/autonomousvision/shape_as_points/blob/main/src/utils.py
 https://github.com/autonomousvision/shape_as_points/blob/main/src/model.py
 
 """
-from typing import Any, Tuple
 
-import torch
-import io, os, logging, urllib
-import yaml
-import trimesh
+import logging
 import numbers
+import os
+import urllib
+from collections import OrderedDict
+
 import math
 import numpy as np
-from collections import OrderedDict
+import open3d as o3d
+import torch
+import trimesh
+import yaml
+from igl import adjacency_matrix, connected_components
 from plyfile import PlyData
 from pytorch3d.ops import marching_cubes
+from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
+from pytorch3d.structures import Meshes
+from skimage import measure
 from torch import nn
 from torch.nn import functional as F
 from torch.utils import model_zoo
-from skimage import measure
-from pytorch3d.structures import Meshes
-from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
-from igl import adjacency_matrix, connected_components
-import open3d as o3d
 
 from models.divroc import DiVRoC
 

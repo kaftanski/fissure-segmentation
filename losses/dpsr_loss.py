@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 
-from losses.chamfer_loss import ChamferLoss
 from losses.mesh_loss import RegularizedMeshLoss
 from losses.nnu_loss import NNULoss
 

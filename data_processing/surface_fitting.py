@@ -11,9 +11,8 @@ from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Meshes
 
 import data
-from data import image2tensor
-from data_processing.surface_fitting_optimization import fit_plane_to_fissure
 from utils.general_utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component, save_meshes
+from utils.sitk_image_ops import sitk_image_to_tensor
 
 
 def mesh2labelmap_sampling(meshes: Sequence[Tuple[torch.Tensor, torch.Tensor]], output_shape: Sequence[int],
@@ -89,7 +88,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=
     # transforming labelmap to unit spacing
     # fissures = image_ops.resample_equal_spacing(fissures, target_spacing=1.)
 
-    fissures_tensor = image2tensor(fissures).long()
+    fissures_tensor = sitk_image_to_tensor(fissures).long()
     fissure_meshes = []
     spacing = fissures.GetSpacing()
 
@@ -107,7 +106,7 @@ def poisson_reconstruction(fissures: sitk.Image, mask: sitk.Image, return_times=
         print('\tThinning labelmap and extracting points ...')
         start = time.time()
         label_image = sitk.BinaryThinning(label_image)
-        label_tensor = image2tensor(label_image, dtype=torch.bool)
+        label_tensor = sitk_image_to_tensor(label_image).to(torch.bool)
 
         # extract point cloud from thinned fissures
         fissure_points = mask_to_points(label_tensor, spacing)
@@ -187,21 +186,15 @@ def regularize_fissure_segmentations(mode):
 
         img, fissures = ds[i]
 
-        if mode == 'plane':
-            mask = ds.get_lung_mask(i)
-            fissures_reg = fit_plane_to_fissure(fissures, mask)
-        elif mode == 'poisson':
-            fissures_reg, meshes = poisson_reconstruction(fissures, ds.get_lung_mask(i))
-            case, sequence = ds.get_id(i)
-            save_meshes(meshes, base_dir, case, sequence)
-        else:
-            raise ValueError(f'No regularization mode named "{mode}".')
+        fissures_reg, meshes = poisson_reconstruction(fissures, ds.get_lung_mask(i))
+        case, sequence = ds.get_id(i)
+        save_meshes(meshes, base_dir, case, sequence)
 
         output_file = file.replace('_img_', f'_fissures_{mode}_')
         sitk.WriteImage(fissures_reg, output_file)
 
 
 if __name__ == '__main__':
-    regularize_fissure_segmentations(mode='poisson')
+    regularize_fissure_segmentations()
     # result = poisson_reconstruction(sitk.ReadImage('../data/EMPIRE16_fissures_fixed.nii.gz'))
     # sitk.WriteImage(result, 'results/EMPIRE16_fissures_reg_fixed.nii.gz')

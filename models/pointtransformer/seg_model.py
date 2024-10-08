@@ -3,12 +3,10 @@ PointTransformer model from https://github.com/POSTECH-CVLab/point-transformer
 by Hengshuang Zhao et al.
 """
 import os
-import warnings
 
 import torch
 import torch.nn as nn
 
-from models.modelio import LoadableModel, store_config_args
 from models.point_seg_net import PointSegmentationModelBase
 from models.pointtransformer import pointops
 from thesis.utils import param_and_op_count

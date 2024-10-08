@@ -18,8 +18,8 @@ from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.patch_based_model import PatchBasedModule
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
-from utils.image_ops import resample_equal_spacing, apply_mask
-from utils.image_utils import filter_1d, gaussian_kernel_1d
+from utils.sitk_image_ops import resample_equal_spacing, apply_mask
+from utils.pytorch_image_filters import filter_1d, gaussian_kernel_1d
 from utils.tqdm_utils import tqdm_redirect
 from utils.general_utils import new_dir
 from visualization import plot_slice
@@ -97,32 +97,6 @@ class HessianEnhancementFilter(PatchBasedModule):
                     H[..., second_dim, first_dim] = img_deriv
 
         return H
-
-
-def hessian_matrix(img: torch.Tensor, sigma: float):
-    kernel_1st_deriv = gaussian_kernel_1d(sigma, order=1).to(img.device)
-
-    kernel_2nd_deriv = gaussian_kernel_1d(sigma, order=2).to(img.device)
-
-    img = img.float()
-    H = torch.zeros(*img.squeeze().shape, 3, 3, device=img.device)
-    for first_dim in range(len(img.squeeze().shape)):
-        for second_dim in range(len(img.squeeze().shape)):
-            if first_dim == second_dim:
-                # filter dimension with 2nd derivation of gaussian kernel
-                H[..., first_dim, second_dim] = filter_1d(img, kernel_2nd_deriv, dim=first_dim).squeeze()
-
-            elif second_dim > first_dim:
-                # filter with 1st derivation of gaussian kernel in both dimensions
-                img_deriv = filter_1d(
-                    filter_1d(img, kernel_1st_deriv, dim=first_dim),
-                    kernel_1st_deriv, dim=second_dim).squeeze()
-
-                # differentiation is linear -> sequence does not matter
-                H[..., first_dim, second_dim] = img_deriv
-                H[..., second_dim, first_dim] = img_deriv
-
-    return H
 
 
 def hessian_based_enhancement_torch(img: torch.Tensor, fissure_mu: float, fissure_sigma: float, device='cuda:0',

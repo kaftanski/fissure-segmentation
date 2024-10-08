@@ -1,29 +1,10 @@
-import SimpleITK as sitk
 import torch
 from batchgenerators.transforms.abstract_transforms import Compose
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import so3_exp_map, Transform3d
-from torch.nn import functional as F
 
-from utils.image_ops import sitk_image_to_tensor, get_resample_factors
 from visualization import visualize_point_cloud
-
-
-def spacing_resampling_matrix(input_size, input_spacing, target_spacing=1.):
-    rescale = get_resample_factors(input_spacing, target_spacing)
-    mat = torch.zeros(1, 3, 4)
-    mat[:, :3, :3] = torch.diag(torch.tensor(rescale))
-    output_size = [int(round(s * f)) for s, f in zip(input_size, rescale)]
-    return mat, output_size
-
-
-def resample_equal_spacing(image: sitk.Image, target_spacing=1.):
-    tensor = sitk_image_to_tensor(image).unsqueeze(0).unsqueeze(0)
-    resample_mat, output_size = spacing_resampling_matrix(image.GetSize()[::-1], image.GetSpacing()[::-1], target_spacing)
-    grid = F.affine_grid(resample_mat, [1, 1, *output_size], align_corners=True).cuda()
-    resampled = F.grid_sample(tensor.cuda(), grid, mode='bilinear')
-    return resampled
 
 
 def image_augmentation(img, seg, patch_size=(128, 128, 128)):
@@ -41,8 +22,6 @@ def image_augmentation(img, seg, patch_size=(128, 128, 128)):
             random_crop=True),
         MirrorTransform(p_per_sample=0.7)  # 70% chance for mirroring, then 50% for each axis
     ])
-
-    # TODO: maybe add some noise
 
     data_dict = {"data": img, "seg": seg}
     augmented = transforms(**data_dict)
@@ -71,11 +50,11 @@ def point_augmentation(point_clouds: torch.Tensor, rotation_amount=0.1, translat
                      torch.rand(len(point_clouds), 1, device=point_clouds.device) * scale_amount
 
     # compose the transforms
-    transforms = compose_transform(log_rotation_matrix, random_translations, random_rescale)
+    transforms = compose_point_transform(log_rotation_matrix, random_translations, random_rescale)
     return transform_points(point_clouds, transforms), transforms
 
 
-def compose_transform(log_rotation_matrix: torch.Tensor, translation: torch.Tensor, scaling: torch.Tensor):
+def compose_point_transform(log_rotation_matrix: torch.Tensor, translation: torch.Tensor, scaling: torch.Tensor):
     t = Transform3d(device=log_rotation_matrix.device) \
         .rotate(so3_exp_map(log_rotation_matrix)) \
         .scale(scaling.expand(-1, 3)) \

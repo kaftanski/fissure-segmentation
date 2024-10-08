@@ -5,11 +5,6 @@ import torch
 from scipy.ndimage.filters import gaussian_filter
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.checkpoint import checkpoint
-
-from models.aspp_3d import ASPP
-from models.mobilenet import MobileNet3D
-from models.modelio import LoadableModel, store_config_args
 
 
 class PatchBasedModule(nn.Module):

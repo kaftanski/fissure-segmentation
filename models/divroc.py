@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch.autograd import Function
 from torch.autograd.functional import jacobian
 
-from utils.general_utils import ALIGN_CORNERS
+from constants import ALIGN_CORNERS
 
 
 class DiVRoC(Function):

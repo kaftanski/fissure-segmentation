@@ -5,7 +5,6 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt
 
 from data import ImageDataset
-from utils.detached_run import run_detached_from_pycharm
 
 
 def check_left_right_lung_plausible(component_sizes, max_volume_ratio=10):
@@ -94,7 +93,6 @@ def binary_lung_mask_to_left_right(lung_mask: sitk.Image, left_label=1, right_la
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
     ds = ImageDataset('../data')
     for i in range(len(ds)):
         print(ds.get_id(i))

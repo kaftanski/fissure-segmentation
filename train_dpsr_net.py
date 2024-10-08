@@ -1,18 +1,16 @@
 import os
 
-from cli.cli_args import get_point_segmentation_parser, get_dpsr_train_parser
+from torchviz import make_dot
+
+from cli.cli_args import get_dpsr_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS
 from data import PointToMeshAndLabelDataset
-from models.dpsr_net import DPSRNet
 from models.seg_logits_to_mesh import DPSRNet2
 from thesis.utils import param_and_op_count
 from train import run
-from models.access_models import get_point_seg_model_class_from_args
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import get_device, new_dir
-from torchviz import make_dot
-
 from visualization import visualize_trimesh
 
 

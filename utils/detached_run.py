@@ -1,3 +1,5 @@
+""" Utilities for running scripts from an IDE as a background process with nohup. """
+
 import os
 import subprocess
 import sys

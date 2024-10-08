@@ -14,11 +14,10 @@ import constants
 from data import LungData, load_split_file
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import poisson_reconstruction, o3d_mesh_to_labelmap, pointcloud_surface_fitting
-from train import compute_mesh_metrics, write_results, write_speed_results
-from utils.detached_run import run_detached_from_pycharm
+from train import compute_mesh_metrics, write_results
 from utils.general_utils import find_test_fold_for_id, create_o3d_mesh, mask_out_verts_from_mesh, \
     remove_all_but_biggest_component
-from utils.image_ops import sitk_image_to_tensor
+from utils.sitk_image_ops import sitk_image_to_tensor
 
 
 def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_2/students/kaftan/FissureSegmentation/voxel2mesh-master/resultsExperiment_003", show=True):
@@ -441,8 +440,6 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
 
 
 if __name__ == '__main__':
-    run_detached_from_pycharm()
-
     n_fissures = 3
 
     data_dir = '../TotalSegmentator/ThoraxCrop'

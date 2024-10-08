@@ -3,14 +3,9 @@ Functions for PointTransformer from https://github.com/POSTECH-CVLab/point-trans
 by Hengshuang Zhao et al.
 """
 
-import os
-from typing import Tuple
-
+import pointops_cuda
 import torch
 from torch.autograd import Function
-import torch.nn as nn
-
-import pointops_cuda
 
 
 class FurthestSampling(Function):

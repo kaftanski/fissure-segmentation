@@ -14,6 +14,9 @@ DEFAULT_SPLIT = "../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/s
 DEFAULT_SPLIT_TS = "../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl"
 FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement', 'cnn']
 
+KEYPOINT_CNN_DIR = "results/lraspp_recall_loss"
+
 CORR_FISSURE_LABEL_DEFAULT_TS = "./results/corresponding_points_ts/fissures/simple/labels.npz"
 CLASSES = {1: 'LOF', 2: 'ROF', 3: 'RHF'}
 CLASS_COLORS = ('r', matplotlib.cm.get_cmap('Set1').colors[2], 'dodgerblue')
+ALIGN_CORNERS = False

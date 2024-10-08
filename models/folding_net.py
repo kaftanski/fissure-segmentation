@@ -24,18 +24,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-import warnings
+import itertools
+
+import math
 from abc import ABC
 
+import numpy as np
 import torch
 from pytorch3d.structures import Meshes
 from torch import nn
 
 from models.dgcnn import SharedFullyConnected
 from models.modelio import LoadableModel, store_config_args
-from shapes.shape_constructor import get_sphere, get_gaussian, get_plane, get_plane_mesh
-
-SHAPE_TYPES = ['sphere', 'gaussian', 'plane']
 
 
 def knn(x, k):
@@ -73,10 +73,9 @@ def get_graph_feature(x, k=20, idx=None):
     return feature
 
 
-
 class DGCNNFoldingNet(LoadableModel):
     @store_config_args
-    def __init__(self, k, n_embedding, shape_type, n_input_points=1024, decode_mesh=True, deform=False, static=False):
+    def __init__(self, k, n_embedding, n_input_points=1024, decode_mesh=True, deform=False, static=False):
         super(DGCNNFoldingNet, self).__init__()
         self.encoder = DGCNN_Cls_Encoder(k, n_embedding, static=static)
         self.n_input_points = n_input_points
@@ -84,9 +83,9 @@ class DGCNNFoldingNet(LoadableModel):
         # number of output points is the closest square number to the number of input points
         m = torch.sqrt(torch.tensor(n_input_points)).round().int().item() ** 2
         if deform:
-            self.decoder = DeformingDecoder(n_embedding, shape_type, m, decode_mesh)
+            self.decoder = DeformingDecoder(n_embedding, m, decode_mesh)
         else:
-            self.decoder = FoldingDecoder(n_embedding, shape_type, m, decode_mesh)
+            self.decoder = FoldingDecoder(n_embedding, m, decode_mesh)
 
     def forward(self, x):
         return self.decoder(self.encoder(x))
@@ -171,10 +170,9 @@ class DGCNN_Cls_Encoder(LoadableModel):
 
 class Decoder(LoadableModel, ABC):
     @store_config_args
-    def __init__(self, shape_type, m=1024, decode_mesh=True):
+    def __init__(self, m=1024, decode_mesh=True):
         super(Decoder, self).__init__()
         self.m = m  # closest square number to number of encoder input points
-        self.shape_type = shape_type
         self.folding_points = None
         self.faces = None
         self.decode_mesh = decode_mesh
@@ -183,22 +181,11 @@ class Decoder(LoadableModel, ABC):
         if self.folding_points is None or self.folding_points.shape[0] != batch_size:
             # pre- (or re-)compute points to fold
             device = next(self.parameters()).device
-            if self.shape_type == 'plane':
-                if self.decode_mesh:
-                    self.folding_points, self.faces = get_plane_mesh(n=self.m, xrange=(-0.3, 0.3), yrange=(-0.3, 0.3))
-                    self.faces = self.faces.unsqueeze(0).repeat(batch_size, 1, 1).to(device)
-                else:
-                    self.folding_points = get_plane()
-            elif self.shape_type == 'sphere':
-                if self.decode_mesh:
-                    raise NotImplementedError('No sphere mesh defined yet')
-                self.folding_points = get_sphere()
-            elif self.shape_type == 'sphere':
-                if self.decode_mesh:
-                    raise ValueError('No gaussian mesh is possible.')
-                self.folding_points = get_gaussian()
+            if self.decode_mesh:
+                self.folding_points, self.faces = get_plane_mesh(n=self.m, xrange=(-0.3, 0.3), yrange=(-0.3, 0.3))
+                self.faces = self.faces.unsqueeze(0).repeat(batch_size, 1, 1).to(device)
             else:
-                raise ValueError(f'No shape named "{self.shape_type}". Use one of {SHAPE_TYPES}.')
+                self.folding_points = get_plane()
 
             try:
                 self.folding_points = torch.from_numpy(self.folding_points)
@@ -213,25 +200,16 @@ class Decoder(LoadableModel, ABC):
 
 class FoldingDecoder(Decoder):
     @store_config_args
-    def __init__(self, n_embedding, shape_type, m=1024, decode_mesh=True):
-        super(FoldingDecoder, self).__init__(shape_type, m, decode_mesh)
+    def __init__(self, n_embedding, m=1024, decode_mesh=True):
+        super(FoldingDecoder, self).__init__(m, decode_mesh)
 
-        if self.shape_type == 'plane':
-            self.folding1 = nn.Sequential(
-                nn.Conv1d(n_embedding + 2, n_embedding, 1),
-                nn.ReLU(),
-                nn.Conv1d(n_embedding, n_embedding, 1),
-                nn.ReLU(),
-                nn.Conv1d(n_embedding, 3, 1),
-            )
-        else:
-            self.folding1 = nn.Sequential(
-                nn.Conv1d(n_embedding + 3, n_embedding, 1),
-                nn.ReLU(),
-                nn.Conv1d(n_embedding, n_embedding, 1),
-                nn.ReLU(),
-                nn.Conv1d(n_embedding, 3, 1),
-            )
+        self.folding1 = nn.Sequential(
+            nn.Conv1d(n_embedding + 2, n_embedding, 1),
+            nn.ReLU(),
+            nn.Conv1d(n_embedding, n_embedding, 1),
+            nn.ReLU(),
+            nn.Conv1d(n_embedding, 3, 1),
+        )
         self.folding2 = nn.Sequential(
             nn.Conv1d(n_embedding + 3, n_embedding, 1),
             nn.ReLU(),
@@ -258,8 +236,8 @@ class FoldingDecoder(Decoder):
 
 class DeformingDecoder(Decoder):
     @store_config_args
-    def __init__(self, n_embedding, shape_type, m=1024, decode_mesh=True):
-        super(DeformingDecoder, self).__init__(shape_type, m, decode_mesh)
+    def __init__(self, n_embedding, m=1024, decode_mesh=True):
+        super(DeformingDecoder, self).__init__(m, decode_mesh)
 
         self.deforming1 = nn.Sequential(
             SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
@@ -294,3 +272,29 @@ class DeformingDecoder(Decoder):
             return Meshes(deformed2.transpose(1, 2), self.faces)
         else:
             return deformed2
+
+
+def get_plane_mesh(n=2025, xrange=(-1, 1), yrange=(-1, 1), device='cpu'):
+    steps = int(math.sqrt(n))
+    x = torch.linspace(xrange[0], xrange[1], steps=steps, device=device)
+    y = torch.linspace(yrange[0], yrange[1], steps=steps, device=device)
+    grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
+    points = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1)], dim=1)
+
+    # create faces
+    faces = []
+    for j in range(steps - 1):
+        for i in range(steps - 1):
+            cur = j * steps + i
+            faces.append([cur, cur + 1, cur + steps])
+            faces.append([cur + 1, cur + steps, cur + 1 + steps])
+
+    return points, torch.tensor(faces, device=device)
+
+
+def get_plane():
+    meshgrid = [[-0.3, 0.3, 45], [-0.3, 0.3, 45]]
+    x = np.linspace(*meshgrid[0])
+    y = np.linspace(*meshgrid[1])
+    plane = np.array(list(itertools.product(x, y)))
+    return plane

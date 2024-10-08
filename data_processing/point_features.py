@@ -1,19 +1,16 @@
 import os
-import time
 import warnings
 
 import torch
 import torch.nn.functional as F
-from matplotlib import pyplot as plt
 from torch import nn
 
-from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES, IMG_DIR, IMG_DIR_TS
+from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES, IMG_DIR, IMG_DIR_TS, ALIGN_CORNERS
 from data import LungData, normalize_img
-from utils.detached_run import run_detached_from_pycharm
-from utils.image_ops import sitk_image_to_tensor, resample_equal_spacing
-from utils.image_utils import filter_1d, smooth
-from utils.general_utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, ALIGN_CORNERS, kpts_to_world, \
+from utils.general_utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, kpts_to_world, \
     new_dir
+from utils.sitk_image_ops import sitk_image_to_tensor, resample_equal_spacing
+from utils.pytorch_image_filters import filter_1d, smooth
 
 
 def distinctiveness(img, sigma):
@@ -44,43 +41,6 @@ def distinctiveness(img, sigma):
     trace_A = torch.sum(torch.diagonal(A, dim1=0, dim2=1), dim=-1)
     D = det_A / (trace_A + 1e-8)
     return D.view(1, 1, *D.shape)  # torch image format (NxCxDxHxW)
-
-
-def foerstner_keypoints_wrong(img: torch.Tensor, roi: torch.Tensor, sigma: float = 1.5, distinctiveness_threshold: float = 1e-8, show=False):
-    print('start')
-    start = time.time()
-
-    D = distinctiveness(img, sigma)
-    print('distinctiveness done')
-
-    # non-maximum suppression
-    kernel_size = tuple(int(0.025*d) for d in img.shape[2:])
-    print(f'NMS with kernel size {kernel_size}')
-    padding = tuple(k//2 for k in kernel_size)
-    suppressed_D, indices = F.max_pool3d(D, kernel_size=kernel_size,
-                                         stride=1, padding=padding, return_indices=True)
-    print('non maximum suppression done')
-    # converting linear indices to bool tensor
-    keypoints = torch.zeros_like(D, dtype=torch.bool).view(-1)
-    keypoints[indices] = 1
-    keypoints = keypoints.view(D.shape)
-
-    # mask result to roi and threshold distinctiveness
-    keypoints_masked = torch.logical_and(keypoints, roi.bool())  # ROI
-    keypoints_masked = torch.logical_and(keypoints_masked, D >= distinctiveness_threshold)  # threshold
-    keypoints_masked = torch.nonzero(keypoints_masked, as_tuple=False)[:, 2:]  # convert tensor to points
-    print('keypoints done')
-    print('took {:.4f}s to compute keypoints'.format(time.time() - start))
-
-    if show:
-        # VISUALIZATION
-        chosen_slice = 200
-        plt.imshow(torch.log(torch.clamp(D.squeeze()[:, chosen_slice].cpu(), 1e-3)), 'gray')
-        keypoints_slice = torch.nonzero(keypoints.squeeze()[:, chosen_slice] * roi[:, chosen_slice], as_tuple=False)
-        plt.plot(keypoints_slice[:, 1], keypoints_slice[:, 0], '+')
-        plt.show()
-
-    return keypoints_masked
 
 
 def mind(img: torch.Tensor, dilation: int = 1, sigma: float = 0.8, ssc: bool = True):

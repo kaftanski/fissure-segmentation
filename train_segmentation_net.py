@@ -17,7 +17,7 @@ from thesis.utils import param_and_op_count
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
-from utils.image_ops import write_image
+from utils.sitk_image_ops import write_image
 from visualization import visualize_with_overlay
 
 

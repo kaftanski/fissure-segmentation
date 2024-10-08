@@ -13,25 +13,7 @@ from pytorch3d.structures import Meshes
 from pytorch3d.transforms import Transform3d
 from torch.nn import functional as F
 
-ALIGN_CORNERS = False
-
-
-class RunningMean(torch.nn.Module):
-    def __init__(self):
-        super(RunningMean, self).__init__()
-        self.mean = None
-        self.n = 0
-
-    def forward(self, x):
-        self.n += 1
-
-        if self.mean is None:
-            self.mean = x
-
-        else:
-            self.mean = ((self.mean*(self.n-1)) + x) / self.n
-
-        return self.mean
+from constants import ALIGN_CORNERS
 
 
 def new_dir(*paths_to_join):
@@ -51,25 +33,6 @@ def pairwise_dist(x):
     dist = xx - 2.0 * xTx + xx.transpose(2, 1)
     dist[:, torch.arange(dist.shape[1]), torch.arange(dist.shape[2])] = 0  # ensure diagonal is 0
     return dist
-
-
-def pairwise_dist2(x, y):
-    """ squared euclidean distance from each point in x to its corresponding point in y
-
-    :param x: point cloud batch of shape (B x N x 3)
-    :param y: point cloud batch of shape (B x N x 3)
-    :return: distance matrix of shape (B x N x N)
-    """
-    xx = (x ** 2).sum(2, keepdim=True)
-    yy = (y ** 2).sum(2, keepdim=True)
-    xTy = torch.bmm(x, y.transpose(2, 1))
-    dist = xx - 2.0 * xTy + yy.transpose(2, 1)
-    return dist
-
-
-def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str, sequence: str = 'fixed'):
-    torch.save(points.cpu(), os.path.join(path, f'{case}_coords_{sequence}.pth'))
-    torch.save(labels.cpu(), os.path.join(path, f'{case}_labels_{sequence}.pth'))
 
 
 def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None):
@@ -233,25 +196,6 @@ def points_to_label_map(pts, labels, out_shape, spacing):
     return label_map, pts_index
 
 
-def affine_point_transformation(points: torch.Tensor, transformation: torch.Tensor, normals: torch.Tensor = None):
-    """
-
-    :param points: expects single point cloud [N, 3] or batch [B, N, 3] to be transformed
-    :param transformation: expects single transformation matrix [3, 4] or [1, 3, 4], or batch [B, 3, 4]
-    :param normals: optional normal vector at each point of the point cloud (same shape as points)
-    :return: transformed point cloud
-    """
-    trfm = Transform3d().rotate(transformation[..., :3]).translate(transformation[..., -1]).to(points.device)
-    if normals is None:
-        return trfm.transform_points(points)
-    else:
-        return trfm.transform_points(points), trfm.transform_normals(normals)
-
-
-# def affine_mesh_transformation(mesh: o3d.geometry.TriangleMesh, transformation: torch.Tensor):
-#
-
-
 def load_meshes(base_dir, case, sequence, obj_name='fissure') -> Tuple[o3d.geometry.TriangleMesh]:
     meshlist = sorted(glob.glob(os.path.join(base_dir, f'{case}_mesh_{sequence}', f'{case}_{obj_name}*_{sequence}.obj')))
     return tuple(o3d.io.read_triangle_mesh(m) for m in meshlist)
@@ -335,21 +279,6 @@ def decompose_similarity_transform(matrix):
     return translation, rot, scale.squeeze()
 
 
-def compose_rigid_transforms(*transforms: Transform3d):
-    scale = 1.
-    trans = torch.zeros(3)
-    rot = torch.eye(3, 3)
-    for t in transforms:
-        cur_translation, cur_rotation, cur_scale = decompose_similarity_transform(t.get_matrix().squeeze().T)
-
-        # update combined transform
-        scale = scale * cur_scale
-        rot = torch.matmul(cur_rotation, rot)
-        trans = torch.matmul(cur_scale * cur_rotation, trans) + cur_translation
-
-    return trans, rot, scale
-
-
 def nanstd(tensor, dim: int=None):
     if dim is None or len(tensor.shape) <=1:
         return tensor[~tensor.isnan()].std()
@@ -427,3 +356,7 @@ def find_test_fold_for_id(case, sequence, split):
         raise ValueError(f'ID {case}_{sequence} is not present in any cross-validation test split)')
 
     return fold_nr
+
+
+def corresponding_point_distance(prediction, target):
+    return (prediction - target).pow(2).sum(-1).sqrt()

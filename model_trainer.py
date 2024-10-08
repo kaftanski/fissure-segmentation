@@ -14,7 +14,6 @@ from torch.utils.data import random_split, DataLoader
 import models.modelio
 from data import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
-from losses.dgssm_loss import DGSSMLoss
 from losses.dpsr_loss import DPSRLoss
 from losses.mesh_loss import RegularizedMeshLoss
 
@@ -72,7 +71,7 @@ class ModelTrainer:
 
         # loss function
         self.loss_function = loss_function
-        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss, DGSSMLoss, DPSRLoss)) \
+        self.autocast_enabled = not isinstance(loss_function, (ChamferLoss, RegularizedMeshLoss, DPSRLoss)) \
             and not self.device == 'cpu'
 
         # create data loaders
@@ -152,8 +151,6 @@ class ModelTrainer:
             self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch)
 
     def forward_step(self, x, y, ep, train):
-        # TODO: support additional validation metrics
-
         with autocast(enabled=self.autocast_enabled):
             x = x.to(self.device)
 

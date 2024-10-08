@@ -1,9 +1,6 @@
-import warnings
-
 import torch
 from torch import nn
 
-from models.modelio import LoadableModel, store_config_args
 from models.point_seg_net import PointSegmentationModelBase
 from utils.model_utils import init_weights
 
@@ -65,7 +62,6 @@ class PointNetSeg(PointSegmentationModelBase):
 
         # feature transformation net
         self.t_net_feat = TNet(matrix_size=64) if feature_transform else None
-        # TODO: regularization for orthogonal matrix
 
         # global feature
         self.global_features = nn.Sequential(

@@ -12,7 +12,7 @@ from preprocess_totalsegmentator_dataset import find_non_zero_ranges
 from qualitative import fissure_window_level_and_mask, crop_to_lung_indices, create_image_figure, slice_image
 from thesis.utils import textwidth_to_figsize, save_fig
 from utils.general_utils import load_points
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor
+from utils.sitk_image_ops import resample_equal_spacing, sitk_image_to_tensor
 
 result_folder = 'results/plots/keypoints'
 

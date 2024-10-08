@@ -1,7 +1,7 @@
 import SimpleITK as sitk
 import torch
 
-from utils.image_ops import resample_equal_spacing, sitk_image_to_tensor
+from utils.sitk_image_ops import resample_equal_spacing, sitk_image_to_tensor
 
 
 def binary_to_fissure_segmentation(binary_fissure_seg: torch.Tensor, lr_lung_mask: sitk.Image, resample_spacing=None):
