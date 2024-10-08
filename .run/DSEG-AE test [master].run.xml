@@ -42,7 +42,7 @@
     </EXTENSION>
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/dseg_ae_regularization.py" />
-    <option name="PARAMETERS" value="--ds ts --gpu 1 --output results/DSEGAE_reg_aug_1024_foerstner_image --seg_dir results/DGCNN_seg_foerstner_image --ae_dir results/PC_AE_regularized_augment_1024_folding" />
+    <option name="PARAMETERS" value="--ds ts --gpu 1 --output results/DSEGAE_n2048_k20_longer_train_cnn_image --seg_dir results/DGCNN_seg_cnn_image --ae_dir results/PC_AE_n2048_k20_longer_train" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
