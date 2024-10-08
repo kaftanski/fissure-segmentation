@@ -15,7 +15,7 @@ from visualization import visualize_with_overlay
 
 DEFAULT_SLICES = {'s0070': [70, 180]}
 RESULT_FOLDER = 'results/plots/qualitative'
-ALPHA = 0.6
+ALPHA = 1
 
 
 def create_image_figure(img, spacing=None):
@@ -125,7 +125,8 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2, slices=D
 
 
 def kp_comparison_figure(patid='s0070', ae=False):
-    model = 'DGCNN_seg' if not ae else 'DSEGAE_reg_aug_1024'
+    # model = 'DGCNN_seg' if not ae else 'DSEGAE_n2048_k20_longer_train'
+    model = 'PointTransformer' if not ae else 'DSEGAE_n2048_k20_longer_train'
     model_folders = {
         'cnn': f'results/{model}_cnn_image',
         'hessian': f'results/{model}_enhancement_image',
@@ -198,6 +199,6 @@ def copd_figures():
 
 if __name__ == '__main__':
     # kp_comparison_figure(ae=True)
-    # kp_comparison_figure(ae=False)
-    comparative_figures()
+    kp_comparison_figure(ae=False)
+    # comparative_figures()
     # copd_figures()

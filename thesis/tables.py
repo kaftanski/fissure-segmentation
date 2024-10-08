@@ -561,8 +561,8 @@ def pointtransformer_seg_table():
     seg_table('PointTransformer', None)
 
 
-def nnunet_table(mode='surface', cv=False, copd=False, exclude_rhf=False):
-    assert mode in ['voxels', 'surface']
+def nnunet_table(mode='surface_nodilate', cv=False, copd=False, exclude_rhf=False):
+    assert mode in ['voxels', 'surface', 'surface_nodilate', 'subsample10000']
 
     if not copd:
         res_path = '../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/'
@@ -637,11 +637,11 @@ def model_comparison(exclude_rhf=False):
     print(combined_table.to_latex(multirow=True, multicolumn=True))
 
 
-def copd_comparison_table():
-    dgcnn_tables = seg_table('DGCNN_seg', exclude_rhf=True, pm=False)
-    dgcnn_tables_copd = seg_table('DGCNN_seg', copd=True, pm=False)
-    nnu_table = nnunet_table(mode="voxels", exclude_rhf=True)
-    nnu_table_copd = nnunet_table(mode="voxels", copd=True)
+def copd_comparison_table(model='DGCNN_seg', nnunet_mode="surface_nodilate"):
+    dgcnn_tables = seg_table(model, exclude_rhf=True, pm=False)
+    dgcnn_tables_copd = seg_table(model, copd=True, pm=False)
+    nnu_table = nnunet_table(mode=nnunet_mode, exclude_rhf=True)
+    nnu_table_copd = nnunet_table(mode=nnunet_mode, copd=True)
 
     nnu_table.insert(0,'Keypoints', "nnUNet")
     nnu_table.insert(1,'Features', "")
@@ -685,8 +685,8 @@ def copd_comparison_table():
     return joint_table
 
 
-def copd_change_table():
-    combined_table = copd_comparison_table()
+def copd_change_table(model='DGCNN_seg'):
+    combined_table = copd_comparison_table(model)
     combined_table = combined_table.drop(
         columns=['ASSD', 'SDSD', 'HD', 'ASSD_copd', 'SDSD_copd', 'HD_copd', 'missing', 'missing_copd'])
     combined_table = combined_table.rename(columns={'ASSD_change': 'ASSD', 'SDSD_change': 'SDSD', 'HD_change': 'HD'})
@@ -708,8 +708,8 @@ def copd_change_table():
     return combined_table, nnu_table, dgcnn_table
 
 
-def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
-    combined_table, nnu_table, dgcnn_table = copd_change_table()
+def copd_relative_performance_plot(model='DGCNN_seg', presentation=True, add_nnu_value=True):
+    combined_table, nnu_table, dgcnn_table = copd_change_table(model)
 
     print(combined_table)
 
@@ -749,7 +749,7 @@ def copd_relative_performance_plot(presentation=True, add_nnu_value=True):
         bar_plot.add_legend(title='Features:', handles=handles)
         bar_plot.set_titles('{col_name} KPs')
 
-        save_fig(bar_plot.fig, 'results/plots', f'copd_relative_{metric}{"_presentation" if presentation else ""}{"_nnu" if add_nnu_value else ""}', pdf=not presentation, bbox_inches='')
+        save_fig(bar_plot.fig, 'results/plots', f'{model}_copd_relative_{metric}{"_presentation" if presentation else ""}{"_nnu" if add_nnu_value else ""}', pdf=not presentation, bbox_inches='')
     plt.show()
 
 
@@ -773,9 +773,7 @@ if __name__ == '__main__':
     # dgcnn_seg_table()
     # time_table()
     # point_net_seg_table()
-    pointtransformer_seg_table()
-    bar_plot('PointTransformer', presentation=False)
-    cross_val_swarm_plot("PointTransformer", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+
     # bar_plot('DGCNN_seg', presentation=True)
     # bar_plot('DSEGAE_reg_aug_1024', presentation=True)
     # bar_plot_pointnet_vs_dgcnn(presentation=True)
@@ -793,3 +791,25 @@ if __name__ == '__main__':
     # bvm_plot(copd=False)
     # bvm_plot(copd=True)
 
+    # pointtransformer_seg_table()
+    # bar_plot('PointTransformer', presentation=False)
+    # cross_val_swarm_plot("PointTransformer", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+    # cross_val_swarm_plot("PointTransformer", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
+    # copd_relative_performance_plot('PointTransformer', presentation=True, add_nnu_value=True)
+    copd_change_table('PointTransformer')
+
+    # seg_table('PointNet_seg')
+    # bar_plot('PointNet_seg', presentation=False)
+    # cross_val_swarm_plot("PointNet_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True)
+    # cross_val_swarm_plot("PointNet_seg", presentation=True, use_median_instead_of_mean=False, add_nnu_value=True, copd=True)
+    # copd_relative_performance_plot('PointNet_seg', presentation=True, add_nnu_value=True)
+    copd_change_table('PointNet_seg')
+
+    # bar_plot('DSEGAE_static', presentation=False)
+    # bar_plot('DSEGAE_reg_aug_1024', presentation=False)
+    # bar_plot('DSEGAE_n2048_k20_longer_train', presentation=False)
+    # seg_table('DSEGAE_static')
+    # seg_table('DSEGAE_reg_aug_1024')
+    # seg_table('DSEGAE_n2048_k20_longer_train')
+
+    copd_change_table("DGCNN_seg")
