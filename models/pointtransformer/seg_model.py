@@ -11,6 +11,7 @@ import torch.nn as nn
 from models.modelio import LoadableModel, store_config_args
 from models.point_seg_net import PointSegmentationModelBase
 from models.pointtransformer import pointops
+from thesis.utils import param_and_op_count
 
 
 class PointTransformerLayer(nn.Module):
@@ -37,16 +38,16 @@ class PointTransformerLayer(nn.Module):
         x_k = pointops.queryandgroup(self.nsample, p, p, x_k, None, o, o, use_xyz=True)  # (n, nsample, 3+c)
         x_v = pointops.queryandgroup(self.nsample, p, p, x_v, None, o, o, use_xyz=False)  # (n, nsample, c)
         p_r, x_k = x_k[:, :, 0:3], x_k[:, :, 3:]
-        for i, layer in enumerate(self.linear_p): p_r = layer(p_r.transpose(1, 2).contiguous()).transpose(1,
-                                                                                                          2).contiguous() if i == 1 else layer(
-            p_r)  # (n, nsample, c)
+        for i, layer in enumerate(self.linear_p):
+            p_r = layer(p_r.transpose(1, 2).contiguous()).transpose(1, 2).contiguous() if i == 1 else layer(p_r)  # (n, nsample, c)
+
         w = x_k - x_q.unsqueeze(1) + p_r.view(p_r.shape[0], p_r.shape[1], self.out_planes // self.mid_planes,
                                               self.mid_planes).sum(2)  # (n, nsample, c)
-        for i, layer in enumerate(self.linear_w): w = layer(w.transpose(1, 2).contiguous()).transpose(1,
-                                                                                                      2).contiguous() if i % 3 == 0 else layer(
-            w)
+        for i, layer in enumerate(self.linear_w):
+            w = layer(w.transpose(1, 2).contiguous()).transpose(1, 2).contiguous() if i % 3 == 0 else layer(w)
+
         w = self.softmax(w)  # (n, nsample, c)
-        n, nsample, c = x_v.shape;
+        n, nsample, c = x_v.shape
         s = self.share_planes
         x = ((x_v + p_r).view(n, nsample, s, c // s) * w.unsqueeze(2)).sum(1).view(n, c)
         return x
@@ -231,9 +232,8 @@ class PointTransformerCompatibility(PointSegmentationModelBase):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    device = 'cuda'
+    device = 'cuda:2'
     # device = 'cpu'
 
     model = pointtransformer_seg_repro(c=125+3, k=4).to(device)
@@ -244,6 +244,9 @@ if __name__ == '__main__':
     npts = 2048
     pts_batch = torch.randn(bs, dim+feat, npts, device=device)
 
+    # count params/flops
+    param_and_op_count(model, (1, dim+feat, npts))
+
     # construct the input for PT
     pts_batch_reshaped_for_PT = pts_batch.transpose(1, 2).reshape(-1, dim+feat)
     coords = pts_batch_reshaped_for_PT[:, :dim].contiguous()
@@ -253,3 +256,12 @@ if __name__ == '__main__':
     result = model([coords, feat, offsets])
     print(result.shape)
     print(result.view(bs, npts, -1).shape)
+
+    # try the compatibility wrapper
+    model = PointTransformerCompatibility(in_features=125+3, num_classes=4).to(device)
+    model.save('results/test_pointtrf.pt')
+    model = PointTransformerCompatibility.load('results/test_pointtrf.pt', device).to(device)
+    result = model(pts_batch)
+    print(result.shape)
+
+
