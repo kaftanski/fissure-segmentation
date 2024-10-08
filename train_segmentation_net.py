@@ -13,7 +13,6 @@ from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
-from models.seg_cnn import MobileNetASPP
 from thesis.utils import param_and_op_count
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
@@ -22,21 +21,10 @@ from utils.image_ops import write_image
 from visualization import visualize_with_overlay
 
 
-def get_model_class(args):
-    if args.model == 'v1':
-        return MobileNetASPP
-    elif args.model == 'v3':
-        return LRASPP_MobileNetv3_large_3d
-    else:
-        raise NotImplementedError()
-
-
 def test(ds: ImageDataset, device, out_dir, show, args):
     print('\nTESTING MODEL ...\n')
 
-    model_class = get_model_class(args)
-
-    model = model_class.load(os.path.join(out_dir, 'model.pth'), device=device)
+    model = LRASPP_MobileNetv3_large_3d.load(os.path.join(out_dir, 'model.pth'), device=device)
     model.to(device)
     model.eval()
 

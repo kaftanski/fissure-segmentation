@@ -11,7 +11,6 @@ from constants import KP_MODES, POINT_DIR, POINT_DIR_TS
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
-from models.seg_cnn import MobileNetASPP
 from utils.detached_run import run_detached_from_pycharm
 from utils.image_ops import resample_equal_spacing, multiple_objects_morphology, sitk_image_to_tensor
 from utils.general_utils import kpts_to_grid, ALIGN_CORNERS, sample_patches_at_kpts, topk_alldims, find_test_fold_for_id, new_dir
@@ -77,20 +76,13 @@ def get_cnn_keypoints(cv_dir, case, sequence, device, out_path, softmax_threshol
     except ValueError:  # otherwise compute with model from all 5 folds
         folds_to_evaluate = list(range(5))
 
-    if args.model == 'v1':
-        model_class = MobileNetASPP
-    elif args.model == 'v3':
-        model_class = LRASPP_MobileNetv3_large_3d
-    else:
-        raise NotImplementedError()
-
     # forward pass 3D-CNN
     img_index = ds.get_index(case, sequence)
     input_img = ds.get_batch_collate_fn()([ds[img_index]])[0].to(device)
     softmax_pred = torch.zeros(1, ds.num_classes, *input_img.shape[2:], dtype=torch.float, device=device)
     predictions = []
     for fold_nr in folds_to_evaluate:
-        model = model_class.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
+        model = LRASPP_MobileNetv3_large_3d.load(os.path.join(cv_dir, f'fold{fold_nr}', 'model.pth'), device=device)
         model.eval()
         model.to(device)
         with torch.no_grad():

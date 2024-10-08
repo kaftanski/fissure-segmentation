@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from models.seg_cnn import get_patch_starts
+from models.patch_based_model import get_patch_starts
 
 
 class Test(TestCase):

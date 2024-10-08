@@ -118,8 +118,6 @@ def get_seg_cnn_train_parser():
     parser = get_generic_parser('Train 3D CNN for lung fissure segmentation.')
 
     group = parser.add_argument_group('3D CNN parameters')
-    group.add_argument('--model', choices=['v1', 'v3'], default='v1',
-                       help='Choose the model class. Either MobilenetV1 with ASPP or MobilenetV3 with lr-ASPP')
     group.add_argument('--patch_size', help='patch size used for each dimension during training', default=96, type=int)
     group.add_argument('--spacing', help='isotropic resample to this spacing (in mm)', default=1.5, type=float)
 

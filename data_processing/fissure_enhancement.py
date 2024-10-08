@@ -16,7 +16,7 @@ from welford import Welford
 from constants import IMG_DIR_TS
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
-from models.seg_cnn import PatchBasedModule
+from models.patch_based_model import PatchBasedModule
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from utils.image_ops import resample_equal_spacing, apply_mask
 from utils.image_utils import filter_1d, gaussian_kernel_1d

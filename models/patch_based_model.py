@@ -99,38 +99,6 @@ def get_patch_starts(img_size, min_overlap, patch_size):
     return patch_starts
 
 
-class MobileNetASPP(LoadableModel):
-    @store_config_args
-    def __init__(self, num_classes, patch_size=(128, 128, 128)):
-        super(MobileNetASPP, self).__init__()
-
-        self.num_classes = num_classes
-        self.backbone = MobileNet3D()
-        self.aspp = ASPP(64, (2, 4, 8, 16), 128)
-        self.head = nn.Sequential(nn.Conv3d(128 + 16, 64, 1, padding=0, groups=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
-                                  nn.Conv3d(64, 64, 3, groups=1, padding=1, bias=False), nn.BatchNorm3d(64), nn.ReLU(),
-                                  nn.Conv3d(64, num_classes, 1))
-        self.patching = PatchBasedModule(num_classes, activation=nn.Softmax(dim=1))
-        self.patching.forward = self.forward
-        self.patch_size = patch_size
-
-    def forward(self, x):
-        if self.training:
-            # necessary for running backwards through checkpointing
-            x.requires_grad = True
-
-        x1, x2 = checkpoint(self.backbone, x, preserve_rng_state=False)
-        y = checkpoint(self.aspp, x2, preserve_rng_state=False)
-        y = torch.cat([x1, F.interpolate(y, scale_factor=2)], dim=1)
-        y1 = checkpoint(self.head, y, preserve_rng_state=False)
-        output = F.interpolate(y1, scale_factor=2, mode='trilinear', align_corners=False)
-        return output
-
-    def predict_all_patches(self, img, min_overlap=0.5, use_gaussian=True):
-        return self.patching.predict_all_patches(
-            img, patch_size=self.patch_size, min_overlap=min_overlap, use_gaussian=use_gaussian)
-
-
 def get_necessary_padding(img_dimensions, out_shape):
     pad = []
     for dim in range(len(out_shape)-1, -1, -1):
@@ -164,9 +132,3 @@ def maybe_crop_after_padding(img, orig_dimensions):
             crop.append(slice(p1, padded-p2))
         img = img[2*[slice(None)] + crop]
     return img
-
-
-if __name__ == '__main__':
-    import torchinfo
-    m = MobileNetASPP(3)
-    torchinfo.summary(m, (2, 1, 128, 128, 128))
