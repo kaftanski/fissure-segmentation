@@ -11,7 +11,7 @@ import torch
 import model_trainer
 from cli.cli_args import get_point_segmentation_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args
-from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS
+from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS_PREPROC
 from data import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
@@ -562,7 +562,7 @@ if __name__ == '__main__':
             img_dir = IMG_DIR
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
-            img_dir = IMG_DIR_TS
+            img_dir = IMG_DIR_TS_PREPROC
         else:
             raise ValueError(f'No dataset named {args.ds}')
 

@@ -8,7 +8,7 @@ from torch import nn
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
-from constants import IMG_DIR_TS, IMG_DIR
+from constants import IMG_DIR_TS_PREPROC, IMG_DIR
 from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
@@ -191,7 +191,7 @@ if __name__ == '__main__':
     if args.ds == 'data':
         img_dir = IMG_DIR
     elif args.ds == 'ts':
-        img_dir = IMG_DIR_TS
+        img_dir = IMG_DIR_TS_PREPROC
     else:
         raise ValueError(f'No dataset named {args.ds}')
 

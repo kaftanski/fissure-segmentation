@@ -6,7 +6,7 @@ import matplotlib.cm
 import numpy as np
 from matplotlib import pyplot as plt
 
-from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS, CLASS_COLORS, CLASSES, IMG_DIR
+from constants import DEFAULT_SPLIT_TS, IMG_DIR_TS_PREPROC, CLASS_COLORS, CLASSES, IMG_DIR
 from data import load_split_file, ImageDataset
 from preprocess_totalsegmentator_dataset import find_non_zero_ranges
 from thesis.utils import legend_figure, save_fig, textwidth_to_figsize
@@ -145,7 +145,7 @@ def kp_comparison_figure(patid='s0070', ae=False):
         multi_class_overlay(img_windowed, label_maps[kp], slice_dim=2, model_name=model_name, patid=patid)
 
 
-def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=DEFAULT_SPLIT_TS):
+def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS_PREPROC, split_file=DEFAULT_SPLIT_TS):
     ds = ImageDataset(ds_path, do_augmentation=False)
     img_index = ds.get_index(patid, sequence)
     if split_file is not None:
@@ -164,7 +164,7 @@ def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=D
 
 
 def comparative_figures(patid='s0070'):
-    img_windowed, fold = get_image_and_fold(patid, ds_path=IMG_DIR_TS)
+    img_windowed, fold = get_image_and_fold(patid, ds_path=IMG_DIR_TS_PREPROC)
     label_map_nnu = sitk.ReadImage(os.path.join(
         f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/cv_niftis_postprocessed',#fold_{fold}/validation_raw_postprocessed',
         f'{patid}_fix.nii.gz'))

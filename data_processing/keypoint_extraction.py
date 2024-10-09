@@ -7,7 +7,7 @@ import torch
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
-from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS, ALIGN_CORNERS
+from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
 from data import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
@@ -244,7 +244,7 @@ if __name__ == '__main__':
     # run_detached_from_pycharm()
     print(torch.cuda.is_available())
 
-    data_dir = IMG_DIR_TS
+    data_dir = IMG_DIR_TS_PREPROC
     point_dir = POINT_DIR_TS
     cnn_dir = KEYPOINT_CNN_DIR
 

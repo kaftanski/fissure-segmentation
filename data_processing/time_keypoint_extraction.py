@@ -6,7 +6,7 @@ import torch
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
-from constants import IMG_DIR_TS, KEYPOINT_CNN_DIR, ALIGN_CORNERS
+from constants import IMG_DIR_TS_PREPROC, KEYPOINT_CNN_DIR, ALIGN_CORNERS
 from data import ImageDataset, LungData
 from data_processing import foerstner
 from data_processing.fissure_enhancement import load_fissure_stats, FISSURE_STATS_FILE, \
@@ -21,7 +21,7 @@ from utils.pytorch_image_filters import smooth
 OUT_DIR = new_dir('results', 'preproc_timing_node2')
 
 
-def time_cnn_kp(cnn_dir=KEYPOINT_CNN_DIR, data_dir=IMG_DIR_TS, device='cuda:0'):
+def time_cnn_kp(cnn_dir=KEYPOINT_CNN_DIR, data_dir=IMG_DIR_TS_PREPROC, device='cuda:0'):
     default_parser = get_seg_cnn_train_parser()
     args, _ = default_parser.parse_known_args()
     args = load_args_for_testing(cnn_dir, args)
@@ -235,7 +235,7 @@ def write_times(out_filename, inference_times, num_points=None):
 
 if __name__ == '__main__':
     device = 'cuda:0'
-    time_cnn_kp(KEYPOINT_CNN_DIR, IMG_DIR_TS, device)
-    time_foerstner_kp(IMG_DIR_TS, device)
-    time_enhancement_kp(IMG_DIR_TS, device)
-    time_mind_feat(IMG_DIR_TS, device)
+    time_cnn_kp(KEYPOINT_CNN_DIR, IMG_DIR_TS_PREPROC, device)
+    time_foerstner_kp(IMG_DIR_TS_PREPROC, device)
+    time_enhancement_kp(IMG_DIR_TS_PREPROC, device)
+    time_mind_feat(IMG_DIR_TS_PREPROC, device)

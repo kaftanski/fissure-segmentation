@@ -7,7 +7,8 @@ POINT_DIR = '../point_data'
 POINT_DIR_TS = os.path.join(POINT_DIR, 'ts')
 
 IMG_DIR = '../data'
-IMG_DIR_TS = '../TotalSegmentator/ThoraxCrop_v2/'
+TS_DATA_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
+IMG_DIR_TS_PREPROC = '../TotalSegmentator/ThoraxCrop_v2/'
 IMG_DIR_TSv1 = '../TotalSegmentator/ThoraxCrop/'
 
 DEFAULT_SPLIT = "../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl"

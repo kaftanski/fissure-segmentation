@@ -4,7 +4,7 @@ from torchviz import make_dot
 
 from cli.cli_args import get_dpsr_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS
+from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC
 from data import PointToMeshAndLabelDataset
 from models.seg_logits_to_mesh import DPSRNet2
 from thesis.utils import param_and_op_count
@@ -53,7 +53,7 @@ if __name__ == '__main__':
             img_dir = IMG_DIR
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
-            img_dir = IMG_DIR_TS
+            img_dir = IMG_DIR_TS_PREPROC
         else:
             raise ValueError(f'No dataset named {args.ds}')
 

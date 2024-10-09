@@ -11,14 +11,12 @@ import torch.nn.functional as F
 from skimage.morphology import ball, binary_opening
 from tqdm import tqdm
 
-from constants import IMG_DIR_TS
+from constants import IMG_DIR_TS_PREPROC, TS_DATA_PATH
 from data import ImageDataset, IMG_MIN, IMG_MAX
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction
 from utils.general_utils import remove_all_but_biggest_component, new_dir, save_meshes
 from utils.tqdm_utils import tqdm_redirect
-
-ORIG_DS_PATH = '../TotalSegmentator/Totalsegmentator_dataset/'
 
 # IDs of images where the 5 lobes are present but cut off somewhere (determined manually)
 EXCLUDE_LIST = (57, 58, 67, 135, 165, 199, 212, 215, 256, 264, 266, 294, 321, 428, 509, 542, 555, 566, 607, 651, 682,
@@ -136,7 +134,7 @@ def generate_lung_mask(lobes):
 
 
 def preprocess_ds():
-    new_dir(IMG_DIR_TS)
+    new_dir(IMG_DIR_TS_PREPROC)
 
     lobe_labels = {
         'lung_lower_lobe_right.nii.gz': 1,
@@ -147,7 +145,7 @@ def preprocess_ds():
     }
 
     # parse meta data
-    meta_data = pd.read_csv(os.path.join(ORIG_DS_PATH, 'meta.csv'), delimiter=';')
+    meta_data = pd.read_csv(os.path.join(TS_DATA_PATH, 'meta.csv'), delimiter=';')
     meta_data = meta_data.set_index('image_id')
     print(f'Total amount of images: {meta_data.shape[0]}')
 
@@ -156,7 +154,7 @@ def preprocess_ds():
     print(f'Amount of thorax images: {meta_data.shape[0]}')
 
     for patid in tqdm(meta_data.index):
-        pat_folder = os.path.join(ORIG_DS_PATH, patid)
+        pat_folder = os.path.join(TS_DATA_PATH, patid)
         img_fn = os.path.join(pat_folder, 'ct.nii.gz')
 
         # # check metadata
@@ -210,14 +208,14 @@ def preprocess_ds():
         lung_mask = generate_lung_mask(lobe_labels_final)
 
         # write all results
-        sitk.WriteImage(img_z_crop, os.path.join(IMG_DIR_TS, f'{patid}_img_fixed.nii.gz'))
-        sitk.WriteImage(lobe_labels_final, os.path.join(IMG_DIR_TS, f'{patid}_lobes_fixed.nii.gz'))
-        sitk.WriteImage(fissure_labels, os.path.join(IMG_DIR_TS, f'{patid}_fissures_fixed.nii.gz'))
-        sitk.WriteImage(lung_mask, os.path.join(IMG_DIR_TS, f'{patid}_mask_fixed.nii.gz'))
+        sitk.WriteImage(img_z_crop, os.path.join(IMG_DIR_TS_PREPROC, f'{patid}_img_fixed.nii.gz'))
+        sitk.WriteImage(lobe_labels_final, os.path.join(IMG_DIR_TS_PREPROC, f'{patid}_lobes_fixed.nii.gz'))
+        sitk.WriteImage(fissure_labels, os.path.join(IMG_DIR_TS_PREPROC, f'{patid}_fissures_fixed.nii.gz'))
+        sitk.WriteImage(lung_mask, os.path.join(IMG_DIR_TS_PREPROC, f'{patid}_mask_fixed.nii.gz'))
 
 
 def create_meshes():
-    img_files = sorted(glob(os.path.join(IMG_DIR_TS, '*_img_*.nii.gz')))
+    img_files = sorted(glob(os.path.join(IMG_DIR_TS_PREPROC, '*_img_*.nii.gz')))
 
     for img_file in tqdm_redirect(img_files):
         # load preprocessed data
@@ -233,7 +231,7 @@ def create_meshes():
 
         # generate fissure surface meshes with poisson
         regularized_fissures, fissure_meshes = poisson_reconstruction(fissures, mask)
-        save_meshes(fissure_meshes, IMG_DIR_TS, case, sequence, obj_name='fissure')
+        save_meshes(fissure_meshes, IMG_DIR_TS_PREPROC, case, sequence, obj_name='fissure')
         sitk.WriteImage(regularized_fissures, img_file.replace('_img_', '_fissures_poisson_'))
 
         # generate lobe surface meshes with marching cubes
@@ -241,13 +239,13 @@ def create_meshes():
         lobe_meshes = compute_surface_mesh_marching_cubes(lobes, mask_image=None)
         for m in lobe_meshes:
             remove_all_but_biggest_component(m)  # use only the biggest connected component
-        save_meshes(lobe_meshes, IMG_DIR_TS, case, sequence, 'lobe')
+        save_meshes(lobe_meshes, IMG_DIR_TS_PREPROC, case, sequence, 'lobe')
 
 
 def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
     for id_num in exclude_list:
         case_id = f's{id_num:04d}'
-        pat_files = glob(os.path.join(IMG_DIR_TS, f'{case_id}_*'))
+        pat_files = glob(os.path.join(IMG_DIR_TS_PREPROC, f'{case_id}_*'))
         print(sorted(pat_files))
         for f in pat_files:
             if os.path.isdir(f):
@@ -258,11 +256,11 @@ def remove_excluded_ids(exclude_list=EXCLUDE_LIST):
 
 class TotalSegmentatorDataset(ImageDataset):
     def __init__(self, do_augmentation=False):
-        super(TotalSegmentatorDataset, self).__init__(IMG_DIR_TS, do_augmentation=do_augmentation)
+        super(TotalSegmentatorDataset, self).__init__(IMG_DIR_TS_PREPROC, do_augmentation=do_augmentation)
 
 
 if __name__ == '__main__':
-    # preprocess_ds()
+    preprocess_ds()
     remove_excluded_ids()
     create_meshes()
     # create_split(5, TotalSegmentatorDataset(), filepath=os.path.join(PROCESSED_DATA_PATH, 'splits_final.pkl.gz'))

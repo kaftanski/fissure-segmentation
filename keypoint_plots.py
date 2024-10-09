@@ -4,7 +4,7 @@ import SimpleITK as sitk
 import matplotlib.pyplot as plt
 import numpy as np
 
-from constants import POINT_DIR_TS, IMG_DIR_TS, KP_MODES
+from constants import POINT_DIR_TS, IMG_DIR_TS_PREPROC, KP_MODES
 from data import ImageDataset
 from data_processing.fissure_enhancement import get_enhanced_fissure_image, HessianEnhancementFilter, \
     load_fissure_stats, FISSURE_STATS_FILE
@@ -48,7 +48,7 @@ def plot_keypoints(image, mode, patid, slice_num, slice_dim=1, spacing=1.5, crop
 
 
 def plot_all(patid='s0070'):
-    ds = ImageDataset(IMG_DIR_TS)
+    ds = ImageDataset(IMG_DIR_TS_PREPROC)
     img_index = ds.get_index(patid, 'fixed')
     img = ds.get_image(img_index)
     img_window = fissure_window_level_and_mask(sitk.GetArrayFromImage(img), sitk.GetArrayFromImage(ds.get_lung_mask(img_index)))
@@ -60,7 +60,7 @@ def plot_all(patid='s0070'):
 def plot_bad_example_enhancement():
     patid = 's1024'
     slice_num = 287# 316
-    ds = ImageDataset(IMG_DIR_TS)
+    ds = ImageDataset(IMG_DIR_TS_PREPROC)
     img_index = ds.get_index(patid, 'fixed')
     enhanced = ds.get_enhanced_fissures(img_index)
     enhanced = sitk.GetArrayFromImage(enhanced)
@@ -83,7 +83,7 @@ def plot_bad_example_enhancement():
 
 
 def plot_enhancement(patid='s0070'):
-    ds = ImageDataset(IMG_DIR_TS)
+    ds = ImageDataset(IMG_DIR_TS_PREPROC)
     img_index = ds.get_index(patid, 'fixed')
     img = ds.get_image(img_index)
     img = resample_equal_spacing(img)

@@ -7,7 +7,7 @@ from pytorch3d.loss import chamfer_distance
 
 from cli.cli_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS, IMG_DIR
+from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR
 from data import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from metrics import assd, pseudo_symmetric_point_to_mesh_distance
@@ -345,7 +345,7 @@ if __name__ == '__main__':
         img_dir = IMG_DIR
     elif args.ds == 'ts':
         point_dir = POINT_DIR_TS
-        img_dir = IMG_DIR_TS
+        img_dir = IMG_DIR_TS_PREPROC
     else:
         raise ValueError(f'No dataset named {args.ds}')
 

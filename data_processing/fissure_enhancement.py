@@ -13,7 +13,7 @@ from sklearn.metrics import RocCurveDisplay, average_precision_score
 from torch import nn
 from welford import Welford
 
-from constants import IMG_DIR_TS
+from constants import IMG_DIR_TS_PREPROC
 from data import ImageDataset
 from metrics import binary_recall, batch_dice
 from models.patch_based_model import PatchBasedModule
@@ -408,6 +408,6 @@ if __name__ == '__main__':
 
     # perform evaluation for TS dataset
     copd_ds = TotalSegmentatorDataset()
-    out_dir = IMG_DIR_TS
-    eval_dir = new_dir(IMG_DIR_TS, 'eval_enhancement')
+    out_dir = IMG_DIR_TS_PREPROC
+    eval_dir = new_dir(IMG_DIR_TS_PREPROC, 'eval_enhancement')
     enhance_full_dataset(copd_ds, out_dir, eval_dir, resample_spacing=1, show=False, only_eval=True)

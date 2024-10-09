@@ -24,12 +24,15 @@ Run the following scripts:
 Datasets used in the evaluation are openly available for research purposes. Please refer to the original sources 
 detailed below.
 
-## TotalSegmentator data set
-This is the main data set used for this work. Download it from here: https://doi.org/10.5281/zenodo.6802614 (v1.0).
-The data can be preprocessed with `preprocess_totalsegmentator_dataset.py`, make sure to point to the correct data path
-`IMG_DIR_TS` in `constants.py`.
+## Training / cross-validation data
+The TotalSegmentator data set is the main data set used for this work. 
+Download it from here: https://doi.org/10.5281/zenodo.6802614 (v1.0).
+The data has to be preprocessed with `preprocess_totalsegmentator_dataset.py`, make sure to point to the correct data
+path `TS_DATA_PATH` in `constants.py`. The script selects applicable images (showing the entire thorax), extracts fissure 
+segmentations from the lobe masks and crops the images to the thoracic region. Results will be written to 
+`IMG_DIR_TS_PREPROC`.
 
-## COPD data set
+## COPD validation data set
 The COPD data set can be accessed here: https://med.emory.edu/departments/radiation-oncology/research-laboratories/deformable-image-registration/downloads-and-reference-data/copdgene.html
 (citation: Castillo et al., Phys Med Biol 2013 https://doi.org/10.1088/0031-9155/58/9/2861)
 The manual fissure annotations are available from here: http://www.mpheinrich.de/research.html#COPD (citation: 

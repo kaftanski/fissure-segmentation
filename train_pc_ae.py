@@ -6,7 +6,7 @@ from pytorch3d.loss import chamfer_distance
 
 from cli.cli_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import IMG_DIR, IMG_DIR_TS
+from constants import IMG_DIR, IMG_DIR_TS_PREPROC
 from data import SampleFromMeshDS
 from metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
@@ -154,7 +154,7 @@ if __name__ == '__main__':
     if args.ds == 'data':
         mesh_dir = IMG_DIR
     elif args.ds == 'ts':
-        mesh_dir = IMG_DIR_TS
+        mesh_dir = IMG_DIR_TS_PREPROC
     else:
         raise ValueError(f'No dataset named {args.ds}')
 
