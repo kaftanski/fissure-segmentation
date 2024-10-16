@@ -7,7 +7,7 @@ from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC
 from data import PointToMeshAndLabelDataset
 from models.seg_logits_to_mesh import DPSRNet2
-from thesis.utils import param_and_op_count
+from utils.model_utils import param_and_op_count
 from train import run
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import get_device, new_dir

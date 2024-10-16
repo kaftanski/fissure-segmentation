@@ -10,7 +10,7 @@ from constants import IMG_DIR, IMG_DIR_TS_PREPROC
 from data import SampleFromMeshDS
 from metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
-from thesis.utils import param_and_op_count
+from utils.model_utils import param_and_op_count
 from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes

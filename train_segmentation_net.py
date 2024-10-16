@@ -13,7 +13,7 @@ from data import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from metrics import batch_dice, binary_recall, binary_precision
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
-from thesis.utils import param_and_op_count
+from utils.model_utils import param_and_op_count
 from train import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation

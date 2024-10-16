@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from models.point_seg_net import PointSegmentationModelBase
 from models.pointtransformer import pointops
-from thesis.utils import param_and_op_count
+from utils.model_utils import param_and_op_count
 
 
 class PointTransformerLayer(nn.Module):

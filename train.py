@@ -18,7 +18,7 @@ from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh
 from losses.access_losses import get_loss_fn
 from metrics import assd, label_mesh_assd, batch_dice
 from models.access_models import get_point_seg_model_class_from_args
-from thesis.utils import param_and_op_count
+from utils.model_utils import param_and_op_count
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, \
