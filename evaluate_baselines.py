@@ -14,7 +14,7 @@ import constants
 from data import LungData, load_split_file
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import poisson_reconstruction, o3d_mesh_to_labelmap, pointcloud_surface_fitting
-from train import compute_mesh_metrics, write_results
+from train_point_segmentation import compute_mesh_metrics, write_results
 from utils.general_utils import find_test_fold_for_id, create_o3d_mesh, mask_out_verts_from_mesh, \
     remove_all_but_biggest_component
 from utils.sitk_image_ops import sitk_image_to_tensor

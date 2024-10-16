@@ -14,7 +14,7 @@ from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
-from train import write_results, run, write_speed_results
+from train_point_segmentation import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
     get_device, no_print
