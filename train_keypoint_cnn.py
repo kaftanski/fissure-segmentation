@@ -199,8 +199,7 @@ if __name__ == '__main__':
                       resample_spacing=args.spacing)
 
     # load the desired model
-    model_class = get_model_class(args)
-    model = model_class(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
+    model = LRASPP_MobileNetv3_large_3d(num_classes=ds.num_classes, patch_size=(args.patch_size,)*3)
 
     param_and_op_count(model, (1, 1, *ds[0][0].shape), out_dir=args.output)
 
