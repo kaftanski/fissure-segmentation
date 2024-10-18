@@ -1,3 +1,8 @@
+"""
+!!!WARNING: EXPERIMENTAL!!!
+Training a point-cloud segmentation network with a differentiable Poisson surface reconstruction (DPSR) layer.
+Seems not to work for pulmonary fissure segmentation.
+"""
 import os
 
 from torchviz import make_dot
