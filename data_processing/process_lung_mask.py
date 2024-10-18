@@ -4,7 +4,7 @@ import SimpleITK as sitk
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
-from data import ImageDataset
+from data_processing.datasets import ImageDataset
 
 
 def check_left_right_lung_plausible(component_sizes, max_volume_ratio=10):

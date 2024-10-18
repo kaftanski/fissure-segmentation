@@ -12,7 +12,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import random_split, DataLoader
 
 import models.modelio
-from data import CustomDataset, ImageDataset
+from data_processing.datasets import CustomDataset, ImageDataset
 from losses.chamfer_loss import ChamferLoss
 from losses.dpsr_loss import DPSRLoss
 from losses.mesh_loss import RegularizedMeshLoss

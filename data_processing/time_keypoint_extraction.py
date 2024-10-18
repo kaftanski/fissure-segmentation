@@ -7,7 +7,7 @@ import torch
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
 from constants import IMG_DIR_TS_PREPROC, KEYPOINT_CNN_DIR, ALIGN_CORNERS
-from data import ImageDataset, LungData
+from data_processing.datasets import ImageDataset, LungData
 from data_processing import foerstner
 from data_processing.fissure_enhancement import load_fissure_stats, FISSURE_STATS_FILE, \
     HessianEnhancementFilter

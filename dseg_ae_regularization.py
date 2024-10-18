@@ -8,9 +8,9 @@ from pytorch3d.loss import chamfer_distance
 from cli.cli_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR
-from data import load_split_file, save_split_file, ImageDataset, PointToMeshDS
+from data_processing.datasets import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
-from metrics import assd, pseudo_symmetric_point_to_mesh_distance
+from evaluation.metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
@@ -18,7 +18,7 @@ from train_point_segmentation import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
     get_device, no_print
-from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
+from utils.visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
     visualize_o3d_mesh
 import SimpleITK as sitk
 

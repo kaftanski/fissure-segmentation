@@ -3,7 +3,7 @@ import os.path
 
 import SimpleITK as sitk
 
-from data import LungData
+from data_processing.datasets import LungData
 from data_processing.find_lobes import find_lobes
 from data_processing.keypoint_extraction import compute_keypoints
 from data_processing.surface_fitting import poisson_reconstruction

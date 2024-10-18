@@ -10,7 +10,7 @@ from numpy.typing import ArrayLike
 from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Meshes
 
-import data
+from data_processing import datasets
 from utils.general_utils import mask_out_verts_from_mesh, mask_to_points, remove_all_but_biggest_component, save_meshes
 from utils.sitk_image_ops import sitk_image_to_tensor
 

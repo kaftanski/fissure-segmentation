@@ -14,15 +14,15 @@ from torch import nn
 from welford import Welford
 
 from constants import IMG_DIR_TS_PREPROC
-from data import ImageDataset
-from metrics import binary_recall, batch_dice
+from data_processing.datasets import ImageDataset
+from evaluation.metrics import binary_recall, batch_dice
 from models.patch_based_model import PatchBasedModule
 from preprocess_totalsegmentator_dataset import TotalSegmentatorDataset
 from utils.sitk_image_ops import resample_equal_spacing, apply_mask
 from utils.pytorch_image_filters import filter_1d, gaussian_kernel_1d
 from utils.tqdm_utils import tqdm_redirect
 from utils.general_utils import new_dir
-from visualization import plot_slice
+from utils.visualization import plot_slice
 
 FISSURE_STATS_FILE = "./results/fissure_HU_mu_sigma.csv"
 

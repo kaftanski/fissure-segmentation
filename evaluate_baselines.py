@@ -11,7 +11,7 @@ import torch
 from tqdm import tqdm
 
 import constants
-from data import LungData, load_split_file
+from data_processing.datasets import LungData, load_split_file
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import poisson_reconstruction, o3d_mesh_to_labelmap, pointcloud_surface_fitting
 from train_point_segmentation import compute_mesh_metrics, write_results

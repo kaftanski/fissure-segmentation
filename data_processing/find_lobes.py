@@ -8,10 +8,10 @@ import torch
 from skimage.measure import marching_cubes
 from torch.nn import functional as F
 
-from data import LungData
+from data_processing.datasets import LungData
 from data_processing.random_walk import compute_laplace_matrix, random_walk
 from utils.general_utils import create_o3d_mesh
-from visualization import visualize_o3d_mesh
+from utils.visualization import visualize_o3d_mesh
 
 
 def fill_lobes(lobes: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:

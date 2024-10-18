@@ -7,14 +7,14 @@ from pytorch3d.loss import chamfer_distance
 from cli.cli_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import IMG_DIR, IMG_DIR_TS_PREPROC
-from data import SampleFromMeshDS
-from metrics import pseudo_symmetric_point_to_mesh_distance, assd
+from data_processing.datasets import SampleFromMeshDS
+from evaluation.metrics import pseudo_symmetric_point_to_mesh_distance, assd
 from models.folding_net import DGCNNFoldingNet
 from utils.model_utils import param_and_op_count
 from train_point_segmentation import run, write_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes
-from visualization import point_cloud_on_axis, trimesh_on_axis, color_2d_points_bremm, color_2d_mesh_bremm
+from utils.visualization import point_cloud_on_axis, trimesh_on_axis, color_2d_points_bremm, color_2d_mesh_bremm
 
 
 def normalize_pc_zstd(pc):

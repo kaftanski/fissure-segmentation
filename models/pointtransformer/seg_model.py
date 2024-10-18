@@ -2,14 +2,12 @@
 PointTransformer model from https://github.com/POSTECH-CVLab/point-transformer
 by Hengshuang Zhao et al.
 """
-import os
 
 import torch
 import torch.nn as nn
 
 from models.point_seg_net import PointSegmentationModelBase
 from models.pointtransformer import pointops
-from utils.model_utils import param_and_op_count
 
 
 class PointTransformerLayer(nn.Module):
@@ -227,39 +225,3 @@ class PointTransformerCompatibility(PointSegmentationModelBase):
         result = self.point_transformer([coords, feat, offsets])
 
         return result.reshape(bs, npts, -1).transpose(1, 2)  # (bs, num_classes, npts)
-
-
-if __name__ == '__main__':
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    device = 'cuda:2'
-    # device = 'cpu'
-
-    model = pointtransformer_seg_repro(c=125+3, k=4).to(device)
-
-    bs = 16
-    dim = 3
-    feat = 125
-    npts = 2048
-    pts_batch = torch.randn(bs, dim+feat, npts, device=device)
-
-    # count params/flops
-    param_and_op_count(model, (1, dim+feat, npts))
-
-    # construct the input for PT
-    pts_batch_reshaped_for_PT = pts_batch.transpose(1, 2).reshape(-1, dim+feat)
-    coords = pts_batch_reshaped_for_PT[:, :dim].contiguous()
-    feat = pts_batch_reshaped_for_PT[:, dim:].contiguous()
-    offsets = (torch.arange(bs, dtype=torch.int32, device=device) + 1) * npts  # note: the point clouds may contain different amounts of points (I think)!
-
-    result = model([coords, feat, offsets])
-    print(result.shape)
-    print(result.view(bs, npts, -1).shape)
-
-    # try the compatibility wrapper
-    model = PointTransformerCompatibility(in_features=125+3, num_classes=4).to(device)
-    model.save('results/test_pointtrf.pt')
-    model = PointTransformerCompatibility.load('results/test_pointtrf.pt', device).to(device)
-    result = model(pts_batch)
-    print(result.shape)
-
-

@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from scipy.sparse import csr_matrix
 from torch.nn import functional as F
 
-from visualization import visualize_with_overlay
+from utils.visualization import visualize_with_overlay
 
 
 def compute_laplace_matrix(im: torch.Tensor, edge_weights: str, graph_mask: torch.Tensor = None) -> torch.sparse.Tensor:

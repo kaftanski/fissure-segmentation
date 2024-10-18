@@ -4,7 +4,7 @@ from batchgenerators.transforms.spatial_transforms import SpatialTransform, Mirr
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import so3_exp_map, Transform3d
 
-from visualization import visualize_point_cloud
+from utils.visualization import visualize_point_cloud
 
 
 def image_augmentation(img, seg, patch_size=(128, 128, 128)):
@@ -103,7 +103,7 @@ def transform_meshes(meshes: Meshes, transforms: Transform3d):
 
 
 if __name__ == '__main__':
-    from data import PointDataset
+    from data_processing.datasets import PointDataset
     #
     # ds = LungData('../data')
     # sizes = []

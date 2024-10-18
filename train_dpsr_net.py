@@ -10,13 +10,13 @@ from torchviz import make_dot
 from cli.cli_args import get_dpsr_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
 from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC
-from data import PointToMeshAndLabelDataset
+from data_processing.datasets import PointToMeshAndLabelDataset
 from models.seg_logits_to_mesh import DPSRNet2
 from utils.model_utils import param_and_op_count
 from train_point_segmentation import run
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import get_device, new_dir
-from visualization import visualize_trimesh
+from utils.visualization import visualize_trimesh
 
 
 def test(ds: PointToMeshAndLabelDataset, device, out_dir, show, args):

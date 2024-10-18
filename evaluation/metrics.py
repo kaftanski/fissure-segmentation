@@ -151,11 +151,3 @@ def binary_precision(prediction, target):
     binary_pred = (prediction != 0).flatten(start_dim=1)
     binary_targ = (target != 0).flatten(start_dim=1)
     return ((binary_pred * binary_targ).sum(-1) + 1e-8) / (binary_pred.sum(-1) + 1e-8)
-
-
-if __name__ == '__main__':
-    vx = torch.randn(16, 100, 3)
-    tx = torch.randint(100, (16, 200, 3))
-    vy = torch.randn(16, 160, 3)
-    ty = torch.randint(160, (16, 180, 3))
-    print(batch_assd(vx, tx, vy, ty))

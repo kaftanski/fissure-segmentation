@@ -8,7 +8,7 @@ import torch
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
 from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
-from data import ImageDataset, load_split_file, LungData
+from data_processing.datasets import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from utils.general_utils import kpts_to_grid, sample_patches_at_kpts, topk_alldims, \

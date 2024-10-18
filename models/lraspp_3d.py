@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 from models.modelio import LoadableModel, store_config_args
 from models.patch_based_model import PatchBasedModule
-from utils.model_utils import init_weights, param_and_op_count
+from utils.model_utils import init_weights
 
 
 class LRASPP(nn.Module):
@@ -150,18 +150,3 @@ class LRASPP_MobileNetv3_large_3d(LoadableModel):
     def predict_all_patches(self, img, min_overlap=0.5, use_gaussian=True):
         return self.patching.predict_all_patches(
             img, patch_size=self.patch_size, min_overlap=min_overlap, use_gaussian=use_gaussian)
-
-
-if __name__ == '__main__':
-    model = LRASPP_MobileNetv3_large_3d()
-
-    class PatchWrapper(nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.model = model
-
-        def forward(self, x):
-            return self.model.predict_all_patches(x)
-
-
-    param_and_op_count(PatchWrapper(model),)

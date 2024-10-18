@@ -8,23 +8,23 @@ import numpy as np
 import open3d as o3d
 import torch
 
-import model_trainer
+from model_training import model_trainer
 from cli.cli_args import get_point_segmentation_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args
 from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS_PREPROC
-from data import PointDataset, load_split_file, save_split_file, LungData
+from data_processing.datasets import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
 from losses.access_losses import get_loss_fn
-from metrics import assd, label_mesh_assd, batch_dice
+from evaluation.metrics import assd, label_mesh_assd, batch_dice
 from models.access_models import get_point_seg_model_class_from_args
 from utils.model_utils import param_and_op_count
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.general_utils import kpts_to_world, mask_out_verts_from_mesh, remove_all_but_biggest_component, \
     mask_to_points, \
-    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print, corresponding_point_distance
-from visualization import visualize_point_cloud, visualize_o3d_mesh
+    points_to_label_map, create_o3d_mesh, nanstd, get_device, no_print
+from utils.visualization import visualize_point_cloud, visualize_o3d_mesh
 
 
 def train(model, ds, device, out_dir, args):

@@ -17,7 +17,7 @@ import torch
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 from torch.utils.data import Dataset
 
-from augmentations import image_augmentation, point_augmentation, transform_meshes
+from model_training.augmentations import image_augmentation, point_augmentation, transform_meshes
 from constants import POINT_DIR, IMG_DIR, ALIGN_CORNERS
 from utils.general_utils import load_points, kpts_to_grid, kpts_to_world, load_meshes, o3d_to_pt3d_meshes
 from utils.sitk_image_ops import resample_equal_spacing, sitk_image_to_tensor, multiple_objects_morphology, \

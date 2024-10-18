@@ -7,18 +7,18 @@ import torch
 from torch import nn
 
 from cli.cli_args import get_seg_cnn_train_parser
-from cli.cli_utils import load_args_for_testing, store_args, load_args_dict, load_args
+from cli.cli_utils import load_args_for_testing, store_args
 from constants import IMG_DIR_TS_PREPROC, IMG_DIR
-from data import ImageDataset
+from data_processing.datasets import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
-from metrics import batch_dice, binary_recall, binary_precision
+from evaluation.metrics import batch_dice, binary_recall, binary_precision
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
 from utils.model_utils import param_and_op_count
 from train_point_segmentation import run, write_results, compute_mesh_metrics
 from utils.detached_run import maybe_run_detached_cli
 from utils.fissure_utils import binary_to_fissure_segmentation
 from utils.sitk_image_ops import write_image
-from visualization import visualize_with_overlay
+from utils.visualization import visualize_with_overlay
 
 
 def test(ds: ImageDataset, device, out_dir, show, args):

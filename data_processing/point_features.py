@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES, IMG_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
-from data import LungData, normalize_img
+from data_processing.datasets import LungData, normalize_img
 from utils.general_utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, kpts_to_world, \
     new_dir
 from utils.sitk_image_ops import sitk_image_to_tensor, resample_equal_spacing

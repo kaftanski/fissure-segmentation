@@ -12,7 +12,7 @@ from skimage.morphology import ball, binary_opening
 from tqdm import tqdm
 
 from constants import IMG_DIR_TS_PREPROC, TS_DATA_PATH
-from data import ImageDataset, IMG_MIN, IMG_MAX
+from data_processing.datasets import ImageDataset, IMG_MIN, IMG_MAX
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction
 from utils.general_utils import remove_all_but_biggest_component, new_dir, save_meshes
