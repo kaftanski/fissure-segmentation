@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from constants import KP_MODES, POINT_DIR, POINT_DIR_TS, FEATURE_MODES, IMG_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
+from constants import KP_MODES, POINT_DIR_COPD, POINT_DIR_TS, FEATURE_MODES, IMG_DIR_COPD, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
 from data_processing.datasets import LungData, normalize_img
 from utils.general_utils import pairwise_dist, load_points, kpts_to_grid, sample_patches_at_kpts, kpts_to_world, \
     new_dir
@@ -194,8 +194,8 @@ if __name__ == '__main__':
         data_dir = IMG_DIR_TS_PREPROC
         point_dir = POINT_DIR_TS
     else:
-        data_dir = IMG_DIR
-        point_dir = POINT_DIR
+        data_dir = IMG_DIR_COPD
+        point_dir = POINT_DIR_COPD
 
     ds = LungData(data_dir)
 

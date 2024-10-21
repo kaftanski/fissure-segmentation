@@ -11,7 +11,7 @@ import torch
 from model_training import model_trainer
 from cli.cli_args import get_point_segmentation_parser
 from cli.cli_utils import load_args_for_testing, store_args, load_args
-from constants import POINT_DIR, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR, IMG_DIR_TS_PREPROC
+from constants import POINT_DIR_COPD, POINT_DIR_TS, DEFAULT_SPLIT, DEFAULT_SPLIT_TS, IMG_DIR_COPD, IMG_DIR_TS_PREPROC
 from data_processing.datasets import PointDataset, load_split_file, save_split_file, LungData
 from data_processing.find_lobes import lobes_to_fissures
 from data_processing.surface_fitting import pointcloud_surface_fitting, o3d_mesh_to_labelmap
@@ -519,7 +519,7 @@ def run(ds, model, test_fn, args):
 
     if not args.test_only:
         if args.split is None:
-            args.split = DEFAULT_SPLIT if args.ds == 'data' else DEFAULT_SPLIT_TS
+            args.split = DEFAULT_SPLIT_TS
 
         cross_val(model, ds, args.split, device, test_fn, args)
 
@@ -558,8 +558,8 @@ if __name__ == '__main__':
                   'To specify, provide arguments --coords and/or --patch.')
 
         if args.ds == 'data' or args.copd:
-            point_dir = POINT_DIR
-            img_dir = IMG_DIR
+            point_dir = POINT_DIR_COPD
+            img_dir = IMG_DIR_COPD
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
             img_dir = IMG_DIR_TS_PREPROC

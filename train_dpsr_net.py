@@ -9,7 +9,7 @@ from torchviz import make_dot
 
 from cli.cli_args import get_dpsr_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR, IMG_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC
+from constants import POINT_DIR_COPD, IMG_DIR_COPD, POINT_DIR_TS, IMG_DIR_TS_PREPROC
 from data_processing.datasets import PointToMeshAndLabelDataset
 from models.seg_logits_to_mesh import DPSRNet2
 from utils.model_utils import param_and_op_count
@@ -54,8 +54,8 @@ if __name__ == '__main__':
 
     if args.data in ['fissures', 'lobes']:
         if args.ds == 'data' or args.copd:
-            point_dir = POINT_DIR
-            img_dir = IMG_DIR
+            point_dir = POINT_DIR_COPD
+            img_dir = IMG_DIR_COPD
         elif args.ds == 'ts':
             point_dir = POINT_DIR_TS
             img_dir = IMG_DIR_TS_PREPROC

@@ -8,7 +8,7 @@ from torch import nn
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import IMG_DIR_TS_PREPROC, IMG_DIR
+from constants import IMG_DIR_TS_PREPROC, IMG_DIR_COPD
 from data_processing.datasets import ImageDataset
 from data_processing.surface_fitting import poisson_reconstruction
 from evaluation.metrics import batch_dice, binary_recall, binary_precision
@@ -189,7 +189,7 @@ if __name__ == '__main__':
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     if args.ds == 'data':
-        img_dir = IMG_DIR
+        img_dir = IMG_DIR_COPD
     elif args.ds == 'ts':
         img_dir = IMG_DIR_TS_PREPROC
     else:

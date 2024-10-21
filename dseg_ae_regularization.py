@@ -7,7 +7,7 @@ from pytorch3d.loss import chamfer_distance
 
 from cli.cli_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR
+from constants import POINT_DIR_COPD, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR_COPD
 from data_processing.datasets import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from evaluation.metrics import assd, pseudo_symmetric_point_to_mesh_distance
@@ -322,13 +322,8 @@ if __name__ == '__main__':
     pc_ae_args = load_args_for_testing(args.ae_dir, args)
 
     assert dgcnn_args.data == pc_ae_args.data
-    # assert dgcnn_args.ds == pc_ae_args.ds
-    # assert dgcnn_args.exclude_rhf == pc_ae_args.exclude_rhf
-    # assert dgcnn_args.split == pc_ae_args.split
     assert not dgcnn_args.binary
 
-    # if dgcnn_args.split is None:
-    #     dgcnn_args.split = DEFAULT_SPLIT if dgcnn_args.ds == 'data' else DEFAULT_SPLIT_TS
     split = load_split_file(os.path.join(dgcnn_args.output, "cross_val_split.np.pkl"))
     new_dir(args.output)
     save_split_file(split, os.path.join(args.output, "cross_val_split.np.pkl"))
@@ -341,8 +336,8 @@ if __name__ == '__main__':
         model.save(os.path.join(fold_dir, 'model.pth'))
 
     if args.ds == 'data':
-        point_dir = POINT_DIR
-        img_dir = IMG_DIR
+        point_dir = POINT_DIR_COPD
+        img_dir = IMG_DIR_COPD
     elif args.ds == 'ts':
         point_dir = POINT_DIR_TS
         img_dir = IMG_DIR_TS_PREPROC
