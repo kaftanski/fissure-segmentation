@@ -151,12 +151,7 @@ if __name__ == '__main__':
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     # configure dataset
-    if args.ds == 'data':
-        mesh_dir = IMG_DIR_COPD
-    elif args.ds == 'ts':
-        mesh_dir = IMG_DIR_TS_PREPROC
-    else:
-        raise ValueError(f'No dataset named {args.ds}')
+    mesh_dir = IMG_DIR_TS_PREPROC
 
     ds = SampleFromMeshDS(mesh_dir, args.pts, fixed_object=args.obj, lobes=args.data == 'lobes', mesh_as_target=args.mesh)
 

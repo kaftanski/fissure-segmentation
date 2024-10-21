@@ -37,8 +37,6 @@ def add_data_parameters(parser):
 
     group.add_argument('--data', help='type of data, either fissures or lobes',
                        default='fissures', type=str, choices=['fissures', 'lobes'])
-    group.add_argument('--ds', help='dataset to use',
-                       default='data', type=str, choices=['data', 'ts'])
     group.add_argument('--kp_mode', default='foerstner', help='keypoint extraction mode', type=str, choices=KP_MODES)
     group.add_argument('--exclude_rhf', const=True, default=False,
                        help='exclude the right horizontal fissure from the model', nargs='?')

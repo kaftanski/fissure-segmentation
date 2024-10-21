@@ -335,14 +335,8 @@ if __name__ == '__main__':
         fold_dir = new_dir(args.output, f"fold{fold}")
         model.save(os.path.join(fold_dir, 'model.pth'))
 
-    if args.ds == 'data':
-        point_dir = POINT_DIR_COPD
-        img_dir = IMG_DIR_COPD
-    elif args.ds == 'ts':
-        point_dir = POINT_DIR_TS
-        img_dir = IMG_DIR_TS_PREPROC
-    else:
-        raise ValueError(f'No dataset named {args.ds}')
+    point_dir = POINT_DIR_TS
+    img_dir = IMG_DIR_TS_PREPROC
 
     print(f'Using point data from {point_dir}')
     ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=dgcnn_args.coords, folder=point_dir,

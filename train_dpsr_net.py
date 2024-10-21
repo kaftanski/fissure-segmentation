@@ -53,14 +53,12 @@ if __name__ == '__main__':
               'To specify, provide arguments --coords and/or --patch.')
 
     if args.data in ['fissures', 'lobes']:
-        if args.ds == 'data' or args.copd:
+        if args.copd:
             point_dir = POINT_DIR_COPD
             img_dir = IMG_DIR_COPD
-        elif args.ds == 'ts':
+        else:
             point_dir = POINT_DIR_TS
             img_dir = IMG_DIR_TS_PREPROC
-        else:
-            raise ValueError(f'No dataset named {args.ds}')
 
         if args.copd:
             print('Validating with COPD dataset')

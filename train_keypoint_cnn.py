@@ -188,12 +188,7 @@ if __name__ == '__main__':
     if args.test_only:
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
-    if args.ds == 'data':
-        img_dir = IMG_DIR_COPD
-    elif args.ds == 'ts':
-        img_dir = IMG_DIR_TS_PREPROC
-    else:
-        raise ValueError(f'No dataset named {args.ds}')
+    img_dir = IMG_DIR_TS_PREPROC
 
     ds = ImageDataset(img_dir, exclude_rhf=args.exclude_rhf, binary=args.binary, patch_size=(args.patch_size,)*3,
                       resample_spacing=args.spacing)
