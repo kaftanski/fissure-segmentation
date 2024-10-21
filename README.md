@@ -3,8 +3,7 @@ This repository contains the code for segmenting pulmonary fissures in CT images
 
 ![Overview of the pipeline](overview.png)
 
-# Usage
-## Install environment
+# Environment
 Install the required packages using Anaconda and the provided environment file:
 ```bash
 conda env create -f environment.yml
@@ -41,14 +40,14 @@ Keypoints and features are pre-computed from the image data. Run the following s
 2. `python -m data_processing.point_features`
 Results will be written into `data/points` by default.
 
-## Train models
+# Train models
 The different models can be trained using the following scripts:
 - Point Cloud segmentation networks (DGCNN, PointNet, PointTransformer): `train_point_segmentation.py`
 - Point Cloud Autoencoder (PC-AE): `train_pc_ae.py`
 - Keypoint CNN (MobileNetV3 + LR-ASPP): `train_keypoint_cnn.py` (pre-trained weights are available in `results/lraspp_recall_loss`)
 Run the scripts with the `-h` flag to see available options.
 
-## Evaluate models
+# Evaluate models
 The given training scripts already contain test functions for all models.
 
 Evaluation of the PC-AE reconstruction of fissures can be done using the `evaluate_pc_ae.py` script. This will take a
@@ -58,9 +57,9 @@ reconstruction).
 The nnU-Net baseline was evaluated using `evaluate_nnunet.py`.
 
 # Citation
-Please cite the following papers if you use parts of this code in your own work:
+If you used code in this repository or found it useful in any way for your research, please cite the following papers:
 
-- Journal paper for Point Cloud Autoencoder (PC-AE) and comparison of geometric segmentation networks (under review):
+1. Journal paper for Point Cloud Autoencoder (PC-AE) and comparison of geometric segmentation networks (under review):
 ```
 @article{Kaftan2024_FissureSegmentation_IJCARS,
   title={Sparse Keypoint Segmentation of Lung Fissures: Efficient Geometric Deep Learning for Abstracting Volumetric Images},
@@ -74,7 +73,7 @@ Please cite the following papers if you use parts of this code in your own work:
 }
 ```
 
-- Conference paper for comparison of more keypoints and features:
+2. Conference paper for comparison of more keypoints and features:
 ```
 @InProceedings{Kaftan2024_FissureSegmentation_BVM,
   author = {Kaftan, Paul and Heinrich, Mattias P. and Hansen, Lasse and Rasche, Volker and Kestler, Hans A. and Bigalke, Alexander},
