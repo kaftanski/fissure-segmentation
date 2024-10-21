@@ -17,7 +17,7 @@ detailed below.
 The TotalSegmentator data set is the main data set used for this work. 
 Download it from here: https://doi.org/10.5281/zenodo.6802614 (v1.0).
 The data has to be preprocessed with `preprocess_totalsegmentator_dataset.py`, make sure to point to the correct data
-path `TS_DATA_PATH` in `constants.py`. The script selects applicable images (showing the entire thorax), extracts fissure 
+path `TS_RAW_DATA_PATH` in `constants.py`. The script selects applicable images (showing the entire thorax), extracts fissure 
 segmentations from the lobe masks and crops the images to the thoracic region. Results will be written to 
 `IMG_DIR_TS_PREPROC`.
 
@@ -47,11 +47,11 @@ Please cite the following papers if you use parts of this code in your own work:
   title={Sparse Keypoint Segmentation of Lung Fissures: Efficient Geometric Deep Learning for Abstracting Volumetric Images},
   author={Kaftan, Paul and Heinrich, Mattias P and Hansen, Lasse and Rasche, Volker and Kestler, Hans A and Bigalke, Alexander},
   journal={International Journal of Computer Assisted Radiology and Surgery},
-  year={2024},
-  volume={TODO},
-  number={TODO},
-  pages={TODO},
-  doi={TODO}
+  year={tbd},
+  volume={tbd},
+  number={tbd},
+  pages={tbd},
+  doi={tbd}
 }
 ```
 

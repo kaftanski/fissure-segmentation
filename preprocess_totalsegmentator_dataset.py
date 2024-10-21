@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from skimage.morphology import ball, binary_opening
 from tqdm import tqdm
 
-from constants import IMG_DIR_TS_PREPROC, TS_DATA_PATH
+from constants import IMG_DIR_TS_PREPROC, TS_RAW_DATA_PATH
 from data_processing.datasets import ImageDataset, IMG_MIN, IMG_MAX
 from data_processing.find_lobes import compute_surface_mesh_marching_cubes
 from data_processing.surface_fitting import poisson_reconstruction
@@ -145,7 +145,7 @@ def preprocess_ds():
     }
 
     # parse meta data
-    meta_data = pd.read_csv(os.path.join(TS_DATA_PATH, 'meta.csv'), delimiter=';')
+    meta_data = pd.read_csv(os.path.join(TS_RAW_DATA_PATH, 'meta.csv'), delimiter=';')
     meta_data = meta_data.set_index('image_id')
     print(f'Total amount of images: {meta_data.shape[0]}')
 
@@ -154,7 +154,7 @@ def preprocess_ds():
     print(f'Amount of thorax images: {meta_data.shape[0]}')
 
     for patid in tqdm(meta_data.index):
-        pat_folder = os.path.join(TS_DATA_PATH, patid)
+        pat_folder = os.path.join(TS_RAW_DATA_PATH, patid)
         img_fn = os.path.join(pat_folder, 'ct.nii.gz')
 
         # # check metadata
