@@ -504,8 +504,6 @@ def cross_val(model, ds, split_file, device, test_fn, args):
 
 def run(ds, model, test_fn, args):
     assert not (args.train_only and args.test_only)
-    if 'model' in args.__dict__ and args.model == 'PointTransformer' and not args.coords:
-        raise NotImplemented('Coords have to be chosen as features if training PointTransformer.')
 
     print(args)
 
@@ -552,30 +550,23 @@ if __name__ == '__main__':
         args = load_args_for_testing(from_dir=args.output, current_args=args)
 
     # load data
-    if args.data in ['fissures', 'lobes']:
-        if not args.coords and not args.patch:
-            print('No features specified, defaulting to coords as features. '
-                  'To specify, provide arguments --coords and/or --patch.')
-
-        if args.copd:
-            point_dir = POINT_DIR_COPD
-            img_dir = IMG_DIR_COPD
-        else:
-            point_dir = POINT_DIR_TS
-            img_dir = IMG_DIR_TS_PREPROC
-
-        if args.copd:
-            print('Validating with COPD dataset')
-            args.test_only = True
-            args.speed = False
-        else:
-            print(f'Using point data from {point_dir}')
-        ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
-                          folder=point_dir, image_folder=img_dir,
-                          patch_feat=args.patch,
-                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary, copd=args.copd)
+    if args.copd:
+        point_dir = POINT_DIR_COPD
+        img_dir = IMG_DIR_COPD
     else:
-        raise ValueError(f'No data set named "{args.data}". Exiting.')
+        point_dir = POINT_DIR_TS
+        img_dir = IMG_DIR_TS_PREPROC
+
+    if args.copd:
+        print('Validating with COPD dataset')
+        args.test_only = True
+        args.speed = False
+    else:
+        print(f'Using point data from {point_dir}')
+    ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=True,
+                      folder=point_dir, image_folder=img_dir,
+                      patch_feat=args.patch,
+                      exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary, copd=args.copd)
 
     # setup folder
     if not os.path.isdir(args.output):

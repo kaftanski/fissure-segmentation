@@ -339,7 +339,7 @@ if __name__ == '__main__':
     img_dir = IMG_DIR_TS_PREPROC
 
     print(f'Using point data from {point_dir}')
-    ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=dgcnn_args.coords, folder=point_dir,
+    ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=True, folder=point_dir,
                        image_folder=img_dir,
                        patch_feat=dgcnn_args.patch, exclude_rhf=dgcnn_args.exclude_rhf, lobes=dgcnn_args.data == 'lobes',
                        binary=dgcnn_args.binary, do_augmentation=False)

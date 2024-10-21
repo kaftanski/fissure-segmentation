@@ -4,6 +4,27 @@ from constants import KP_MODES, FEATURE_MODES
 from losses.access_losses import Losses
 
 
+def get_generic_parser(description):
+    parser = argparse.ArgumentParser(description=description)
+
+    parser.add_argument('--gpu', default=0, help='gpu index to train on', type=int)
+    parser.add_argument('--output', default='./results', help='output data path', type=str)
+    parser.add_argument('--show', const=True, default=False,
+                        help='show pyplot plots (default: plots will only be saved to disk)', nargs='?')
+    parser.add_argument('--offline', const=True, default=False,
+                        help='Runs the script with nohup and detaches the script. Disables the --show option. '
+                             'Output logs will be saved to "./results/logs/<script_name>_<timestamp>.txt"',
+                        nargs='?')
+    parser.add_argument('--speed', const=True, default=False, nargs='?',
+                        help='Run inference speed test (and nothing else)')
+
+    add_training_parameters(parser)
+    add_data_parameters(parser)
+    add_test_parameters(parser)
+
+    return parser
+
+
 def add_training_parameters(parser):
     group = parser.add_argument_group('Training Parameters')
 
@@ -29,7 +50,7 @@ def add_test_parameters(parser):
                        help='specify if only one fold should be evaluated '
                             '(needs to be in range of folds in the split file)')
     group.add_argument('--copd', const=True, default=False, nargs='?',
-                       help='validate model on COPD data set (disables cross-validation)')
+                       help='validate model on COPD data set (disables cross-validation and overrides speed-test option)')
 
 
 def add_data_parameters(parser):
@@ -46,39 +67,18 @@ def add_data_parameters(parser):
                        help='make classification problem binary (only train with fissure/non-fissure labels)')
 
 
-def get_generic_parser(description):
-    parser = argparse.ArgumentParser(description=description)
-
-    parser.add_argument('--gpu', default=2, help='gpu index to train on', type=int)
-    parser.add_argument('--output', default='./results', help='output data path', type=str)
-    parser.add_argument('--show', const=True, default=False, help='turn on plots (will only be saved by default)',
-                        nargs='?')
-    parser.add_argument('--offline', const=True, default=False,
-                        help='Runs the script with nohup and detaches the script. Disables the --show option. '
-                             'Output logs will be saved to "./results/logs/<script_name>_<timestamp>.txt"',
-                        nargs='?')
-    parser.add_argument('--speed', const=True, default=False, nargs='?', help='Run inference speed test (nothing else)')
-
-    add_training_parameters(parser)
-    add_data_parameters(parser)
-    add_test_parameters(parser)
-
-    return parser
-
-
 def get_dgcnn_train_parser():
     parser = get_generic_parser('Train DGCNN for lung fissure segmentation.')
 
     group = parser.add_argument_group('DGCNN parameters')
-    group.add_argument('--k', default=20, help='number of neighbors for graph computation', type=int)
-    group.add_argument('--pts', default=1024, help='number of points per forward pass', type=int)
-    group.add_argument('--coords', const=True, default=False, help='use point coords as features', nargs='?')
-    group.add_argument('--patch', default=None, type=str,
+    group.add_argument('--k', default=40, help='number of neighbors for graph computation', type=int)
+    group.add_argument('--pts', default=2048, help='number of points per forward pass', type=int)
+    group.add_argument('--patch', default=None, type=str, choices=FEATURE_MODES,
                        help=f'use image patch around points as features, one of {FEATURE_MODES}')
-    group.add_argument('--transformer', const=True, default=False, help='use spatial transformer module in DGCNN',
-                       nargs='?')
-    group.add_argument('--static', const=True, default=False, help='do not use dynamic graph computation in DGCNN',
-                       nargs='?')
+    group.add_argument('--transformer', const=True, default=False,
+                       help='use spatial transformer module in DGCNN', nargs='?')
+    group.add_argument('--static', const=True, default=False,
+                       help='do not use dynamic graph computation in DGCNN', nargs='?')
     group.add_argument('--img_feat_extractor', const=True, default=False,
                        help='use an extra image feature extraction module', nargs='?')
 
