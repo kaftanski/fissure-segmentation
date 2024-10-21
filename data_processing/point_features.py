@@ -183,19 +183,8 @@ def compute_all_feat_modes(ds, out_dir, device):
             compute_point_features(ds, case, sequence, out_dir, feature_mode=feat_mode, device=device)
 
 
-if __name__ == '__main__':
-    # run_detached_from_pycharm()
-
-    device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
-
-    ts = True
-
-    if ts:
-        data_dir = IMG_DIR_TS_PREPROC
-        point_dir = POINT_DIR_TS
-    else:
-        data_dir = IMG_DIR_COPD
-        point_dir = POINT_DIR_COPD
+def run_all_kp_modes(data_dir, point_dir):
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
     ds = LungData(data_dir)
 
@@ -219,3 +208,9 @@ if __name__ == '__main__':
                     compute_all_feat_modes(ds, os.path.join(out_dir, f"fold{fold}"), device)
             except FileNotFoundError as e:
                 print(e)
+
+
+if __name__ == '__main__':
+    # run_detached_from_pycharm()
+    run_all_kp_modes(IMG_DIR_TS_PREPROC, POINT_DIR_TS)
+    run_all_kp_modes(IMG_DIR_COPD, POINT_DIR_COPD)

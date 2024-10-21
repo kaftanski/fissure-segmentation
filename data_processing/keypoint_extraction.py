@@ -7,7 +7,8 @@ import torch
 
 from cli.cli_args import get_seg_cnn_train_parser
 from cli.cli_utils import load_args_for_testing
-from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS
+from constants import KP_MODES, POINT_DIR_TS, KEYPOINT_CNN_DIR, IMG_DIR_TS_PREPROC, ALIGN_CORNERS, POINT_DIR_COPD, \
+    IMG_DIR_COPD
 from data_processing.datasets import ImageDataset, load_split_file, LungData
 from data_processing import foerstner
 from models.lraspp_3d import LRASPP_MobileNetv3_large_3d
@@ -144,7 +145,7 @@ def limit_keypoints(kp, max_num_kpts=MAX_KPTS):
 
 
 def compute_keypoints(img, fissures, lobes, mask, out_dir, case, sequence, kp_mode='foerstner',
-                      enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:2'):
+                      enhanced_img_path: str=None, cnn_dir: str=None, device='cuda:0'):
     if kp_mode == 'cnn':
         assert cnn_dir is not None
 
@@ -240,20 +241,12 @@ def save_keypoints(case, device, fissures_tensor, img, img_tensor, kp, kp_mode, 
     #     plt.show()
 
 
-if __name__ == '__main__':
-    # run_detached_from_pycharm()
-    print(torch.cuda.is_available())
-
-    data_dir = IMG_DIR_TS_PREPROC
-    point_dir = POINT_DIR_TS
+def run_all_kp_modes(img_data_dir, output_point_data_dir):
     cnn_dir = KEYPOINT_CNN_DIR
 
-    ds = LungData(data_dir)
+    ds = LungData(img_data_dir)
 
     for mode in KP_MODES:
-        # if mode != 'cnn':
-        #     continue
-
         print('MODE:', mode)
         for i in range(len(ds)):
             case, _, sequence = ds.get_filename(i).split('/')[-1].split('_')
@@ -274,5 +267,11 @@ if __name__ == '__main__':
             else:
                 device = 'cuda:0'
 
-            compute_keypoints(img, fissures, lobes, mask, point_dir, case, sequence, kp_mode=mode,
+            compute_keypoints(img, fissures, lobes, mask, output_point_data_dir, case, sequence, kp_mode=mode,
                               enhanced_img_path=ds.fissures_enhanced[i], device=device, cnn_dir=cnn_dir)
+
+
+if __name__ == '__main__':
+    # run_detached_from_pycharm()
+    run_all_kp_modes(IMG_DIR_TS_PREPROC, POINT_DIR_TS)
+    run_all_kp_modes(IMG_DIR_COPD, POINT_DIR_COPD)

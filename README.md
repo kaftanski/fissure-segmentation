@@ -27,16 +27,33 @@ The COPD data set can be accessed here: https://med.emory.edu/departments/radiat
 The manual fissure annotations are available from here: http://www.mpheinrich.de/research.html#COPD (citation: 
 Rühaak et al., IEEE TMI 2017 https://doi.org/10.1109/TMI.2017.2691259).
 
-## Pre-computing keypoints and features
-The image data needs to be preprocessed by extracting keypoints and point features. Images need to be in one folder
-with names of the form `<patid>_img_<fixed/moving>.nii.gz` with the corresponding fissure annotations 
-`<patid>_fissures_<fixed/moving>.nii.gz` and lung mask `<patid>_mask_<fixed/moving>.nii.gz`. Masks can be generated
-automatically by, e.g., using the `lungmask` tool https://github.com/JoHof/lungmask. Please set the image directory path
-`IMG_DIR` in `constants.py`.
+The images should be named `<patid>_img_<fixed/moving>.nii.gz` and be in the same folder (`data/images/COPD`) as the
+fissure annotations `<patid>_fissures_<fixed/moving>.nii.gz` and lung masks `<patid>_mask_<fixed/moving>.nii.gz`.
+Masks can be generated automatically by, e.g., using the `lungmask` tool https://github.com/JoHof/lungmask.
 
-Run the following scripts:
-- TODO
-- ...
+Then, preprocessing can be applied by running `preprocess_copd_dataset.py`.
+
+## Pre-computing keypoints and features
+Keypoints and features are pre-computed from the image data. Run the following scripts:
+1. `python -m data_processing.keypint_extraction`
+2. `python -m data_processing.point_features`
+Results will be written into `data/points` by default.
+
+## Train models
+The different models can be trained using the following scripts:
+- Point Cloud segmentation networks (DGCNN, PointNet, PointTransformer): `train_point_segmentation.py`
+- Point Cloud Autoencoder (PC-AE): `train_pc_ae.py`
+- Keypoint CNN (MobileNetV3 + LR-ASPP): `train_keypoint_cnn.py` (pre-trained weights are available in `results/lraspp_recall_loss`)
+Run the scripts with the `-h` flag to see available options.
+
+## Evaluate models
+The given training scripts already contain test functions for all models.
+
+Evaluation of the PC-AE reconstruction of fissures can be done using the `evaluate_pc_ae.py` script. This will take a
+trained point cloud segmentation network and apply a trained PC-AE for mesh reconstruction (instead of Poisson surface
+reconstruction). 
+
+The nnU-Net baseline was evaluated using `evaluate_nnunet.py`.
 
 # Citation
 Please cite the following papers if you use parts of this code in your own work:
