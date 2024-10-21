@@ -79,8 +79,6 @@ def get_dgcnn_train_parser():
                        help='use spatial transformer module in DGCNN', nargs='?')
     group.add_argument('--dynamic', const=True, default=False, nargs='?',
                        help='use dynamic graph computation in DGCNN (by default, kNN graph computed once from coords')
-    group.add_argument('--img_feat_extractor', const=True, default=False,
-                       help='use an extra image feature extraction module', nargs='?')
 
     parser.set_defaults(scheduler='cosine')
 
@@ -114,7 +112,12 @@ def get_seg_cnn_train_parser():
 
     group = parser.add_argument_group('3D CNN parameters')
     group.add_argument('--patch_size', help='patch size used for each dimension during training', default=96, type=int)
-    group.add_argument('--spacing', help='isotropic resample to this spacing (in mm)', default=1.5, type=float)
+    group.add_argument('--spacing', default=1.5, type=float,
+                       help='isotropic resample to this spacing (in mm). '
+                            'Note: TotalSegmentator already are resampled to 1.5mm spacing.')
+
+    # set defaults
+    parser.set_defaults(loss='recall', scheduler='plateau', batch=8, epochs=50)
 
     return parser
 
@@ -123,14 +126,17 @@ def get_pc_ae_train_parser():
     parser = get_dgcnn_train_parser()
     parser.description = 'Train DGCNN+FoldingNet Encoder+Decoder'
 
-    group = parser.add_argument_group('FoldingNet parameters')
+    group = parser.add_argument_group('PC-AE parameters')
     group.add_argument("--latent", help="Dimensionality of latent shape code (z).", default=512, type=int)
     group.add_argument("--mesh", default=False, const=True,
                        help="Make the decoder fold a mesh instead of a point cloud.", nargs='?')
-    group.add_argument("--deform", default=False, const=True,
-                       help="Use deforming decoder instead of folding.", nargs='?')
-    group.add_argument("--obj", help="Only use the index of this object (use all objects per default)", type=int,
-                       default=None)
+    group.add_argument("--pc_or_mesh", choices=['pc', 'mesh'], default='mesh',
+                       help="Data type of the initial shape for the decoder, either point cloud or mesh plane.")
+    group.add_argument("--decoder_type", default='deforming', choices=['deforming', 'folding'],
+                       help="Type of the decoder can be 'deforming' decoder (residual displacements of the initial "
+                            "shape) or 'folding' (original FoldingNet implementation).")
+    group.add_argument("--obj", help="Only use the index of this object (use all objects per default)",
+                       type=int, default=None)
 
     parser.set_defaults(loss='mesh')
     return parser

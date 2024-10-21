@@ -13,22 +13,22 @@ from losses.recall_loss import BatchRecallLoss
 
 class Losses(Enum):
     NNUNET = "nnunet"
-    """default loss function used in the nnU-Net: CE + Dice loss"""
+    """ default loss function used in the nnU-Net: CE + Dice loss """
 
     CE = "ce"
-    """normal cross entropy loss"""
+    """ normal cross entropy loss """
 
     RECALL = "recall"
-    """cross entropy loss weighted with batch-specific false-positive rate, promotes recall"""
+    """ cross entropy loss weighted with batch-specific false-positive rate, promotes recall """
 
     CHAMFER = "chamfer"
-    """ chamfer distance between predicted and target point cloud"""
+    """ chamfer distance between two point clouds"""
 
     MESH = "mesh"
-    """ regularized mesh loss """
+    """ regularized mesh loss between two meshes """
 
     DPSR = "dpsr"
-    """ loss for DPSR models (combining nnU-Net (CE+Dice) and Chamfer loss"""
+    """ loss for DPSR models (combining nnU-Net (CE+Dice) and Chamfer loss """
 
     @classmethod
     def list(cls):
