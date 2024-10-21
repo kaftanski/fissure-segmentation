@@ -138,7 +138,7 @@ def get_pc_ae_train_parser():
     group.add_argument("--obj", help="Only use the index of this object (use all objects per default)",
                        type=int, default=None)
 
-    parser.set_defaults(loss='mesh')
+    parser.set_defaults(loss='mesh', loss_weights=[1., 1., 0.1, 0.1], batch=8, k=20, dynamic=True)
     return parser
 
 
