@@ -74,11 +74,11 @@ def get_dgcnn_train_parser():
     group.add_argument('--k', default=40, help='number of neighbors for graph computation', type=int)
     group.add_argument('--pts', default=2048, help='number of points per forward pass', type=int)
     group.add_argument('--patch', default=None, type=str, choices=FEATURE_MODES,
-                       help=f'use image patch around points as features, one of {FEATURE_MODES}')
+                       help=f'use image patch around points as features in addition to the point coordinates')
     group.add_argument('--transformer', const=True, default=False,
                        help='use spatial transformer module in DGCNN', nargs='?')
-    group.add_argument('--static', const=True, default=False,
-                       help='do not use dynamic graph computation in DGCNN', nargs='?')
+    group.add_argument('--dynamic', const=True, default=False, nargs='?',
+                       help='use dynamic graph computation in DGCNN (by default, kNN graph computed once from coords')
     group.add_argument('--img_feat_extractor', const=True, default=False,
                        help='use an extra image feature extraction module', nargs='?')
 

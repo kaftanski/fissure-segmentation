@@ -106,7 +106,7 @@ class DPSR(nn.Module):
 
 class DPSRNet(LoadableModel):
     @store_config_args
-    def __init__(self, seg_net_class, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False,
+    def __init__(self, seg_net_class, k, in_features, num_classes, spatial_transformer=False, dynamic=True,
                  dpsr_res=(128, 128, 128), dpsr_sigma=10, dpsr_scale=True, dpsr_shift=True):
         """
         :param seg_net_class: point segmentation network, e.g. DGCNNSeg
@@ -117,8 +117,7 @@ class DPSRNet(LoadableModel):
         seg_net_class = get_point_seg_model_class(seg_net_class)
         self.res = dpsr_res
         self.seg_net = seg_net_class(k=k, in_features=in_features, num_classes=num_classes,
-                                     spatial_transformer=spatial_transformer, dynamic=dynamic,
-                                     image_feat_module=image_feat_module)
+                                     spatial_transformer=spatial_transformer, dynamic=dynamic)
         self.dpsr = DPSR(dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift)
         self.psr_grid_to_mesh = DifferentiableMarchingCubes.apply
         self.empty_mesh = None

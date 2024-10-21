@@ -56,23 +56,15 @@ def create_neighbor_features_fast(features: torch.Tensor, k: int) -> torch.Tenso
 
 
 class DGCNNBase(PointSegmentationModelBase):
-    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
         super(DGCNNBase, self).__init__(
             in_features, num_classes, k=k, spatial_transformer=spatial_transformer,
-            dynamic=dynamic, image_feat_module=image_feat_module)
+            dynamic=dynamic)
         self.k = k
         self.dynamic = dynamic
         self.knn_graph = None
 
-        if image_feat_module:
-            if in_features < 4:
-                raise ValueError('Number of In-Features for DGCNN too low if you want to use the image feature module! '
-                                 'Need at 3, as the first 3 are assumed to be the point coordinates.')
-            self.image_feature_module = ImageFeatures(in_channels=in_features-3, out_channels=(6, 12))
-            self.in_features = 3 + 12
-        else:
-            self.image_feature_module = None
-            self.in_features = in_features
+        self.in_features = in_features
 
         if spatial_transformer:
             self.spatial_transformer = SpatialTransformer(k)
@@ -92,10 +84,6 @@ class DGCNNBase(PointSegmentationModelBase):
         if not self.dynamic:
             self.knn_graph = knn(x[:, :3], self.k, self_loop=False)
 
-        # extract image features for points
-        if self.image_feature_module is not None:
-            x = self.image_feature_module(x)
-
         # transform point cloud into canonical space
         if self.spatial_transformer is not None:
             x = self.spatial_transformer(x)
@@ -110,8 +98,8 @@ class DGCNNBase(PointSegmentationModelBase):
 
 
 class DGCNNSeg(DGCNNBase):
-    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
-        super(DGCNNSeg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
+        super(DGCNNSeg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic)
 
         self.ec1 = EdgeConv(self.in_features, [64, 64], self.k, first_layer=True)
         self.ec2 = EdgeConv(64, [64], self.k)
@@ -160,8 +148,8 @@ class DGCNNSeg(DGCNNBase):
 
 
 class DGCNNReg(DGCNNBase):
-    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False):
-        super(DGCNNReg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic, image_feat_module)
+    def __init__(self, k, in_features, num_classes, spatial_transformer=False, dynamic=True):
+        super(DGCNNReg, self).__init__(k, in_features, num_classes, spatial_transformer, dynamic)
 
         self.ec1 = EdgeConv(self.in_features, [64], self.k, first_layer=True)
         self.ec2 = EdgeConv(64, [64], self.k)

@@ -12,9 +12,8 @@ from utils.pytorch_image_filters import gaussian_differentiation
 
 class DPSRNet2(LoadableModel):
     @store_config_args
-    def __init__(self, seg_net_class, k, in_features, num_classes, spatial_transformer=False, dynamic=True, image_feat_module=False,
-                 normals_smoothing_sigma=10,
-                 dpsr_res=(128, 128, 128), dpsr_sigma=10, dpsr_scale=True, dpsr_shift=True):
+    def __init__(self, seg_net_class, k, in_features, num_classes, spatial_transformer=False, dynamic=True,
+                 normals_smoothing_sigma=10, dpsr_res=(128, 128, 128), dpsr_sigma=10, dpsr_scale=True, dpsr_shift=True):
         """
         :param seg_net_class: point segmentation network, e.g. DGCNNSeg
         :param dpsr_res: tuple of output field resolution. eg., (128,128,128)
@@ -24,8 +23,7 @@ class DPSRNet2(LoadableModel):
         seg_net_class = get_point_seg_model_class(seg_net_class)
         self.res = dpsr_res
         self.seg_net = seg_net_class(k=k, in_features=in_features, num_classes=num_classes,
-                                     spatial_transformer=spatial_transformer, dynamic=dynamic,
-                                     image_feat_module=image_feat_module)
+                                     spatial_transformer=spatial_transformer, dynamic=dynamic)
         self.seg2mesh = SoftMesh(normals_smoothing_sigma, dpsr_res, dpsr_sigma, dpsr_scale, dpsr_shift,
                                  exclude_background=True)
 

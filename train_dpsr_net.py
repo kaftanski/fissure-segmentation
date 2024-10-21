@@ -80,10 +80,10 @@ if __name__ == '__main__':
     # setup model
     in_features = ds[0][0].shape[0]
 
-    dpsr_net = DPSRNet2(seg_net_class=args.model, in_features=in_features, num_classes=ds.num_classes, k=args.k,
-                        normals_smoothing_sigma=args.normals_sigma,
-                        spatial_transformer=args.transformer, dynamic=not args.static,
-                        dpsr_res=args.res, dpsr_sigma=args.sigma, dpsr_scale=True, dpsr_shift=True)
+    dpsr_net = DPSRNet2(seg_net_class=args.model, k=args.k, in_features=in_features, num_classes=ds.num_classes,
+                        spatial_transformer=args.transformer, dynamic=args.dynamic,
+                        normals_smoothing_sigma=args.normals_sigma, dpsr_res=args.res, dpsr_sigma=args.sigma,
+                        dpsr_scale=True, dpsr_shift=True)
 
     if not args.test_only:
         store_args(args=args, out_dir=args.output)

@@ -581,7 +581,7 @@ if __name__ == '__main__':
     in_features = ds[0][0].shape[0]
     model_class = get_point_seg_model_class_from_args(args)
     net = model_class(in_features=in_features, num_classes=ds.num_classes, k=args.k,
-                      spatial_transformer=args.transformer, dynamic=not args.static).to(get_device(args.gpu))
+                      spatial_transformer=args.transformer, dynamic=args.dynamic).to(get_device(args.gpu))
 
     param_and_op_count(net, (1, *ds[0][0].shape), out_dir=args.output)
 
