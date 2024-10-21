@@ -16,8 +16,7 @@ POINT_DIR = os.path.join(DATA_DIR, 'points')
 POINT_DIR_TS = os.path.join(POINT_DIR, 'TotalSegmentator')
 POINT_DIR_COPD = os.path.join(POINT_DIR, 'COPD')
 
-DEFAULT_SPLIT = "../nnUNet_baseline/nnu_preprocessed/Task501_FissureCOPDEMPIRE/splits_final.pkl"
-DEFAULT_SPLIT_TS = "../nnUNet_baseline/nnu_preprocessed/Task503_FissuresTotalSeg/splits_final.pkl"
+DEFAULT_SPLIT_TS = os.path.join(DATA_DIR, "totalsegmentator_splits_final.pkl")
 FEATURE_MODES = ['mind', 'mind_ssc', 'image', 'enhancement', 'cnn']
 
 KEYPOINT_CNN_DIR = "results/lraspp_recall_loss"
