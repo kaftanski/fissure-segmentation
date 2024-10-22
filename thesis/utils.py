@@ -21,7 +21,7 @@ plt.style.use('seaborn-v0_8-paper')  # TODO: test out newer seaborn styles
 def param_and_op_count(model, input_shape, out_dir=None, fname='op_count.csv'):
     input = torch.zeros(input_shape, device=next(model.parameters()).device)
     macs_thop, params_thop = profile(model, (input, ))
-    stats_torchinfo = summary(model, input_size=input_shape)
+    #stats_torchinfo = summary(model, input_size=input_shape)
     macs_ptflops, params_ptflops = get_model_complexity_info(model, input_shape[1:], as_strings=False,
                                                              print_per_layer_stat=False, verbose=True)
     if out_dir is not None:
@@ -29,7 +29,7 @@ def param_and_op_count(model, input_shape, out_dir=None, fname='op_count.csv'):
             writer = csv.writer(csv_file)
             writer.writerow(['Counting method', 'Parameters', 'MACs'])
             writer.writerow(['thop', params_thop, macs_thop])
-            writer.writerow(['torchinfo', stats_torchinfo.trainable_params, stats_torchinfo.total_mult_adds])
+            #writer.writerow(['torchinfo', stats_torchinfo.trainable_params, stats_torchinfo.total_mult_adds])
             writer.writerow(['ptflops', params_ptflops, macs_ptflops])
 
     macs_thop, params_thop = clever_format([macs_thop, params_thop], "%.3f")
