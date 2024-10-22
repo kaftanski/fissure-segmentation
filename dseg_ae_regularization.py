@@ -1,5 +1,6 @@
 import os
 
+import SimpleITK as sitk
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -17,16 +18,16 @@ from models.modelio import LoadableModel, store_config_args
 from train import write_results, run, write_speed_results
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
-    get_device, no_print
+    get_device, no_print, knn
 from visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
     visualize_o3d_mesh
-import SimpleITK as sitk
 
 
 def farthest_point_sampling(kpts, num_points):
     _, N, _ = kpts.size()
     if N <= num_points:
-        print(f'Tried to sample {num_points} from a point cloud with only {N}')
+        if N < num_points:
+            print(f'Tried to sample {num_points} from a point cloud with only {N}')
         return kpts, torch.arange(N)
     ind = torch.zeros(num_points).long()
     ind[0] = torch.randint(N, (1,))
@@ -40,13 +41,14 @@ def farthest_point_sampling(kpts, num_points):
 
 class RegularizedSegDGCNN(LoadableModel):
     @store_config_args
-    def __init__(self, seg_model, ae, n_points_seg, n_points_ae, sample_mode='farthest'):
+    def __init__(self, seg_model, ae, n_points_seg, n_points_ae, sample_mode='farthest', random_extend=False):
         super(RegularizedSegDGCNN, self).__init__()
         self.seg_model = DGCNNSeg.load(seg_model, 'cpu')
         self.ae = DGCNNFoldingNet.load(ae, 'cpu')
         self.n_points_seg = n_points_seg
         self.n_points_ae = n_points_ae
         self.sample_mode = sample_mode
+        self.random_extend = random_extend
 
     @torch.no_grad()
     def segment(self, x):
@@ -66,6 +68,10 @@ class RegularizedSegDGCNN(LoadableModel):
             if pts_per_obj.shape[1] < self.ae.encoder.k:
                 meshes.append(None)
                 continue
+
+            # extend the points with randomly jittered points
+            if self.random_extend:
+                pts_per_obj = random_extend_points(pts_per_obj, self.n_points_ae)
 
             # sample right amount of points from segmentation
             if self.sample_mode == 'farthest':
@@ -87,6 +93,32 @@ class RegularizedSegDGCNN(LoadableModel):
         # segmentation of the point cloud
         seg = self.segment(x)
         return self.reconstruct(x, seg)
+
+
+def random_extend_points(points, desired_n_points):
+    n_points = points.shape[1]
+    n_points_to_pad = desired_n_points - n_points
+    if n_points_to_pad <= 0:
+        return points
+
+    # compute average nearest distance
+    idx, dist = knn(points.transpose(1, 2), 1, self_loop=False, return_dist=True)
+    dist = dist.sqrt()
+    avg_dist = dist.mean()
+    dist_std = dist.std()
+
+    # randomly choose source points (sample with replacement)
+    source_points = points[:, torch.randint(n_points, (n_points_to_pad,))]
+
+    # compute random displacement vectors with their norm having mean of avg_dist / 2
+    direction = torch.randn_like(source_points)  # random direction vectors
+    direction = direction / direction.norm(dim=2, keepdim=True)  # normalize
+    magnitude = torch.randn(points.shape[0], n_points_to_pad, 1, device=points.device) * dist_std + avg_dist  # random magnitudes with mean and std like original point cloud
+    displacement = direction * magnitude  # put direction and magnitude together
+    jitter_points = source_points + displacement
+
+    # extend points with randomly jittered source points
+    return torch.cat([points, jitter_points], dim=1)
 
 
 def test(ds: PointToMeshDS, device, out_dir, show, args):
@@ -306,7 +338,7 @@ def speed_test(ds: PointToMeshDS, device, out_dir):
         all_points_per_fissure.append(torch.tensor([len(o.squeeze()) for o in sampled_points_per_obj]))
 
     write_speed_results(out_dir, all_inference_times, all_post_proc_times=all_post_proc_times,
-                        points_per_fissure=all_points_per_fissure)
+                        points_per_fissure=all_points_per_fissure if not model.random_extend else None)
 
 
 if __name__ == '__main__':
@@ -336,7 +368,7 @@ if __name__ == '__main__':
         model = RegularizedSegDGCNN(os.path.join(dgcnn_args.output, f'fold{fold}', 'model.pth'),
                                     os.path.join(pc_ae_args.output, f'fold{fold}', 'model.pth'),
                                     n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts,
-                                    sample_mode=args.sampling)
+                                    sample_mode=args.sampling, random_extend=args.pad_with_random_offsets)
         fold_dir = new_dir(args.output, f"fold{fold}")
         model.save(os.path.join(fold_dir, 'model.pth'))
 

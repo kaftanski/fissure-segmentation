@@ -312,13 +312,19 @@ def inverse_affine_transform(point_cloud: np.ndarray, scaling: float, rotation_m
     return pc_not_affine
 
 
-def knn(x, k, self_loop=False):
+def knn(x, k, self_loop=False, return_dist=False):
     # use k+1 and ignore first neighbor to exclude self-loop in graph
     k_modifier = 0 if self_loop else 1
 
     dist = pairwise_dist(x.transpose(2, 1))
-    idx = dist.topk(k=k+k_modifier, dim=-1, largest=False)[1][..., k_modifier:]  # (batch_size, num_points, k)
-    return idx
+    top_dist, idx = dist.topk(k=k+k_modifier, dim=-1, largest=False)
+    top_dist = top_dist[..., k_modifier:]  # (batch_size, num_points, k)
+    idx = idx[..., k_modifier:]  # (batch_size, num_points, k)
+
+    if return_dist:
+        return idx, top_dist
+    else:
+        return idx
 
 
 def decompose_similarity_transform(matrix):

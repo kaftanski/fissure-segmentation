@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="DSEG-AE test [master]" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -42,7 +43,7 @@
     </EXTENSION>
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/dseg_ae_regularization.py" />
-    <option name="PARAMETERS" value="--ds ts --gpu 1 --output results/DSEGAE_n2048_k20_longer_train_cnn_image --seg_dir results/DGCNN_seg_cnn_image --ae_dir results/PC_AE_n2048_k20_longer_train" />
+    <option name="PARAMETERS" value="--ds ts --gpu 3 --output results/DSEGAE_random_extend_foerstner_image --seg_dir results/DGCNN_seg_foerstner_image --ae_dir results/PC_AE_n2048_k20_longer_train --pad_with_random_offsets --speed" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

@@ -181,5 +181,9 @@ def get_ae_reg_parser():
                        help='Sampling strategy for the AE. Farthest performs one pass with points from farthest point '
                             'sampling, accumulate samples points randomly in multiple (10) passes.')
 
+    group.add_argument("--pad_with_random_offsets", action='store_true',
+                       help='If the input point cloud contains less than the expected number of points, '
+                            'pad with random offsets of existing, segmented points.')
+
     parser.set_defaults(test_only=True)
     return parser
