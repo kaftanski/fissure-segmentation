@@ -67,6 +67,7 @@ class RegularizedSegDGCNN(LoadableModel):
             # skip if less than k points are present
             if pts_per_obj.shape[1] < self.ae.encoder.k:
                 meshes.append(None)
+                points.append(pts_per_obj)
                 continue
 
             # extend the points with randomly jittered points
@@ -338,7 +339,7 @@ def speed_test(ds: PointToMeshDS, device, out_dir):
         all_points_per_fissure.append(torch.tensor([len(o.squeeze()) for o in sampled_points_per_obj]))
 
     write_speed_results(out_dir, all_inference_times, all_post_proc_times=all_post_proc_times,
-                        points_per_fissure=all_points_per_fissure if not model.random_extend else None)
+                        points_per_fissure=all_points_per_fissure)
 
 
 if __name__ == '__main__':
