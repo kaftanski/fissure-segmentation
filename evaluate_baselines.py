@@ -147,7 +147,7 @@ def evaluate_voxel2mesh(my_data_dir, experiment_dir="/share/data_rechenknecht03_
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
-            all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir)
+            all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir, raw_results_folder=fold_dir)
 
         # compute dice stats
         dice_vals = torch.tensor(dice_vals)
@@ -390,7 +390,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
-            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir)
+            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir, raw_results_folder=mesh_dir)
         write_results(os.path.join(mesh_dir, f'test_results_{mode}.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 

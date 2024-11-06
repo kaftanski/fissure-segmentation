@@ -15,7 +15,7 @@ from metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
-from train import write_results, run, write_speed_results
+from train import write_results, run, write_speed_results, write_raw_results_per_instance
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
     get_device, no_print, knn
@@ -291,6 +291,10 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
     write_results(os.path.join(out_dir, f'test_results{"_copd" if args.copd else ""}.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
+    write_raw_results_per_instance(
+        out_dir, ids=ds.ids,
+        ASSD=all_mean_assd, SDSD=all_mean_sdsd, HD=all_hd_assd, HD95=all_hd95_assd)
+
     # print out results
     print('\n============ RESULTS ============')
     print(f'Mean ASSD per class: {mean_assd} +- {std_assd}')
@@ -386,7 +390,8 @@ if __name__ == '__main__':
     ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=dgcnn_args.coords, folder=point_dir,
                        image_folder=img_dir,
                        patch_feat=dgcnn_args.patch, exclude_rhf=dgcnn_args.exclude_rhf, lobes=dgcnn_args.data == 'lobes',
-                       binary=dgcnn_args.binary, do_augmentation=False)
+                       binary=dgcnn_args.binary, do_augmentation=False,
+                       all_to_device=get_device(args.gpu) if args.all_in_gpu else 'cpu')
 
     if args.speed:
         speed_test(ds, get_device(args.gpu), args.output)
