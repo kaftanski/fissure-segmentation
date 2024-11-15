@@ -3,6 +3,7 @@ import os
 import torch
 from matplotlib import pyplot as plt
 from pytorch3d.loss import chamfer_distance
+from torch.utils.data import DataLoader
 
 from cli.cli_args import get_pc_ae_train_parser
 from cli.cli_utils import load_args_for_testing, store_args
@@ -13,7 +14,7 @@ from models.folding_net import DGCNNFoldingNet
 from thesis.utils import param_and_op_count
 from train import run, write_results
 from utils.detached_run import maybe_run_detached_cli
-from utils.general_utils import new_dir, pt3d_to_o3d_meshes
+from utils.general_utils import new_dir, pt3d_to_o3d_meshes, get_device
 from visualization import point_cloud_on_axis, trimesh_on_axis, color_2d_points_bremm, color_2d_mesh_bremm
 
 
@@ -64,9 +65,12 @@ def test(ds: SampleFromMeshDS, device, out_dir, show, args):
     all_mean_sdsd = torch.zeros_like(chamfer_dists)
     all_hd_assd = torch.zeros_like(chamfer_dists)
     all_hd95_assd = torch.zeros_like(chamfer_dists)
-    for i in range(len(ds)):
-        x, _ = ds[i]
-        x = x.unsqueeze(0).to(device)
+
+    dl = DataLoader(ds, batch_size=1, shuffle=False, collate_fn=ds.get_batch_collate_fn())
+
+    for i, batch in enumerate(dl):
+        x, _ = batch
+        x = x.to(device)
 
         with torch.no_grad():
             x_reconstruct = model(x)
@@ -158,14 +162,15 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'No dataset named {args.ds}')
 
-    ds = SampleFromMeshDS(mesh_dir, args.pts, fixed_object=args.obj, lobes=args.data == 'lobes', mesh_as_target=args.mesh)
+    ds = SampleFromMeshDS(mesh_dir, args.pts, fixed_object=args.obj, lobes=args.data == 'lobes', mesh_as_target=args.mesh,
+                          device=get_device(args.gpu), all_to_device=get_device(args.gpu) if args.all_in_gpu else 'cpu')
 
     # configure model
     if not args.mesh and not args.loss == 'mesh':
         raise ValueError('Cannot compute mesh loss for non-mesh reconstructions of the AE.')
 
     model = DGCNNFoldingNet(k=args.k, n_embedding=args.latent, shape_type=args.shape, decode_mesh=args.mesh,
-                            deform=args.deform, static=args.static, n_input_points=args.pts)
+                            deform=args.deform, static=args.static, n_input_points=args.pts, dec_depth=args.dec_depth)
 
     # create output directory
     new_dir(args.output)

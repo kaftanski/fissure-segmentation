@@ -70,7 +70,7 @@ def train(model, ds, device, out_dir, args):
 def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
                          meshes_target: List[List[o3d.geometry.TriangleMesh]],
                          ids: List[Tuple[str, str]] = None,
-                         show: bool = False, spacings=None, plot_folder=None, raw_results_folder=None):
+                         show: bool = False, spacings=None, plot_folder=None, raw_results_folder=None, copd=False):
     # metrics
     # test_dice = torch.zeros(len(meshes_predict), len(meshes_predict[0]))
     avg_surface_dist = torch.zeros(len(meshes_predict), len(meshes_target[0]))
@@ -141,13 +141,13 @@ def compute_mesh_metrics(meshes_predict: List[List[o3d.geometry.TriangleMesh]],
     if raw_results_folder is not None:
         write_raw_results_per_instance(
             out_folder=raw_results_folder,
-            ids=ids,
+            ids=ids, copd=copd,
             **{"ASSD": avg_surface_dist, "SDSD": std_surface_dist, "HD": hd_surface_dist, "HD95": hd95_surface_dist})
 
     return mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing
 
 
-def write_raw_results_per_instance(out_folder, ids=None, **metrics):
+def write_raw_results_per_instance(out_folder, ids=None, copd=False, **metrics):
     """ Write a csv file of the metrics per instance (and per class)
 
     :param out_folder: str - path to save to (filename will be <metric_name>_per_instance.csv)
@@ -173,7 +173,7 @@ def write_raw_results_per_instance(out_folder, ids=None, **metrics):
         metric_df.set_index("ID", inplace=True)
 
         # write as csv
-        metric_df.to_csv(os.path.join(out_folder, f'{metric_name}_per_instance.csv'))
+        metric_df.to_csv(os.path.join(out_folder, f'{metric_name}_per_instance{"_copd" if copd else ""}.csv'))
 
 
 def test(ds: PointDataset, device, out_dir, show, args):
@@ -333,7 +333,7 @@ def test(ds: PointDataset, device, out_dir, show, args):
     std_dice = test_dice.std(0)
 
     mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
-        all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir, raw_results_folder=out_dir)
+        all_pred_meshes, all_targ_meshes, ids=ids, show=show, plot_folder=plot_dir, raw_results_folder=out_dir, copd=args.copd)
 
     print(f'Test dice per class: {mean_dice} +- {std_dice}')
     print(f'ASSD per fissure: {mean_assd} +- {std_assd}')
@@ -638,7 +638,8 @@ if __name__ == '__main__':
         ds = PointDataset(args.pts, kp_mode=args.kp_mode, use_coords=args.coords,
                           folder=point_dir, image_folder=img_dir,
                           patch_feat=args.patch,
-                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary, copd=args.copd)
+                          exclude_rhf=args.exclude_rhf, lobes=args.data == 'lobes', binary=args.binary, copd=args.copd,
+                          all_to_device=get_device(args.gpu) if args.all_in_gpu else 'cpu')
     else:
         raise ValueError(f'No data set named "{args.data}". Exiting.')
 

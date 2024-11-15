@@ -390,7 +390,7 @@ def evaluate_nnunet(result_dir='/share/data_rechenknecht03_2/students/kaftan/Fis
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
-            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir, raw_results_folder=mesh_dir)
+            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir, raw_results_folder=plot_dir, copd=copd)
         write_results(os.path.join(mesh_dir, f'test_results_{mode}.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
@@ -453,8 +453,8 @@ if __name__ == '__main__':
     nnu_trainer = "nnUNetTrainerV2_200ep"
     nnu_result_dir = f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/{nnu_task}/{nnu_trainer}__nnUNetPlansv2.1'
     # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
-    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='subsample', pts_subsample=10000, show=False)
-    # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface_nodilate', show=False)
+    # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='subsample', pts_subsample=10000, show=False)
+    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface_nodilate', show=False)
 
     copd_data_dir = "../data"
     nnu_copd_result_dir = "../nnUNet/output/copd_pred"

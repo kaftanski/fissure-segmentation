@@ -79,7 +79,7 @@ class ModelTrainer:
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
         val_split = int(len(self.ds) * 0.2)
         ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
-        num_workers = 4 #if isinstance(ds, ImageDataset) else 0
+        num_workers = 0#4 #if isinstance(ds, ImageDataset) else 0
         drop_last = len(ds) // 2 >= self.batch_size
         self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading

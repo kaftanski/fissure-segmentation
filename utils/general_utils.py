@@ -72,11 +72,11 @@ def save_points(points: torch.Tensor, labels: torch.Tensor, path: str, case: str
     torch.save(labels.cpu(), os.path.join(path, f'{case}_labels_{sequence}.pth'))
 
 
-def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None):
-    return torch.load(os.path.join(path, f'{case}_coords_{sequence}.pth'), map_location='cpu'), \
-           torch.load(os.path.join(path, f'{case}_fissures_{sequence}.pth'), map_location='cpu'), \
-           torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location='cpu') if os.path.isfile(os.path.join(path, f'{case}_lobes_{sequence}.pth')) else None, \
-           torch.load(os.path.join(path, f'{case}_{feat}_{sequence}.pth'), map_location='cpu') if feat is not None \
+def load_points(path: str, case: str, sequence: str = 'fixed', feat: str = None, device='cpu'):
+    return torch.load(os.path.join(path, f'{case}_coords_{sequence}.pth'), map_location=device), \
+           torch.load(os.path.join(path, f'{case}_fissures_{sequence}.pth'), map_location=device), \
+           torch.load(os.path.join(path, f'{case}_lobes_{sequence}.pth'), map_location=device) if os.path.isfile(os.path.join(path, f'{case}_lobes_{sequence}.pth')) else None, \
+           torch.load(os.path.join(path, f'{case}_{feat}_{sequence}.pth'), map_location=device) if feat is not None \
                else None
 
 
@@ -86,7 +86,7 @@ def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
     return o3d.geometry.TriangleMesh(vertices=verts, triangles=tris)
 
 
-def o3d_to_pt3d_meshes(o3d_meshes: List[o3d.geometry.TriangleMesh]):
+def o3d_to_pt3d_meshes(o3d_meshes: Sequence[o3d.geometry.TriangleMesh]):
     verts = []
     faces = []
     vert_normals = []

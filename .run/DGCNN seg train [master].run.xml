@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="DGCNN seg train [master]" type="PythonConfigurationType" factoryName="Python">
     <module name="fissure-segmentation" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -42,7 +43,7 @@
     </EXTENSION>
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train.py" />
-    <option name="PARAMETERS" value="--data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 1 --output results/DGCNN_seg_cnn_image --kp_mode cnn --patch image --test_only --copd" />
+    <option name="PARAMETERS" value="--data fissures --ds ts --pts 2048 --k 40 --static --coords --batch 32 --gpu 1 --output results/DGCNN_seg_cnn_image --kp_mode cnn --patch image --test_only --fold 2" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

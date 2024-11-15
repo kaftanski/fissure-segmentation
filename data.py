@@ -16,6 +16,7 @@ import open3d as o3d
 import torch
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 from pytorch3d.transforms import so3_log_map, Transform3d
+from pytorch3d.ops import sample_points_from_meshes
 from torch.utils.data import Dataset
 
 from augmentations import image_augmentation, point_augmentation, compose_transform, transform_meshes
@@ -369,7 +370,7 @@ class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode,
                  folder=POINT_DIR, image_folder=IMG_DIR,
                  use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True,
-                 copd=False):
+                 copd=False, all_to_device='cpu'):
 
         super(PointDataset, self).__init__(exclude_rhf=exclude_rhf, do_augmentation=do_augmentation, binary=binary, copd=copd)
 
@@ -402,7 +403,7 @@ class PointDataset(CustomDataset):
                 if 'COPD' not in case:
                     continue
             sequence = sequence.split('.')[0]
-            pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, self.patch_feat)
+            pts, lbls, lobe_lbl, feat = load_points(self.folder, case, sequence, self.patch_feat, device=all_to_device)
             if lobes:
                 lbls = lobe_lbl
             else:
@@ -488,7 +489,7 @@ class PointDataset(CustomDataset):
             if self.kp_mode == 'cnn':
                 assert fold_nr is not None, 'Please specify the number of the fold to use'
                 # different folds yielded different pre-seg CNNs
-                return None, PointDataset(self.sample_points, self.kp_mode, os.path.join(self.folder, f"fold{fold_nr}"),
+                return None, type(self)(self.sample_points, self.kp_mode, os.path.join(self.folder, f"fold{fold_nr}"),
                     self.image_folder, self.use_coords, self.patch_feat, self.exclude_rhf, self.lobes, self.binary,
                     self.do_augmentation, self.copd)
             else:
@@ -684,18 +685,20 @@ class CorrespondingPoints:
 
 
 class SampleFromMeshDS(CustomDataset):
-    def __init__(self, folder, sample_points, fixed_object: int = None, exclude_rhf=False, lobes=False, mesh_as_target=True):
+    def __init__(self, folder, sample_points, fixed_object: int = None, exclude_rhf=False, lobes=False, mesh_as_target=True, device='cpu', all_to_device='cpu'):
         super(SampleFromMeshDS, self).__init__(exclude_rhf=exclude_rhf, binary=False, do_augmentation=True)
 
         self.sample_points = sample_points
         self.fixed_object = fixed_object
         self.mesh_as_target = mesh_as_target
         self.lobes = lobes
+        self.device = device
 
         mesh_dirs = sorted(glob(os.path.join(folder, "*_mesh_*")))
 
         self.ids = []
         self.meshes = []
+        self.pt3d_meshes = []
         self.img_sizes = []
         for mesh_dir in mesh_dirs:
             case, sequence = os.path.basename(mesh_dir).split("_mesh_")
@@ -703,6 +706,7 @@ class SampleFromMeshDS(CustomDataset):
             if not lobes and exclude_rhf:
                 meshes = meshes[:2]
             self.meshes.append(meshes)
+            self.pt3d_meshes.append(o3d_to_pt3d_meshes(meshes).to(all_to_device))
             self.ids.append((case, sequence))
 
             size, spacing = load_image_metadata(os.path.join(folder, f"{case}_img_{sequence}.nii.gz"))
@@ -716,38 +720,47 @@ class SampleFromMeshDS(CustomDataset):
         return len(self.ids) * self.num_objects if self.fixed_object is None else len(self.ids)
 
     def __getitem__(self, item):
+        # TODO: normalization and augmentation are performed on CPU, creating a bottleneck
+        #  (could be done on GPU per batch by moving it into the collate function)
         meshes = self.meshes[self.continuous_to_pat_index(item)]
         obj_index = self.continuous_to_obj_index(item)
         current_mesh = meshes[obj_index]
+        current_mesh_pt3d = self.pt3d_meshes[self.continuous_to_pat_index(item)][obj_index]
 
-        # sample point cloud from meshes
-        samples = current_mesh.sample_points_uniformly(number_of_points=self.sample_points)
-        samples = torch.from_numpy(np.asarray(samples.points)).float()
+        # # sample point cloud from meshes
+        # samples = current_mesh.sample_points_uniformly(number_of_points=self.sample_points)
+        # samples = torch.from_numpy(np.asarray(samples.points)).float()
 
-        # normalize to pytorch grid coordinates
-        samples = self.normalize_sampled_pc(samples, item).transpose(0, 1)
+        # # normalize to pytorch grid coordinates
+        # samples = self.normalize_sampled_pc(samples, item).transpose(0, 1)
+        #
+        # samples, transform = self.perform_augmentation(samples)
+        #
+        # # get the target: either the PC itself or the GT mesh
+        # if self.mesh_as_target:
+        #     target = self.normalize_mesh(o3d_to_pt3d_meshes([current_mesh]), item)
+        #     if transform is not None:
+        #         # augment the mesh
+        #         mesh_verts, mesh_faces = target.get_mesh_verts_faces(0)
+        #         target = Meshes([transform.transform_points(mesh_verts)], [mesh_faces])
+        # else:
+        #     target = samples
 
+        samples = sample_points_from_meshes(current_mesh_pt3d, self.sample_points).squeeze(0).transpose(0, 1)
+        target = current_mesh_pt3d if self.mesh_as_target else samples
+        return samples, target, item
+
+    def perform_augmentation(self, samples):
         # augmentation
         if self.do_augmentation:
-            samples, transform = point_augmentation(samples.unsqueeze(0))
+            samples, transform = point_augmentation(samples)
             samples = samples.squeeze(0)
 
             # add point jitter
             samples += torch.randn_like(samples) * 0.005
         else:
             transform = None
-
-        # get the target: either the PC itself or the GT mesh
-        if self.mesh_as_target:
-            target = self.normalize_mesh(o3d_to_pt3d_meshes([current_mesh]), item)
-            if transform is not None:
-                # augment the mesh
-                mesh_verts, mesh_faces = target.get_mesh_verts_faces(0)
-                target = Meshes([transform.transform_points(mesh_verts)], [mesh_faces])
-        else:
-            target = samples
-
-        return samples, target
+        return samples, transform
 
     def normalize_sampled_pc(self, samples, index):
         return kpts_to_grid(samples, self.get_img_size(index)[::-1], align_corners=ALIGN_CORNERS)
@@ -762,17 +775,42 @@ class SampleFromMeshDS(CustomDataset):
         return Meshes([self.unnormalize_sampled_pc(m, index) for m in mesh.verts_list()], mesh.faces_list())
 
     def get_batch_collate_fn(self):
-        if self.mesh_as_target:
-            def mesh_collate_fn(list_of_samples):
-                pcs = torch.stack([pc for pc, _ in list_of_samples], dim=0)
-                meshes = join_meshes_as_batch([mesh for _, mesh in list_of_samples])
-                return pcs, meshes
+        def mesh_collate_fn(list_of_samples):
+            items = [item for _, _, item in list_of_samples]
+            pcs = torch.stack([pc for pc, _, _ in list_of_samples], dim=0).to(self.device)
+            meshes = join_meshes_as_batch([mesh for _, mesh, _ in list_of_samples]).to(self.device)
 
-            return mesh_collate_fn
+            # normalize PCs to pytorch grid coordinates
+            for i, pc in enumerate(pcs):
+                pcs[i] = self.normalize_sampled_pc(pc.transpose(0, 1), items[i]).transpose(0, 1)
 
-        else:
-            # no special collation function needed
-            return None
+            # data augmentation
+            samples, transform = self.perform_augmentation(pcs)
+
+            # normalize meshes
+            meshes = join_meshes_as_batch([self.normalize_mesh(mesh.to(self.device), item) for _, mesh, item in list_of_samples])
+
+            # transform mesh according to the augmentation
+            if transform is not None:
+                # augment the meshes (can only be performed per mesh, since meshes have different amount of vertices)
+                meshes = Meshes([transform[i].transform_points(meshes.verts_list()[i]) for i in range(len(list_of_samples))], meshes.faces_list())
+
+            return pcs, meshes
+
+        def sample_collate_fn(list_of_samples):
+            items = [item for _, _, item in list_of_samples]
+            pcs = torch.stack([pc for pc, _, _ in list_of_samples], dim=0).to(self.device)
+
+            # normalize PCs to pytorch grid coordinates
+            for i, pc in enumerate(pcs):
+                pcs[i] = self.normalize_sampled_pc(pc.transpose(0, 1), items[i]).transpose(0, 1)
+
+            # data augmentation
+            pcs_aug, transform = self.perform_augmentation(pcs)
+
+            return pcs_aug, pcs_aug
+
+        return mesh_collate_fn if self.mesh_as_target else sample_collate_fn
 
     def continuous_to_pat_index(self, item):
         return item // self.num_objects if self.fixed_object is None else item
@@ -792,11 +830,13 @@ class SampleFromMeshDS(CustomDataset):
 
 class PointToMeshDS(PointDataset):
     def __init__(self, sample_points, kp_mode, folder=POINT_DIR, image_folder=IMG_DIR, use_coords=True,
-                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=False, copd=False):
+                 patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=False, copd=False,
+                 all_to_device='cpu'):
         super(PointToMeshDS, self).__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
                                             image_folder=image_folder,
                                             use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
-                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd)
+                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd,
+                                            all_to_device=all_to_device)
         self.meshes = []
         self.img_sizes = []
         for case, sequence in self.ids:

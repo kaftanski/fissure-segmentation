@@ -21,6 +21,8 @@ def add_training_parameters(parser):
     group.add_argument('--wd', default=1e-5, help='weight decay parameter for Adam optimizer', type=float)
     group.add_argument('--scheduler', default='plateau', help='the learn rate scheduler to use', type=str,
                        choices=['cosine', 'plateau', 'none'])
+    group.add_argument('--all_in_gpu', action='store_true',
+                       help='load all data into GPU memory (by default, only batches are loaded)')
 
 
 def add_test_parameters(parser):
@@ -164,6 +166,7 @@ def get_pc_ae_train_parser():
                        help="Use deforming decoder instead of folding.", nargs='?')
     group.add_argument("--obj", help="Only use the index of this object (use all objects per default)", type=int,
                        default=None)
+    group.add_argument("--dec_depth", help="Number of folding/deforming layers in the decoder.", type=int, default=2)
 
     parser.set_defaults(loss='mesh')
     return parser
