@@ -49,7 +49,7 @@ def create_o3d_mesh(verts: ArrayLike, tris: ArrayLike):
     return o3d.geometry.TriangleMesh(vertices=verts, triangles=tris)
 
 
-def o3d_to_pt3d_meshes(o3d_meshes: List[o3d.geometry.TriangleMesh]):
+def o3d_to_pt3d_meshes(o3d_meshes: Sequence[o3d.geometry.TriangleMesh]):
     verts = []
     faces = []
     vert_normals = []
