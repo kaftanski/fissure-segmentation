@@ -13,8 +13,9 @@ from thesis.utils import legend_figure, save_fig, textwidth_to_figsize
 from utils.general_utils import find_test_fold_for_id
 from visualization import visualize_with_overlay
 
-DEFAULT_SLICES = {'s0070': [70, 180]}
-RESULT_FOLDER = 'results/plots/qualitative'
+DEFAULT_SLICES = {'s0070': [70, 180], 's0499': [79, 183], 's0650': [97, 218], 's1140': [70, 196], 's1264': [94, 190]}
+V1_Z_CROP = {'s0070': [7, 225], 's0499': [7, 211], 's0650': [5, 226], 's1140': [7, 225], 's1264': [6, 187]}
+RESULT_FOLDER = 'results/plots/qualitative/IJCARS'
 ALPHA = 1
 
 
@@ -124,12 +125,12 @@ def multi_class_overlay(img, label_map, model_name, patid, slice_dim=2, slices=D
         save_fig(fig, RESULT_FOLDER, f'{patid}_slice{slice_num}', pdf=False)
 
 
-def kp_comparison_figure(patid='s0070', ae=False):
+def kp_comparison_figure(patid='s0070', model='DGCNN_Seg', ae=False):
     # model = 'DGCNN_seg' if not ae else 'DSEGAE_n2048_k20_longer_train'
-    model = 'PointTransformer' if not ae else 'DSEGAE_n2048_k20_longer_train'
+    model = model if not ae else 'DSEGAE_n2048_k20_longer_train'
     model_folders = {
         'cnn': f'results/{model}_cnn_image',
-        'hessian': f'results/{model}_enhancement_image',
+        #'hessian': f'results/{model}_enhancement_image',
         'foerstner': f'results/{model}_foerstner_image',
     }
 
@@ -163,25 +164,26 @@ def get_image_and_fold(patid, sequence='fixed', ds_path=IMG_DIR_TS, split_file=D
     return img_windowed, fold
 
 
-def comparative_figures(patid='s0070'):
+def comparative_figures(patid='s0070', v2m=False):
     img_windowed, fold = get_image_and_fold(patid, ds_path=IMG_DIR_TS)
     label_map_nnu = sitk.ReadImage(os.path.join(
         f'../nnUNet/output/nnu_results/nnUNet/3d_fullres/Task503_FissuresTotalSeg/nnUNetTrainerV2_200ep__nnUNetPlansv2.1/cv_niftis_postprocessed',#fold_{fold}/validation_raw_postprocessed',
         f'{patid}_fix.nii.gz'))
 
     # quick fix for crop
-    z_crop_range = [7, 225]
+    z_crop_range = V1_Z_CROP[patid]
     label_map_nnu = sitk.Extract(label_map_nnu, size=(*label_map_nnu.GetSize()[:2], z_crop_range[1] - z_crop_range[0]),
                        index=(0, 0, z_crop_range[0]))
 
     multi_class_overlay(img_windowed, label_map_nnu, slice_dim=2, model_name='nnU-Net', patid=patid)
 
-    label_map_v2m = sitk.ReadImage(os.path.join(
-        f'../voxel2mesh-master/resultsExperiment_003/trial_{fold+1}/best_performance/voxels',
-        f'{patid}_fissures_pred_fixed.nii.gz'))
-    label_map_v2m = sitk.Extract(label_map_v2m, size=(*label_map_v2m.GetSize()[:2], z_crop_range[1] - z_crop_range[0]),
-                       index=(0, 0, z_crop_range[0]))
-    multi_class_overlay(img_windowed, label_map_v2m, slice_dim=2, model_name='v2m', patid=patid)
+    if v2m:
+        label_map_v2m = sitk.ReadImage(os.path.join(
+            f'../voxel2mesh-master/resultsExperiment_003/trial_{fold+1}/best_performance/voxels',
+            f'{patid}_fissures_pred_fixed.nii.gz'))
+        # label_map_v2m = sitk.Extract(label_map_v2m, size=(*label_map_v2m.GetSize()[:2], z_crop_range[1] - z_crop_range[0]),
+        #                    index=(0, 0, z_crop_range[0]))
+        multi_class_overlay(img_windowed, label_map_v2m, slice_dim=2, model_name='v2m', patid=patid)
 
 
 def copd_figures():
@@ -199,6 +201,42 @@ def copd_figures():
 
 if __name__ == '__main__':
     # kp_comparison_figure(ae=True)
-    kp_comparison_figure(ae=False)
+    # kp_comparison_figure(ae=False)
     # comparative_figures()
     # copd_figures()
+
+    ##################
+    # IJCARS figures #
+    ##################
+
+    # best image from DGCNN_Seg CNN image
+    overall_best = 's0499'
+    kp_comparison_figure(overall_best, model='DGCNN_seg', ae=False)
+    kp_comparison_figure(overall_best, model='PointNet_seg', ae=False)
+    kp_comparison_figure(overall_best, model='PointTransformer', ae=False)
+    kp_comparison_figure(overall_best, ae=True)
+    comparative_figures(overall_best)
+
+    # worst image from DGCNN_Seg CNN image
+    overall_worst = 's0650'
+    kp_comparison_figure(overall_worst, model='DGCNN_seg', ae=False)
+    kp_comparison_figure(overall_worst, model='PointNet_seg', ae=False)
+    kp_comparison_figure(overall_worst, model='PointTransformer', ae=False)
+    kp_comparison_figure(overall_worst, ae=True)
+    comparative_figures(overall_worst)
+
+    # median image
+    overall_median = 's1140'
+    kp_comparison_figure(overall_median, model='DGCNN_seg', ae=False)
+    kp_comparison_figure(overall_median, model='PointNet_seg', ae=False)
+    kp_comparison_figure(overall_median, model='PointTransformer', ae=False)
+    kp_comparison_figure(overall_median, ae=True)
+    comparative_figures(overall_median)
+
+    # image with bad right fissures
+    overall_median = 's1264'
+    kp_comparison_figure(overall_median, model='DGCNN_seg', ae=False)
+    kp_comparison_figure(overall_median, model='PointNet_seg', ae=False)
+    kp_comparison_figure(overall_median, model='PointTransformer', ae=False)
+    kp_comparison_figure(overall_median, ae=True)
+    comparative_figures(overall_median)
