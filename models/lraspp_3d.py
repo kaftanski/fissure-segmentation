@@ -3,40 +3,11 @@ from typing import Dict
 import torchvision.models
 from torch import nn, Tensor
 from torch.nn import functional as F
+from torchinfo import torchinfo
 
 from models.modelio import LoadableModel, store_config_args
 from models.patch_based_model import PatchBasedModule
 from utils.model_utils import init_weights
-
-
-class LRASPP(nn.Module):
-    """
-    Implements a Lite R-ASPP Network for semantic segmentation from
-    `"Searching for MobileNetV3"
-    <https://arxiv.org/abs/1905.02244>`_.
-    Args:
-        backbone (nn.Module): the network used to compute the features for the model.
-            The backbone should return an OrderedDict[Tensor], with the key being
-            "high" for the high level feature map and "low" for the low level feature map.
-        low_channels (int): the number of channels of the low level features.
-        high_channels (int): the number of channels of the high level features.
-        num_classes (int): number of output classes of the model (including the background).
-        inter_channels (int, optional): the number of channels for intermediate computations.
-    """
-
-    def __init__(self, backbone: nn.Module, low_channels: int, high_channels: int, num_classes: int,
-                 inter_channels: int = 128) -> None:
-        super().__init__()
-        self.backbone = backbone
-        self.classifier = LRASPPHead(low_channels, high_channels, num_classes, inter_channels)
-
-    def forward(self, input: Tensor) -> Dict[str, Tensor]:
-        features = self.backbone(input)
-        out = self.classifier(features)
-        out = F.interpolate(out, size=(int(input.shape[2] / 1.5), int(input.shape[3] / 1.5), int(input.shape[4] / 1.5)),
-                            mode='trilinear', align_corners=False)
-
-        return out
 
 
 class LRASPPHead(nn.Module):

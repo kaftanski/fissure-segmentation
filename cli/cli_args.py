@@ -137,6 +137,7 @@ def get_pc_ae_train_parser():
                             "shape) or 'folding' (original FoldingNet implementation).")
     group.add_argument("--obj", help="Only use the index of this object (use all objects per default)",
                        type=int, default=None)
+    group.add_argument("--dec_depth", help="Number of folding/deforming layers in the decoder.", type=int, default=2)
 
     parser.set_defaults(loss='mesh', loss_weights=[1., 1., 0.1, 0.1], batch=8, k=20, dynamic=True)
     return parser
@@ -153,6 +154,10 @@ def get_ae_reg_parser():
     group.add_argument("--sampling", choices=['farthest', 'accumulate'], default='farthest', type=str,
                        help='Sampling strategy for the AE. Farthest performs one pass with points from farthest point '
                             'sampling, accumulate samples points randomly in multiple (10) passes.')
+
+    group.add_argument("--pad_with_random_offsets", action='store_true',
+                       help='If the input point cloud contains less than the expected number of points, '
+                            'pad with random offsets of existing, segmented points.')
 
     parser.set_defaults(test_only=True)
     return parser

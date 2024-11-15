@@ -20,7 +20,7 @@ def image_augmentation(img, seg, patch_size=(128, 128, 128)):
             do_rotation=True, angle_x=(-0.3, 0.3), angle_y=(-0.3, 0.3), angle_z=(-0.3, 0.3),  # rotation angle in radian
             do_scale=True, scale=(0.8, 1.2),
             random_crop=True),
-        MirrorTransform(p_per_sample=0.7)  # 70% chance for mirroring, then 50% for each axis
+        MirrorTransform(p_per_sample=0.7)  # 70% chance for mirroring, then 50% for each axis -> independently, 35 % per axis
     ])
 
     data_dict = {"data": img, "seg": seg}
@@ -39,7 +39,7 @@ def point_augmentation(point_clouds: torch.Tensor, rotation_amount=0.1, translat
     """
     # random rotations (so3 representation, axis is the direction of the vector, angle its magnitude)
     random_rotation_vectors = torch.rand(len(point_clouds), 3, device=point_clouds.device) * 2 - 1
-    unit_vectors = random_rotation_vectors / random_rotation_vectors.norm(dim=1)
+    unit_vectors = random_rotation_vectors / random_rotation_vectors.norm(dim=1, keepdim=True)
     log_rotation_matrix = unit_vectors * torch.pi * rotation_amount
 
     # random translations (in grid coords)

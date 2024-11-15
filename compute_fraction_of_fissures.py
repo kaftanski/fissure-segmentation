@@ -7,7 +7,10 @@ import numpy as np
 
 ds = TotalSegmentatorDataset()
 shape_stats_filter = sitk.LabelShapeStatisticsImageFilter()
-fissure_sizes = pd.DataFrame(columns=['fissure_{}'.format(i) for i in range(1, ds.num_classes)] + ['all', 'total_size'], dtype=np.float32)
+fissure_sizes = pd.DataFrame(columns=['fissure_{}_mm3'.format(i) for i in range(1, ds.num_classes)] +
+                                     ['all_mm3', 'total_size_mm3'] +
+                                     ['fissure_{}_n_vox'.format(i) for i in range(1, ds.num_classes)] +
+                                     ['all_n_vox', 'total_size_n_vox'], dtype=np.float32)
 
 # iterate over all images
 for i in trange(len(ds)):
@@ -17,22 +20,29 @@ for i in trange(len(ds)):
 
     # get physical size of fissures
     new_row = {}
-    total = 0
+    total_mm3 = 0
+    total_n_vox = 0
     for lbl in shape_stats_filter.GetLabels():
-        new_row['fissure_{}'.format(lbl)] = shape_stats_filter.GetPhysicalSize(lbl)
-        total += shape_stats_filter.GetPhysicalSize(lbl)
-    new_row['all'] = total
+        new_row['fissure_{}_mm3'.format(lbl)] = shape_stats_filter.GetPhysicalSize(lbl)
+        new_row['fissure_{}_n_vox'.format(lbl)] = shape_stats_filter.GetNumberOfPixels(lbl)
+        total_mm3 += shape_stats_filter.GetPhysicalSize(lbl)
+        total_n_vox += shape_stats_filter.GetNumberOfPixels(lbl)
+
+    new_row['all_mm3'] = total_mm3
+    new_row['all_n_vox'] = total_n_vox
 
     # compute total size of the image
     size = fissures.GetSize()
     spacing = fissures.GetSpacing()
-    new_row['total_size'] = np.prod([sz * sp for sz, sp in zip(size, spacing)])
+    new_row['total_size_n_vox'] = np.prod(size)
+    new_row['total_size_mm3'] = np.prod([sz * sp for sz, sp in zip(size, spacing)])
 
     # add new row to fissure sizes
     fissure_sizes.loc[i] = new_row
 
 # compute fraction of fissures
-fissure_sizes['fraction'] = fissure_sizes['all'] / fissure_sizes['total_size']
+fissure_sizes['fraction_n_vox'] = fissure_sizes['all_n_vox'] / fissure_sizes['total_size_n_vox']
+fissure_sizes['fraction_mm3'] = fissure_sizes['all_mm3'] / fissure_sizes['total_size_mm3']
 
 # compute mean and std of all columns
 fissure_sizes.loc['mean'] = fissure_sizes.mean()

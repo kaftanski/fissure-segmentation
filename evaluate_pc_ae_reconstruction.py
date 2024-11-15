@@ -1,5 +1,9 @@
 import os
 
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import SimpleITK as sitk
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
@@ -7,26 +11,27 @@ from pytorch3d.loss import chamfer_distance
 
 from cli.cli_args import get_ae_reg_parser
 from cli.cli_utils import load_args_for_testing, store_args
-from constants import POINT_DIR_COPD, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR_COPD
+from constants import POINT_DIR_COPD, POINT_DIR_TS, IMG_DIR_TS_PREPROC, IMG_DIR_COPD, CLASS_COLORS
 from data_processing.datasets import load_split_file, save_split_file, ImageDataset, PointToMeshDS
 from data_processing.surface_fitting import o3d_mesh_to_labelmap
 from evaluation.metrics import assd, pseudo_symmetric_point_to_mesh_distance
 from models.dgcnn import DGCNNSeg
 from models.folding_net import DGCNNFoldingNet, FoldingDecoder
 from models.modelio import LoadableModel, store_config_args
-from train_point_segmentation import write_results, run, write_speed_results
+from train_point_segmentation import write_results, run, write_speed_results, write_raw_results_per_instance
+from thesis.utils import save_fig
 from utils.detached_run import maybe_run_detached_cli
 from utils.general_utils import new_dir, pt3d_to_o3d_meshes, nanstd, \
     get_device, no_print
 from utils.visualization import color_2d_mesh_bremm, trimesh_on_axis, color_2d_points_bremm, point_cloud_on_axis, \
     visualize_o3d_mesh
-import SimpleITK as sitk
 
 
 def farthest_point_sampling(kpts, num_points):
     _, N, _ = kpts.size()
     if N <= num_points:
-        print(f'Tried to sample {num_points} from a point cloud with only {N}')
+        if N < num_points:
+            print(f'Tried to sample {num_points} from a point cloud with only {N}')
         return kpts, torch.arange(N)
     ind = torch.zeros(num_points).long()
     ind[0] = torch.randint(N, (1,))
@@ -40,23 +45,25 @@ def farthest_point_sampling(kpts, num_points):
 
 class RegularizedSegDGCNN(LoadableModel):
     @store_config_args
-    def __init__(self, seg_model, ae, n_points_seg, n_points_ae, sample_mode='farthest'):
+    def __init__(self, seg_model, ae, n_points_seg, n_points_ae, sample_mode='farthest', random_extend=False):
         super(RegularizedSegDGCNN, self).__init__()
         self.seg_model = DGCNNSeg.load(seg_model, 'cpu')
         self.ae = DGCNNFoldingNet.load(ae, 'cpu')
         self.n_points_seg = n_points_seg
         self.n_points_ae = n_points_ae
         self.sample_mode = sample_mode
+        self.random_extend = random_extend
 
     @torch.no_grad()
     def segment(self, x):
         return self.seg_model.predict_full_pointcloud(x, self.n_points_seg).argmax(1)
 
     @torch.no_grad()
-    def reconstruct(self, x, seg):
+    def reconstruct(self, x, seg, return_hidden=False):
         # get refined mesh for each object
         points = []
         meshes = []
+        all_hidden = []
         for obj in range(1, self.seg_model.num_classes):
             # get coordinates from the current object point cloud
             pts_per_obj = x[:, :3].transpose(1, 2)[(seg == obj)].view(x.shape[0], -1, 3)
@@ -65,28 +72,70 @@ class RegularizedSegDGCNN(LoadableModel):
             # skip if less than k points are present
             if pts_per_obj.shape[1] < self.ae.encoder.k:
                 meshes.append(None)
+                points.append(pts_per_obj)
+                all_hidden.append(None)
                 continue
+
+            # extend the points with randomly jittered points
+            if self.random_extend:
+                pts_per_obj = random_extend_points(pts_per_obj, self.n_points_ae)
 
             # sample right amount of points from segmentation
             if self.sample_mode == 'farthest':
                 sampled = farthest_point_sampling(pts_per_obj, self.n_points_ae)[0].transpose(1, 2)
-                mesh = self.ae(sampled)
+                mesh = self.ae(sampled, return_hidden=return_hidden)
                 points.append(sampled.transpose(1, 2))
             elif self.sample_mode == 'accumulate':
+                if return_hidden:
+                    raise NotImplementedError('Hidden output not implemented for accumulate sampling.')
+
                 mesh = self.ae.predict_full_pointcloud(pts_per_obj, self.n_points_ae, n_runs=10)
                 points.append(pts_per_obj)
             else:
                 raise NotImplementedError(f'Sampling mode {self.sample_mode} not implemented.')
 
+            if return_hidden:
+                mesh, hidden = mesh
+                all_hidden.append(hidden)
+
             meshes.append(mesh)
 
-        return meshes, points
+        if return_hidden:
+            return meshes, points, all_hidden
+        else:
+            return meshes, points
 
     @torch.no_grad()
-    def forward(self, x):
+    def forward(self, x, return_hidden=False):
         # segmentation of the point cloud
         seg = self.segment(x)
-        return self.reconstruct(x, seg)
+        return self.reconstruct(x, seg, return_hidden)
+
+
+def random_extend_points(points, desired_n_points):
+    n_points = points.shape[1]
+    n_points_to_pad = desired_n_points - n_points
+    if n_points_to_pad <= 0:
+        return points
+
+    # compute average nearest distance
+    idx, dist = knn(points.transpose(1, 2), 1, self_loop=False, return_dist=True)
+    dist = dist.sqrt()
+    avg_dist = dist.mean()
+    dist_std = dist.std()
+
+    # randomly choose source points (sample with replacement)
+    source_points = points[:, torch.randint(n_points, (n_points_to_pad,))]
+
+    # compute random displacement vectors with their norm having mean of avg_dist / 2
+    direction = torch.randn_like(source_points)  # random direction vectors
+    direction = direction / direction.norm(dim=2, keepdim=True)  # normalize
+    magnitude = torch.randn(points.shape[0], n_points_to_pad, 1, device=points.device) * dist_std + avg_dist  # random magnitudes with mean and std like original point cloud
+    displacement = direction * magnitude  # put direction and magnitude together
+    jitter_points = source_points + displacement
+
+    # extend points with randomly jittered source points
+    return torch.cat([points, jitter_points], dim=1)
 
 
 def test(ds: PointToMeshDS, device, out_dir, show, args):
@@ -136,12 +185,29 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
     all_mean_sdsd = torch.zeros_like(chamfer_dists)
     all_hd_assd = torch.zeros_like(chamfer_dists)
     all_hd95_assd = torch.zeros_like(chamfer_dists)
+
+    all_hidden_representations = torch.zeros(len(ds.ids), ds.num_classes - 1, model.ae.encoder.n_embedding)
     for i in range(len(ds)):
         x, lbl = ds.get_full_pointcloud(i)
         x = x.unsqueeze(0).to(device)
 
         with torch.no_grad():
-            reconstruct_meshes, sampled_points_per_obj = model(x)
+            reconstruct_meshes, sampled_points_per_obj, hidden = model(x, return_hidden=True)
+
+        if args.copd:
+            # remove the RHF results since we have no ground truth for them
+            reconstruct_meshes = reconstruct_meshes[:-1]
+            sampled_points_per_obj = sampled_points_per_obj[:-1]
+            hidden = hidden[:-1]
+
+        for h in range(len(hidden)):
+            # replace a non-assigned hidden representation with zero vector
+            if hidden[h] is None:
+                hidden[h] = torch.zeros(model.ae.encoder.n_embedding)
+            else:
+                hidden[h] = hidden[h].squeeze().cpu()
+
+        all_hidden_representations[i] = torch.stack(hidden, dim=0)
 
         meshes_pred_o3d = []
         for cur_obj, reconstruct_obj in enumerate(reconstruct_meshes):
@@ -233,7 +299,7 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
                                savepath=os.path.join(plot_dir, f'{title_prefix}_mesh_pred.png'))
 
             # voxelize meshes to label maps
-            label_map_predict = o3d_mesh_to_labelmap(meshes_pred_o3d, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])
+            label_map_predict = o3d_mesh_to_labelmap(meshes_pred_o3d, shape=ds.img_sizes_index[i][::-1], spacing=ds.spacings[i])  # TODO handle case where some objects are not present!
             label_image_predict = sitk.GetImageFromArray(label_map_predict.numpy().astype(np.uint8))
             label_image_predict.CopyInformation(image_ds.get_lung_mask(image_ds.get_index(case, sequence)))
             sitk.WriteImage(label_image_predict, os.path.join(label_dir, f'{case}_fissures_pred_{sequence}.nii.gz'))
@@ -257,6 +323,46 @@ def test(ds: PointToMeshDS, device, out_dir, show, args):
 
     write_results(os.path.join(out_dir, f'test_results{"_copd" if args.copd else ""}.csv'), dice_dummy, dice_dummy, mean_assd, std_assd, mean_sdsd,
                   std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
+
+    write_raw_results_per_instance(
+        out_dir, ids=ds.ids, copd=args.copd,
+        ASSD=all_mean_assd, SDSD=all_mean_sdsd, HD=all_hd_assd, HD95=all_hd95_assd)
+
+    # perform clustering on hidden representations to see if the fissures are well separated
+    kmeans = KMeans(n_clusters=ds.num_classes - 1, random_state=0).fit(all_hidden_representations.flatten(0, 1))
+    kmeans_labels = kmeans.labels_.reshape(len(all_hidden_representations), ds.num_classes - 1)
+
+    fissure_cluster_label = np.zeros_like(kmeans_labels)
+    for i in range(ds.num_classes - 1):
+        unique_cluster, unique_counts = np.unique(kmeans_labels[:, i], return_counts=True)
+        cluster_label = unique_cluster[np.argmax(unique_counts)]
+        fissure_cluster_label[kmeans_labels == cluster_label] = i
+
+    # compute cluster accuracy (and write to file)
+    cluster_prediction_correct = (fissure_cluster_label == np.arange(ds.num_classes - 1).reshape(1, -1))
+    cluster_accuracy = cluster_prediction_correct.mean(0)
+    print('Clustering accuracy per fissure:', cluster_accuracy)
+    pd.DataFrame({f'fissure {i}': [cluster_accuracy[i]] for i in range(len(cluster_accuracy))}
+                 ).to_csv(os.path.join(out_dir, 'cluster_accuracy.csv'))
+
+    # visualize clustering
+    low_dim_hidden = PCA(n_components=2).fit_transform(all_hidden_representations.flatten(0, 1)).reshape(
+        len(all_hidden_representations), ds.num_classes - 1, 2)
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+    for i in range(ds.num_classes - 1):
+        ax[0].scatter(low_dim_hidden[:, i, 0], low_dim_hidden[:, i, 1], color=CLASS_COLORS[i], label=f'true fissure {i+1}')
+        ax[1].scatter(low_dim_hidden[fissure_cluster_label==i, 0], low_dim_hidden[fissure_cluster_label==i, 1],
+                      label=f'predicted fissure {i + 1}', color=CLASS_COLORS[i])
+
+    ax[0].set_title('Hidden representations')
+    ax[0].legend()
+
+    ax[1].set_title('Cluster prediction from representations')
+    ax[1].legend()
+
+    fig.suptitle('Hidden representations clustering (first 2 PCA components)')
+
+    save_fig(fig, plot_dir, 'hidden_representations_cluster', show=show)
 
     # print out results
     print('\n============ RESULTS ============')
@@ -313,9 +419,6 @@ if __name__ == '__main__':
     parser = get_ae_reg_parser()
     args = parser.parse_args()
 
-    if args.copd:
-        raise NotImplementedError('COPD data validation is not yet implemented for DGCNN + PC-AE')
-
     maybe_run_detached_cli(args)
 
     dgcnn_args = load_args_for_testing(args.seg_dir, args)
@@ -331,7 +434,7 @@ if __name__ == '__main__':
         model = RegularizedSegDGCNN(os.path.join(dgcnn_args.output, f'fold{fold}', 'model.pth'),
                                     os.path.join(pc_ae_args.output, f'fold{fold}', 'model.pth'),
                                     n_points_seg=dgcnn_args.pts, n_points_ae=pc_ae_args.pts,
-                                    sample_mode=args.sampling)
+                                    sample_mode=args.sampling, random_extend=args.pad_with_random_offsets)
         fold_dir = new_dir(args.output, f"fold{fold}")
         model.save(os.path.join(fold_dir, 'model.pth'))
 
@@ -342,7 +445,7 @@ if __name__ == '__main__':
     ds = PointToMeshDS(dgcnn_args.pts, kp_mode=dgcnn_args.kp_mode, use_coords=True, folder=point_dir,
                        image_folder=img_dir,
                        patch_feat=dgcnn_args.patch, exclude_rhf=dgcnn_args.exclude_rhf, lobes=dgcnn_args.data == 'lobes',
-                       binary=dgcnn_args.binary, do_augmentation=False)
+                       binary=dgcnn_args.binary, do_augmentation=False, copd=args.copd)
 
     if args.speed:
         speed_test(ds, get_device(args.gpu), args.output)

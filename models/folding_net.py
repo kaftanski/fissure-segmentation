@@ -75,7 +75,7 @@ def get_graph_feature(x, k=20, idx=None):
 
 class DGCNNFoldingNet(LoadableModel):
     @store_config_args
-    def __init__(self, k, n_embedding, n_input_points=1024, decode_mesh=True, deform=False, static=False):
+    def __init__(self, k, n_embedding, n_input_points=1024, decode_mesh=True, deform=False, static=False, dec_depth=2):
         super(DGCNNFoldingNet, self).__init__()
         self.encoder = DGCNN_Cls_Encoder(k, n_embedding, static=static)
         self.n_input_points = n_input_points
@@ -83,12 +83,18 @@ class DGCNNFoldingNet(LoadableModel):
         # number of output points is the closest square number to the number of input points
         m = torch.sqrt(torch.tensor(n_input_points)).round().int().item() ** 2
         if deform:
-            self.decoder = DeformingDecoder(n_embedding, m, decode_mesh)
+            self.decoder = DeformingDecoder(n_embedding, m, decode_mesh, n_deforming_layers=dec_depth)
         else:
             self.decoder = FoldingDecoder(n_embedding, m, decode_mesh)
 
-    def forward(self, x):
-        return self.decoder(self.encoder(x))
+    def forward(self, x, return_hidden=False):
+        h = self.encoder(x)
+        out = self.decoder(h)
+
+        if return_hidden:
+            return out, h
+
+        return out
 
     def predict_full_pointcloud(self, pc, sample_points=1024, n_runs=50):
         vert_accumulation = torch.zeros(pc.shape[0], self.decoder.m, 3, device=pc.device)
@@ -114,6 +120,7 @@ class DGCNN_Cls_Encoder(LoadableModel):
         super(DGCNN_Cls_Encoder, self).__init__()
         self.static = static
         self.k = k
+        self.n_embedding = n_embedding
 
         self.bn1 = nn.BatchNorm2d(64)
         self.bn2 = nn.BatchNorm2d(64)
@@ -133,7 +140,7 @@ class DGCNN_Cls_Encoder(LoadableModel):
         self.conv4 = nn.Sequential(nn.Conv2d(128 * 2, 256, kernel_size=1, bias=False),
                                    self.bn4,
                                    nn.LeakyReLU(negative_slope=0.2))
-        self.conv5 = nn.Sequential(nn.Conv1d(512, n_embedding, kernel_size=1, bias=False),
+        self.conv5 = nn.Sequential(nn.Conv1d(512, self.n_embedding, kernel_size=1, bias=False),
                                    self.bn5,
                                    nn.LeakyReLU(negative_slope=0.2))
 
@@ -236,20 +243,36 @@ class FoldingDecoder(Decoder):
 
 class DeformingDecoder(Decoder):
     @store_config_args
-    def __init__(self, n_embedding, m=1024, decode_mesh=True):
+    def __init__(self, n_embedding, m=1024, decode_mesh=True, n_deforming_layers=2):
         super(DeformingDecoder, self).__init__(m, decode_mesh)
 
-        self.deforming1 = nn.Sequential(
-            SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
-            SharedFullyConnected(n_embedding, n_embedding, dim=1),
-            SharedFullyConnected(n_embedding, 3, dim=1, last_layer=True)
-        )
+        if n_deforming_layers == 2:
+            # support weights from before making the decoder variable
+            self.deforming1 = nn.Sequential(
+                SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
+                SharedFullyConnected(n_embedding, n_embedding, dim=1),
+                SharedFullyConnected(n_embedding, 3, dim=1, last_layer=True)
+            )
 
-        self.deforming2 = nn.Sequential(
-            SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
-            SharedFullyConnected(n_embedding, n_embedding, dim=1),
-            SharedFullyConnected(n_embedding, 3, dim=1, last_layer=True)
-        )
+            self.deforming2 = nn.Sequential(
+                SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
+                SharedFullyConnected(n_embedding, n_embedding, dim=1),
+                SharedFullyConnected(n_embedding, 3, dim=1, last_layer=True)
+            )
+
+            self.deforming_layers = nn.ModuleList([self.deforming1, self.deforming2])
+
+        else:
+            # variable depth
+            self.deforming_layers = nn.ModuleList()
+            for i in range(n_deforming_layers):
+                self.deforming_layers.append(
+                    nn.Sequential(
+                        SharedFullyConnected(n_embedding + 3, n_embedding, dim=1),
+                        SharedFullyConnected(n_embedding, n_embedding, dim=1),
+                        SharedFullyConnected(n_embedding, 3, dim=1, last_layer=True)
+                    )
+                )
 
     def get_folding_points(self, batch_size):
         points = super(DeformingDecoder, self).get_folding_points(batch_size)
@@ -262,16 +285,20 @@ class DeformingDecoder(Decoder):
         x = x.transpose(1, 2).repeat(1, 1, self.m)  # (batch_size, feat_dims, num_points)
         points = self.get_folding_points(x.shape[0]).transpose(1, 2)  # (batch_size, 2, num_points) or (batch_size, 3, num_points)
 
-        offsets1 = self.deforming1(torch.cat([x, points], dim=1))
-        deformed1 = points + offsets1
+        for deforming_layer in self.deforming_layers:
+            offsets = deforming_layer(torch.cat((x, points), dim=1))
+            points = points + offsets
 
-        offsets2 = self.deforming2(torch.cat([x, deformed1], dim=1))
-        deformed2 = deformed1 + offsets2
+        # offsets1 = self.deforming1(torch.cat([x, points], dim=1))
+        # deformed1 = points + offsets1
+        #
+        # offsets2 = self.deforming2(torch.cat([x, deformed1], dim=1))
+        # deformed2 = deformed1 + offsets2
 
         if self.decode_mesh:
-            return Meshes(deformed2.transpose(1, 2), self.faces)
+            return Meshes(points.transpose(1, 2), self.faces)
         else:
-            return deformed2
+            return points
 
 
 def get_plane_mesh(n=2025, xrange=(-1, 1), yrange=(-1, 1), device='cpu'):

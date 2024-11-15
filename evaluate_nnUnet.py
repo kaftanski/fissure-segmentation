@@ -103,8 +103,11 @@ def evaluate_nnunet(result_dir, my_data_dir, mode='surface', pts_subsample=10000
             if 'Lobes' in result_dir:  # results are lobes -> convert them to fissures first
                 labelmap_predict, _ = lobes_to_fissures(labelmap_predict, mask=ds.get_lung_mask(img_index))
 
-            if mode == 'surface':
-                _, predicted_meshes, times = poisson_reconstruction(labelmap_predict, ds.get_lung_mask(img_index), return_times=True, mask_dilate_radius=1)
+            if mode == 'surface_nodilate':
+                _, predicted_meshes, times = poisson_reconstruction(labelmap_predict, ds.get_lung_mask(img_index), return_times=True, mask_dilate_radius=0)
+                if len(times) != n_fissures:
+                    print(f'Not all fissures have been reconstructed for {case}_{sequence}')
+                    times += [0] * (n_fissures - len(times))
                 all_times_fold.append(torch.tensor(times))
                 for i, m in enumerate(predicted_meshes):
                     # save reconstructed mesh
@@ -212,7 +215,7 @@ def evaluate_nnunet(result_dir, my_data_dir, mode='surface', pts_subsample=10000
 
         # compute surface distances
         mean_assd, std_assd, mean_sdsd, std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing = compute_mesh_metrics(
-            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir)
+            all_predictions, all_targ_meshes, ids=ids, show=show, spacings=spacings, plot_folder=plot_dir, raw_results_folder=plot_dir, copd=copd)
         write_results(os.path.join(mesh_dir, f'test_results_{mode}.csv'), None, None, mean_assd, std_assd, mean_sdsd,
                       std_sdsd, mean_hd, std_hd, mean_hd95, std_hd95, percent_missing)
 
@@ -275,7 +278,7 @@ if __name__ == '__main__':
 
     # run evaluation
     # evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='voxels', show=False)
-    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', pts_subsample=10000, show=False)
+    evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='surface', show=False)
     evaluate_nnunet(nnu_result_dir, my_data_dir=data_dir, mode='subsample', pts_subsample=10000, show=False)
 
     copd_data_dir = constants.IMG_DIR_COPD

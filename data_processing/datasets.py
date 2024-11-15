@@ -373,7 +373,7 @@ def normalize_img(img, min_val=IMG_MIN, max_val=IMG_MAX):
 
 class PointDataset(CustomDataset):
     def __init__(self, sample_points, kp_mode,
-                 folder=POINT_DIR_COPD, image_folder=IMG_DIR_COPD,
+                 folder=POINT_DIR, image_folder=IMG_DIR,
                  use_coords=True, patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True,
                  copd=False):
 
@@ -494,7 +494,7 @@ class PointDataset(CustomDataset):
             if self.kp_mode == 'cnn':
                 assert fold_nr is not None, 'Please specify the number of the fold to use'
                 # different folds yielded different pre-seg CNNs
-                return None, PointDataset(self.sample_points, self.kp_mode, os.path.join(self.folder, f"fold{fold_nr}"),
+                return None, type(self)(self.sample_points, self.kp_mode, os.path.join(self.folder, f"fold{fold_nr}"),
                     self.image_folder, self.use_coords, self.patch_feat, self.exclude_rhf, self.lobes, self.binary,
                     self.do_augmentation, self.copd)
             else:
@@ -622,12 +622,13 @@ class SampleFromMeshDS(CustomDataset):
 
 
 class PointToMeshDS(PointDataset):
-    def __init__(self, sample_points, kp_mode, folder=POINT_DIR_COPD, image_folder=IMG_DIR_COPD, use_coords=True,
+    def __init__(self, sample_points, kp_mode, folder=POINT_DIR, image_folder=IMG_DIR, use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=False, copd=False):
         super(PointToMeshDS, self).__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
                                             image_folder=image_folder,
                                             use_coords=use_coords, patch_feat=patch_feat, exclude_rhf=exclude_rhf,
-                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd)
+                                            lobes=lobes, binary=binary, do_augmentation=do_augmentation, copd=copd,
+                                            all_to_device=all_to_device)
         self.meshes = []
         self.img_sizes = []
         for case, sequence in self.ids:
@@ -654,7 +655,7 @@ class PointToMeshDS(PointDataset):
 
 
 class PointToMeshAndLabelDataset(PointToMeshDS):
-    def __init__(self, sample_points, kp_mode, folder=POINT_DIR_COPD, image_folder=IMG_DIR_COPD, use_coords=True,
+    def __init__(self, sample_points, kp_mode, folder=POINT_DIR, image_folder=IMG_DIR, use_coords=True,
                  patch_feat=None, exclude_rhf=False, lobes=False, binary=False, do_augmentation=True, copd=False):
         super().__init__(sample_points=sample_points, kp_mode=kp_mode, folder=folder,
                          image_folder=image_folder,

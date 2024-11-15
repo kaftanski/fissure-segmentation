@@ -78,7 +78,7 @@ class ModelTrainer:
         self.validation_split = 0.2  # percentage of the training data being used for validation during training
         val_split = int(len(self.ds) * 0.2)
         ds, valid_ds = random_split(self.ds, lengths=[len(self.ds) - val_split, val_split])
-        num_workers = 4 if isinstance(ds, ImageDataset) else 0
+        num_workers = 0#4 #if isinstance(ds, ImageDataset) else 0
         drop_last = len(ds) // 2 >= self.batch_size
         self.train_dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True,
                                    num_workers=num_workers, pin_memory=True,  # more efficient data loading
@@ -147,8 +147,8 @@ class ModelTrainer:
 
     def init_history(self, loss_term_labels):
         for term in loss_term_labels:
-            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch)
-            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch)
+            self.training_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
+            self.validation_history[term] = torch.zeros(self.epochs - self.initial_epoch, device=self.device)
 
     def forward_step(self, x, y, ep, train):
         with autocast(enabled=self.autocast_enabled):
@@ -203,9 +203,9 @@ class ModelTrainer:
 
         # save mean batch statistics (weighting based on number of samples, works with or without drop_last in dl)
         batch_factor = len(x) / (len(dl.dataset) if not dl.drop_last else len(dl) * self.batch_size)
-        history['total_loss'][ep] += loss.detach().item() * batch_factor
+        history['total_loss'][ep] += loss.detach() * batch_factor
         for term in components.keys():
-            history[term][ep] += components[term].detach().item() * batch_factor
+            history[term][ep] += components[term].detach() * batch_factor
 
         return output
 
@@ -260,7 +260,7 @@ class ModelTrainer:
             ax[i].set_ylabel(key)
             ax[i].legend()
             ymax = max(torch.quantile(self.training_history[key], q=(self.epochs-1)/(self.epochs + 1e-5)),
-                       torch.quantile(self.validation_history[key], q=(self.epochs-1)/(self.epochs + 1e-5)))
+                       torch.quantile(self.validation_history[key], q=(self.epochs-1)/(self.epochs + 1e-5))).item()
             ax[i].set_ylim(top=ymax * 1.1)
 
         ax[-1].set_xlabel('epoch')
